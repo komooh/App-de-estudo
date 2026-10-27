@@ -32,6 +32,14 @@
   // Espera o Supabase ler o link mágico da URL (se veio do e-mail)
   const s = await App.sessao();
   if (!s) { location.replace("/"); return; }
+  // volta da tela do Google ("Entrar com o Google"): #drive=conectado | negado | expirou | erro
+  const driveVolta = (location.hash.match(/drive=([a-z_]+)/) || [])[1] || "";
+  if (driveVolta) history.replaceState(null, "", location.pathname);
+  const DRV = { aba: null, ocupado: false, msg: null, volta: driveVolta };
+  const DRV_STATUS = { ok: ["s-ok", "em dia"], varrendo: ["s-warn", "lendo"], pendente: ["s-warn", "falta ler"], erro: ["s-bad", "erro"], reconectar: ["s-bad", "reconectar"] };
+  const MAT_STATUS = { ok: ["s-ok", "lido"], pendente: ["s-warn", "na fila"], sem_texto: ["s-warn", "sem texto"], grande_demais: ["s-warn", "grande demais"], erro: ["s-bad", "erro"] };
+  const VOLTA_MSG = { conectado: "Google conectado. Agora cole o link da pasta.", negado: "Você não deu a permissão no Google.",
+    expirou: "O pedido expirou. Tente conectar de novo.", sem_permissao: "Marque a permissão de ver os arquivos do Drive e tente de novo.", erro: "Não consegui conectar com o Google. Tente de novo." };
   let P;
   try { P = await App.meuPerfil(); } catch (e) { V.innerHTML = `<div class="msg bad">Não consegui carregar seu perfil: ${esc(e.message)}</div>`; return; }
   pintarEu();
@@ -221,7 +229,142 @@
     V.innerHTML = `<div class="hero"><h1>Olá, ${esc((P.nome || "").split(" ")[0] || "")}<span class="script">bons estudos</span></h1></div>`
       + win("Próximas provas", prox ? `<div class="cards">${prox}</div>` : `<div class="empty">Nenhuma prova futura cadastrada.</div>`)
       + win("Minhas matérias", (disc || []).length ? `<div class="cards">${disc.map((d) => `<div class="card"><h3>${esc(d.nome)}</h3><span class="muted" style="font-size:13px">${esc(d.professor || "")}</span>${d.tem_pratica ? `<span class="chip s-warn" style="align-self:flex-start">tem prática</span>` : ""}</div>`).join("")}</div>` : `<div class="empty">Nenhuma matéria.</div>`)
+      + win("Meu Google Drive", `<div id="drv"><p class="muted" style="margin:0">Carregando…</p></div>`)
       + win("Em breve", `<p style="margin:0" class="muted">Agenda de estudos, temas de cada prova, resumos, banco de questões e calculadora de pontos chegam na próxima etapa.</p>`);
+    driveTela(disc || []);
+  }
+
+  /* ================= GOOGLE DRIVE: ligar a pasta e importar os materiais ================= */
+  // Duas formas: compartilhar a pasta com o e-mail de leitura do site, ou entrar com o Google.
+  // O servidor (drive-varrer) lê a pasta e as subpastas, liga cada arquivo à matéria e cria os temas.
+  // Resumos NÃO são gerados aqui: só quando o aluno pede.
+  async function chamar(nome, body) {
+    const { data, error } = await sb.functions.invoke(nome, { body });
+    let erro = data?.erro, generico = false;
+    if (!erro && error) { try { erro = (await error.context.json()).erro } catch (_) { } if (!erro) { erro = "O servidor não respondeu. Tente de novo."; generico = true; } }
+    if (erro) { const e = new Error(erro); e.generico = generico; throw e; }
+    return data;
+  }
+  function quando(t) { return t ? new Date(t).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "nunca"; }
+  async function driveTela(disc) {
+    const box = document.getElementById("drv"); if (!box) return;
+    const [{ data: fontes, error: e1 }, { data: mats, error: e2 }] = await Promise.all([
+      sb.from("drive_fontes").select("id,tipo,pasta_id,pasta_nome,status,erro,ultima_varredura").order("criado_em"),
+      sb.from("materiais").select("id,nome,status,disciplina_id,caminho,erro").order("nome"),
+    ]);
+    if (!document.getElementById("drv")) return;
+    if (e1 || e2) { box.innerHTML = `<div class="msg bad" style="margin:0">Não consegui carregar a parte do Drive: ${esc((e1 || e2).message)}</div>`; return; }
+    const F = { compartilhada: (fontes || []).find((f) => f.tipo === "compartilhada"), google: (fontes || []).find((f) => f.tipo === "google") };
+    if (DRV.volta) { if (VOLTA_MSG[DRV.volta]) toast(VOLTA_MSG[DRV.volta]); DRV.aba = "google"; DRV.volta = ""; }
+    if (!DRV.aba) DRV.aba = F.google && !F.compartilhada ? "google" : "compartilhada";
+    const ligadas = (fontes || []).filter((f) => f.pasta_id);
+    const email = App.C.DRIVE_EMAIL_LEITOR || "";
+    const form = (tipo, f) => `<form class="row" data-tipo="${tipo}"><label class="field" style="flex:1 1 240px"><span class="mono">Link da pasta</span>
+      <input name="pasta" inputmode="url" autocomplete="off" placeholder="https://drive.google.com/drive/folders/..." aria-label="Link da pasta do Google Drive"></label>
+      <button class="btn solid" ${DRV.ocupado ? "disabled" : ""}>${f?.pasta_id ? "Trocar pasta" : "Ligar pasta"}</button></form>`;
+
+    const status = ligadas.length || F.google ? `<div class="stack" style="gap:8px">${["compartilhada", "google"].map((t) => { const f = F[t]; if (!f) return "";
+      const [cls, txt] = DRV_STATUS[f.status] || ["s-warn", f.status];
+      return `<div class="drv-fonte"><div style="min-width:0"><span class="mono">${t === "google" ? "Conta Google" : "Pasta compartilhada"}</span>
+        <div><b>${f.pasta_id ? esc(f.pasta_nome || "Pasta") : "Falta colar o link da pasta"}</b></div>
+        <span class="muted" style="font-size:13px">Última leitura: ${esc(quando(f.ultima_varredura))}</span>
+        ${f.erro ? `<div style="font-size:13.5px;color:var(--bad)">${esc(f.erro)}</div>` : ""}</div>
+        <div class="row" style="align-items:center"><span class="chip ${cls}">${esc(txt)}</span>
+        <button class="btn ghost" data-drv="${t === "google" ? "desconectar" : "desligar"}" data-id="${esc(f.id)}" ${DRV.ocupado ? "disabled" : ""}>${t === "google" ? "Desconectar" : "Desligar"}</button></div></div>`; }).join("")}
+      ${ligadas.length ? `<div class="row"><button class="btn solid" data-drv="varrer" ${DRV.ocupado ? "disabled" : ""}>${DRV.ocupado ? "Lendo…" : "Varrer agora"}</button></div>` : ""}</div>` : "";
+
+    const abaComp = `<ol class="drv-passos">
+        <li>No Google Drive, clique com o botão direito na pasta das suas matérias e escolha <b>Compartilhar</b>.</li>
+        <li>Adicione este e-mail como <b>Leitor</b> e clique em Enviar:<div class="row" style="align-items:center;margin-top:6px"><span class="drv-mail">${esc(email)}</span><button type="button" class="btn" data-drv="copiar">Copiar e-mail</button></div></li>
+        <li>Abra a pasta, copie o link da barra de endereço e cole aqui:</li></ol>${form("compartilhada", F.compartilhada)}`;
+    const g = F.google;
+    const abaGoogle = !g ? `<p style="margin:0">Entre com a sua conta Google. O site só consegue <b>ler</b> seus arquivos: nunca altera nem apaga nada.</p>
+        <div class="row"><button class="btn solid" data-drv="google" ${DRV.ocupado ? "disabled" : ""}>Entrar com o Google</button></div>`
+      : g.status === "reconectar" ? `<div class="msg bad" style="margin:0">${esc(g.erro || "A conexão com o Google expirou. Conecte de novo.")}</div>
+        <div class="row"><button class="btn solid" data-drv="google" ${DRV.ocupado ? "disabled" : ""}>Conectar de novo</button></div>`
+      : `<p style="margin:0"><span class="chip s-ok">conectado</span> ${g.pasta_id ? "Para usar outra pasta, cole o link novo:" : "Agora cole o link da pasta das suas matérias:"}</p>${form("google", g)}`;
+
+    // materiais agrupados por matéria
+    const grupos = (disc || []).map((d) => ({ nome: d.nome, itens: (mats || []).filter((m) => m.disciplina_id === d.id) }))
+      .concat([{ nome: "Sem matéria", sem: true, itens: (mats || []).filter((m) => !m.disciplina_id || !(disc || []).some((d) => d.id === m.disciplina_id)) }])
+      .filter((x) => x.itens.length);
+    const abrir = (mats || []).length <= 30;
+    const lista = !(mats || []).length ? (ligadas.length ? `<div class="empty">Nenhum material importado ainda. Clique em "Varrer agora".</div>` : "")
+      : `<h3 style="margin-top:6px">Materiais importados (${mats.length})</h3>
+        <p class="muted" style="margin:0;font-size:13.5px">Cada arquivo vira um tema da matéria. Os resumos não são feitos sozinhos: você pede o resumo de um tema quando quiser.</p>
+        <div>${grupos.map((x) => `<details class="drv-grupo" ${abrir ? "open" : ""}><summary><b>${esc(x.nome)}</b> <span class="muted">· ${x.itens.length} ${x.itens.length === 1 ? "arquivo" : "arquivos"}</span></summary>
+          ${x.sem ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Para ligar à matéria, coloque o arquivo numa subpasta com o nome dela (ex.: "${esc((disc || [])[0]?.nome || "Farmacologia 2")}").</p>` : ""}
+          <ul class="drv-lista">${x.itens.map((m) => { const [cls, txt] = MAT_STATUS[m.status] || ["s-warn", m.status];
+            return `<li><span class="drv-nome" title="${esc(m.caminho || "")}">${esc(m.nome)}</span><span class="chip ${cls}" ${m.erro ? `title="${esc(m.erro)}"` : ""}>${esc(txt)}</span></li>`; }).join("")}</ul></details>`).join("")}</div>`;
+
+    box.innerHTML = `<div class="stack">${status}
+      <div class="row" role="tablist" aria-label="Como ligar a pasta">
+        <button class="btn ${DRV.aba === "compartilhada" ? "solid" : ""}" role="tab" aria-selected="${DRV.aba === "compartilhada"}" data-drv="aba" data-v="compartilhada">Compartilhar uma pasta</button>
+        <button class="btn ${DRV.aba === "google" ? "solid" : ""}" role="tab" aria-selected="${DRV.aba === "google"}" data-drv="aba" data-v="google">Entrar com o Google</button></div>
+      <div class="stack" role="tabpanel">${DRV.aba === "google" ? abaGoogle : abaComp}</div>
+      <p class="muted" style="margin:0;font-size:13.5px">Dica: deixe uma subpasta para cada matéria, com o nome parecido com o do painel (ex.: "Farmacologia 2"). O site lê PDF, Word, PowerPoint, Google Docs, Google Slides e textos.</p>
+      <div id="drvProg">${DRV.msg ? `<div class="msg ${DRV.msg.bad ? "bad" : ""}" style="margin:0">${esc(DRV.msg.t)}</div>` : ""}</div>
+      ${lista}</div>`;
+
+    box.onsubmit = (e) => {
+      e.preventDefault(); if (DRV.ocupado) return;
+      const pasta = e.target.pasta.value.trim();
+      if (!pasta) return toast("Cole o link da pasta.");
+      varrer(disc, { pasta, tipo: e.target.dataset.tipo });
+    };
+    box.onclick = async (e) => {
+      const b = e.target.closest("[data-drv]"); if (!b || DRV.ocupado) return;
+      const a = b.dataset.drv;
+      if (a === "aba") { DRV.aba = b.dataset.v; DRV.msg = null; return driveTela(disc); }
+      if (a === "copiar") {
+        try { await navigator.clipboard.writeText(email); toast("E-mail copiado"); }
+        catch (_) { const r = document.createRange(); r.selectNodeContents(box.querySelector(".drv-mail")); getSelection().removeAllRanges(); getSelection().addRange(r); toast("Selecione e copie o e-mail"); }
+      }
+      if (a === "varrer") return varrer(disc);
+      if (a === "google") {
+        b.disabled = true; b.textContent = "Abrindo o Google…";
+        try { const { url } = await chamar("drive-oauth", { acao: "url" }); location.href = url; }
+        catch (err) { DRV.msg = { bad: true, t: err.message }; driveTela(disc); }
+      }
+      if (a === "desligar") {
+        if (!confirm("Desligar esta pasta? Os materiais importados dela saem do painel. Os temas que você já tem continuam.")) return;
+        const { error } = await sb.from("drive_fontes").delete().eq("id", b.dataset.id);
+        DRV.msg = error ? { bad: true, t: "Não consegui desligar: " + error.message } : null;
+        if (!error) toast("Pasta desligada"); driveTela(disc);
+      }
+      if (a === "desconectar") {
+        if (!confirm("Desconectar sua conta Google? Os materiais importados por ela saem do painel. Os temas continuam.")) return;
+        try { await chamar("drive-oauth", { acao: "desconectar" }); DRV.msg = null; toast("Google desconectado"); }
+        catch (err) { DRV.msg = { bad: true, t: err.message }; }
+        driveTela(disc);
+      }
+    };
+  }
+  // Chama o servidor até acabar de ler tudo (cada chamada lê o que der em ~1,5 min)
+  async function varrer(disc, ligar) {
+    if (DRV.ocupado) return;
+    DRV.ocupado = true; DRV.msg = null; await driveTela(disc);
+    const prog = () => document.getElementById("drvProg");
+    let corpo = ligar || {}, voltas = 0, falhas = 0, r = null;
+    try {
+      while (voltas < 40) {
+        if (prog()) prog().innerHTML = `<div class="msg" style="margin:0" aria-live="polite">${r ? `Lendo os arquivos… ${r.arquivos - r.restantes} de ${r.arquivos} prontos.` : ligar ? "Abrindo a pasta…" : "Lendo sua pasta…"} Pode levar alguns minutos.</div>`;
+        try { r = await chamar("drive-varrer", corpo); }
+        catch (e) { if (!e.generico || ++falhas > 2) throw e; continue; } // queda do servidor: tenta de novo
+        corpo = {}; voltas++; falhas = 0;
+        if (r.feito || !r.restantes) break;
+      }
+      const partes = [`${r.arquivos} ${r.arquivos === 1 ? "arquivo" : "arquivos"}`];
+      if (r.novos) partes.push(`${r.novos} ${r.novos === 1 ? "novo" : "novos"}`);
+      if (r.atualizados) partes.push(`${r.atualizados} ${r.atualizados === 1 ? "atualizado" : "atualizados"}`);
+      if (r.removidos) partes.push(`${r.removidos} ${r.removidos === 1 ? "removido" : "removidos"}`);
+      const comErro = (r.fontes || []).find((f) => f.status === "erro" || f.status === "reconectar");
+      DRV.msg = comErro ? { bad: true, t: comErro.erro || "Não consegui ler uma das pastas." }
+        : { t: `Pronto: ${partes.join(", ")}.${r.sem_materia ? ` ${r.sem_materia} sem matéria (veja no fim da lista).` : ""}` };
+      if (ligar) toast("Pasta ligada");
+    } catch (e) { DRV.msg = { bad: true, t: e.message }; }
+    DRV.ocupado = false;
+    await driveTela(disc);
   }
 })();
 </script>

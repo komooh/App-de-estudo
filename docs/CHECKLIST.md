@@ -11,12 +11,12 @@ Duas listas que guiam o projeto: o que um site profissional precisa ter por baix
 | 3 | Banco de dados | Supabase (Postgres) | Pronto (`supabase/schema.sql`) |
 | 4 | Login | Link mágico por e-mail, só para quem foi convidado | Pronto |
 | 5 | Permissões | Regras do banco (RLS): cada aluno só vê o que é dele; aluno não muda plano nem vencimento | Pronto e testado |
-| 6 | API entre a tela e o banco | Supabase + Edge Functions (criar aluno; IA na Etapa 3) | Parcial |
+| 6 | API entre a tela e o banco | Supabase + Edge Functions (criar aluno; Google Drive; IA na Etapa 3) | Parcial |
 | 7 | Gateway de pagamento | Por enquanto pagamento por fora (Pix/transferência); Mercado Pago ou Pagopar depois | Fora da versão 1 |
 | 8 | Webhook do pagamento | Só quando houver gateway | Fora da versão 1 |
 | 9 | Cobrança recorrente | Hoje: vencimento controlado no painel do administrador | Manual |
 | 10 | E-mail transacional | Hoje: e-mail gratuito do Supabase (cerca de 2 por hora). Antes do teste fechado: Resend com domínio próprio | Pendente |
-| 11 | Chaves fora do código | Só a chave pública no navegador; chave de serviço e chave do Claude ficam no servidor | Pronto |
+| 11 | Chaves fora do código | Só a chave pública no navegador; chave de serviço, chave do Claude e chaves do Google ficam no servidor (a conexão do Google de cada aluno fica criptografada no banco) | Pronto |
 | 12 | Aviso se o site cair | Monitor gratuito (UptimeRobot ou Cloudflare) mandando alerta no celular | Pendente |
 | 13 | Backup do banco | Supabase Pro faz backup diário; até lá, exportação semanal | Pendente |
 

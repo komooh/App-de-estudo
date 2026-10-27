@@ -83,3 +83,14 @@ td input,td select{background:var(--card2);border:1px solid var(--line);border-r
 .av img{width:100%;height:100%;object-fit:cover;display:block}
 .av-g{width:96px;height:96px;font-size:36px}
 .perfil{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}
+
+/* Google Drive */
+.drv-fonte{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.drv-passos{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.drv-mail{font-family:var(--f-mono);font-size:13px;background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:4px 8px;overflow-wrap:anywhere;min-width:0}
+.drv-grupo{border-top:1px solid var(--line);padding:10px 0}
+.drv-grupo summary{cursor:pointer}
+.drv-lista{list-style:none;margin:6px 0 0;padding:0}
+.drv-lista li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
+.drv-lista li:last-child{border-bottom:0}
+.drv-nome{min-width:0;overflow-wrap:anywhere}
