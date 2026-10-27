@@ -66,15 +66,16 @@
         <label class="field"><span class="mono">Faculdade</span><select id="fac">${(facs || []).map((f) => `<option value="${f.id}" ${f.id == st.faculdade_id ? "selected" : ""}>${esc(f.nome)}</option>`).join("")}</select></label>
         <div class="row"><label class="field" style="flex:1"><span class="mono">Semestre</span><select id="sem"><option value="">Escolha</option>${Array.from({ length: 12 }, (_, i) => `<option ${st.semestre == i + 1 ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label>
         <label class="field" style="flex:1"><span class="mono">Turma (opcional)</span><input id="turma" value="${esc(st.turma)}" placeholder="Ex.: F"></label></div>`;
-      if (st.passo === 2) body = `<p class="muted" style="margin:0">Coloque todas as matérias deste semestre. Marque "tem prática" nas que têm prova prática separada.</p>
+      if (st.passo === 2) body = `<p class="muted" style="margin:0">Coloque as matérias deste semestre e marque "tem prática" nas que têm prova prática separada. Se preferir, continue e adicione depois.</p>
         ${st.disc.map((d, i) => `<div class="discrow">
           <label class="field"><span class="mono">Matéria</span><input data-d="${i}" data-k="nome" value="${esc(d.nome)}" placeholder="Ex.: Farmacologia 2"></label>
           <label class="field"><span class="mono">Professor</span><input data-d="${i}" data-k="professor" value="${esc(d.professor)}" placeholder="Opcional"></label>
           <label class="check"><input type="checkbox" data-d="${i}" data-k="tem_pratica" ${d.tem_pratica ? "checked" : ""}>tem prática</label>
           <button class="btn ghost" data-a="rmDisc" data-i="${i}" aria-label="Remover matéria" ${st.disc.length < 2 ? "disabled" : ""}>Remover</button></div>`).join("")}
         <button class="btn" data-a="addDisc" style="align-self:flex-start">+ Adicionar matéria</button>`;
-      if (st.passo === 3) body = `<p class="muted" style="margin:0">As datas são obrigatórias: é com elas que a agenda monta seu plano de estudo. Se ainda não saiu a data de alguma, coloque a data prevista e ajuste depois.</p>
-        ${st.disc.map((d, i) => `<div class="card"><h3>${esc(d.nome)}</h3><div class="provgrid">${kinds(d).map(([t, m]) => { const v = st.provas[kKey(i, t, m)] || {};
+      if (st.passo === 3) body = `<p class="muted" style="margin:0">Preencha as datas que você já sabe. As que ainda não saíram podem ficar em branco: é só colocar depois. A agenda monta o plano de estudo com as datas que existirem.</p>
+        ${discValidas().length ? "" : `<div class="empty">Você não colocou matérias no passo anterior. Pode continuar e adicionar depois.</div>`}
+        ${st.disc.map((d, i) => !d.nome ? "" : `<div class="card"><h3>${esc(d.nome)}</h3><div class="provgrid">${kinds(d).map(([t, m]) => { const v = st.provas[kKey(i, t, m)] || {};
           return `<span class="lbl">${lbl(t, m)}</span><input class="inp" type="date" data-p="${kKey(i, t, m)}" data-k="data" value="${esc(v.data || "")}" aria-label="${esc(d.nome)} ${lbl(t, m)} data"><input class="inp" type="time" data-p="${kKey(i, t, m)}" data-k="hora" value="${esc(v.hora || "07:00")}" aria-label="hora">`; }).join("")}</div></div>`).join("")}`;
       if (st.passo === 4) { const r = fac()?.regra_notas || {};
         body = `<p style="margin:0">Regra de notas da <b>${esc(fac()?.nome || "faculdade")}</b> (já preenchida):</p>
@@ -95,22 +96,21 @@
       V.querySelectorAll("[data-d]").forEach((el) => { const d = st.disc[+el.dataset.d]; if (d) d[el.dataset.k] = el.type === "checkbox" ? el.checked : el.value.trim(); });
       V.querySelectorAll("[data-p]").forEach((el) => { (st.provas[el.dataset.p] = st.provas[el.dataset.p] || {})[el.dataset.k] = el.value; });
     }
-    function valida() {
-      if (st.passo === 1) { if (!st.nome) return "Escreva seu nome."; if (!st.faculdade_id) return "Escolha a faculdade."; if (!st.semestre) return "Escolha o semestre."; }
-      if (st.passo === 2) { st.disc = st.disc.filter((d) => d.nome || d.professor); if (!st.disc.length) { st.disc = [{ nome: "", professor: "", tem_pratica: false }]; return "Coloque pelo menos uma matéria."; }
-        if (st.disc.some((d) => !d.nome)) return "Toda matéria precisa de nome."; }
-      if (st.passo === 3) { for (let i = 0; i < st.disc.length; i++) for (const [t, m] of kinds(st.disc[i])) if (!st.provas[kKey(i, t, m)]?.data) return `Falta a data de ${lbl(t, m)} de ${st.disc[i].nome}.`; }
-      return "";
-    }
+    // Nada é obrigatório: o aluno pode continuar sem preencher e completar depois.
+    function valida() { return ""; }
+    const discValidas = () => st.disc.filter((d) => d.nome);
     async function salvar() {
       V.querySelector('[data-a="segue"]').disabled = true; V.querySelector('[data-a="segue"]').textContent = "Salvando…";
       try {
-        let r = await sb.from("perfis").update({ nome: st.nome, faculdade_id: +st.faculdade_id, semestre: +st.semestre, turma: st.turma || null }).eq("id", P.id); if (r.error) throw r.error;
+        let r = await sb.from("perfis").update({ nome: st.nome || null, faculdade_id: st.faculdade_id ? +st.faculdade_id : null, semestre: st.semestre ? +st.semestre : null, turma: st.turma || null }).eq("id", P.id); if (r.error) throw r.error;
         r = await sb.from("disciplinas").delete().eq("aluno_id", P.id); if (r.error) throw r.error; // recomeço limpo se a 1ª tentativa falhou no meio
-        r = await sb.from("disciplinas").insert(st.disc.map((d, i) => ({ nome: d.nome, professor: d.professor || null, tem_pratica: !!d.tem_pratica, ordem: i }))).select("id"); if (r.error) throw r.error;
-        const ids = r.data.map((x) => x.id);
-        const provas = []; st.disc.forEach((d, i) => kinds(d).forEach(([t, m]) => { const v = st.provas[kKey(i, t, m)]; provas.push({ disciplina_id: ids[i], tipo: t, modalidade: m, data: v.data, hora: v.hora || null }); }));
-        r = await sb.from("provas").insert(provas); if (r.error) throw r.error;
+        const lista = st.disc.map((d, i) => ({ d, i })).filter((x) => x.d.nome);
+        if (lista.length) {
+          r = await sb.from("disciplinas").insert(lista.map(({ d }, k) => ({ nome: d.nome, professor: d.professor || null, tem_pratica: !!d.tem_pratica, ordem: k }))).select("id"); if (r.error) throw r.error;
+          const ids = r.data.map((x) => x.id);
+          const provas = []; lista.forEach(({ d, i }, k) => kinds(d).forEach(([t, m]) => { const v = st.provas[kKey(i, t, m)]; if (v && v.data) provas.push({ disciplina_id: ids[k], tipo: t, modalidade: m, data: v.data, hora: v.hora || null }); }));
+          if (provas.length) { r = await sb.from("provas").insert(provas); if (r.error) throw r.error; }
+        }
         r = await sb.from("perfis").update({ onboarding_ok: true }).eq("id", P.id); if (r.error) throw r.error;
         P = await App.meuPerfil(); toast("Painel pronto!"); home();
       } catch (e) { draw("Não consegui salvar: " + (e.message || e)); }
