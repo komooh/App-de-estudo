@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Painel de Estudos</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=DM+Mono:wght@400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Pinyon+Script&display=swap">
 <link rel="stylesheet" href="/assets/style.css">
@@ -15,6 +16,7 @@
     <div class="row" style="align-items:center"><span class="mono" id="quem"></span><a id="lnkAdmin" class="btn ghost" href="/admin.html" hidden>Administração</a><button class="btn ghost" id="sair">Sair</button></div>
   </header>
   <main id="view"><p class="muted">Carregando…</p></main>
+  <footer class="muted" style="text-align:center;font-size:12.5px;margin-top:28px">Resumos e questões são gerados por IA e podem ter erros. <a href="/termos.html">Termos</a> · <a href="/privacidade.html">Privacidade</a></footer>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.79.0/dist/umd/supabase.js"></script>
 <script src="/assets/config.js"></script>
@@ -57,7 +59,7 @@
       if (st.passo === 1) body = `
         <label class="field"><span class="mono">Seu nome</span><input id="nome" value="${esc(st.nome)}" required></label>
         <label class="field"><span class="mono">Faculdade</span><select id="fac">${(facs || []).map((f) => `<option value="${f.id}" ${f.id == st.faculdade_id ? "selected" : ""}>${esc(f.nome)}</option>`).join("")}</select></label>
-        <div class="row"><label class="field" style="flex:1"><span class="mono">Semestre</span><select id="sem"><option value="">—</option>${Array.from({ length: 12 }, (_, i) => `<option ${st.semestre == i + 1 ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label>
+        <div class="row"><label class="field" style="flex:1"><span class="mono">Semestre</span><select id="sem"><option value="">Escolha</option>${Array.from({ length: 12 }, (_, i) => `<option ${st.semestre == i + 1 ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label>
         <label class="field" style="flex:1"><span class="mono">Turma (opcional)</span><input id="turma" value="${esc(st.turma)}" placeholder="Ex.: F"></label></div>`;
       if (st.passo === 2) body = `<p class="muted" style="margin:0">Coloque todas as matérias deste semestre. Marque "tem prática" nas que têm prova prática separada.</p>
         ${st.disc.map((d, i) => `<div class="discrow">
