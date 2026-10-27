@@ -29,6 +29,7 @@ const MAX_TEXTO = 300_000;
 const MAX_PROFUNDIDADE = 6;
 const MAX_ARQUIVOS = 3000;
 const MAX_TENTATIVAS = 3;
+const LEVES = ["application/vnd.google-apps.document", "application/vnd.google-apps.presentation", "text/plain", "text/markdown"];
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -424,7 +425,10 @@ async function varrerFonte(admin: SupabaseClient, f: Fonte, inicio: number, r: R
 
     // 4) lê o texto dos arquivos novos ou alterados, até acabar o tempo
     const { data: fila, error: e4 } = await admin.from("materiais")
-      .select("id,drive_file_id,mime,nome,tamanho,tentativas").eq("fonte_id", f.id).eq("status", "pendente").order("id");
+      .select("id,drive_file_id,mime,nome,tamanho,tentativas").eq("fonte_id", f.id).eq("status", "pendente")
+      // Só os leves (Google Docs/Slides e textos) são lidos na varredura. PDF, Word e PowerPoint
+      // pesam demais para o limite de CPU da função: ficam "pendente" e são lidos quando o aluno pedir o resumo.
+      .in("mime", LEVES).order("id");
     if (e4) throw new Error("fila: " + e4.message);
     let i = 0;
     for (; i < (fila || []).length; i++) {

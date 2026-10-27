@@ -37,7 +37,7 @@
   if (driveVolta) history.replaceState(null, "", location.pathname);
   const DRV = { aba: null, ocupado: false, msg: null, volta: driveVolta };
   const DRV_STATUS = { ok: ["s-ok", "em dia"], varrendo: ["s-warn", "lendo"], pendente: ["s-warn", "falta ler"], erro: ["s-bad", "erro"], reconectar: ["s-bad", "reconectar"] };
-  const MAT_STATUS = { ok: ["s-ok", "lido"], pendente: ["s-warn", "na fila"], sem_texto: ["s-warn", "sem texto"], grande_demais: ["s-warn", "grande demais"], erro: ["s-bad", "erro"] };
+  const MAT_STATUS = { ok: ["s-ok", "lido"], pendente: ["s-ok", "pronto"], sem_texto: ["s-warn", "sem texto"], grande_demais: ["s-warn", "grande demais"], erro: ["s-bad", "erro"] };
   const VOLTA_MSG = { conectado: "Google conectado. Agora cole o link da pasta.", negado: "Você não deu a permissão no Google.",
     expirou: "O pedido expirou. Tente conectar de novo.", sem_permissao: "Marque a permissão de ver os arquivos do Drive e tente de novo.", erro: "Não consegui conectar com o Google. Tente de novo." };
   let P;
