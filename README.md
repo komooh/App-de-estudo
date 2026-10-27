@@ -19,12 +19,12 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 ## Como colocar no ar (uma vez)
 
 ### 1. Banco de dados (Supabase)
-1. Supabase → **SQL Editor** → **New query**. Cole todo o conteúdo de `supabase/schema.sql` e clique em **Run**.
+1. Supabase → **SQL Editor** → **New query**. Cole todo o conteúdo de `supabase/schema.sql` e clique em **Run**. Depois faça o mesmo com `supabase/02_perfil_foto_senha.sql` (nome de usuário e foto de perfil).
 2. **Authentication → Sign In / Providers → Email**: deixe o Email ligado e **desligue "Allow new users to sign up"**. Assim só entra quem o administrador convidar.
 3. **Authentication → URL Configuration**: em **Site URL** coloque o endereço do site (ex.: `https://app-de-estudo.pages.dev`) e em **Redirect URLs** adicione `https://app-de-estudo.pages.dev/**`.
 
 ### 2. Sua conta de administrador
-1. **Authentication → Users → Add user → Send invitation**, com o seu e-mail.
+1. **Authentication → Users → Add user → Create new user**, com o seu e-mail, uma senha e **Auto Confirm User** marcado.
 2. No **SQL Editor**, rode (trocando o e-mail):
    ```sql
    update public.perfis set is_admin = true, ativo = true where email = 'seu@email.com';

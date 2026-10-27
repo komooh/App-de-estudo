@@ -76,3 +76,10 @@ td input,td select{background:var(--card2);border:1px solid var(--line);border-r
 .rd-col a:hover{text-decoration:underline}
 .rd-base{max-width:1000px;margin:34px auto 0;padding-top:16px;border-top:1px solid #2C2925;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12.5px;color:#8A8378}
 @media (max-width:760px){.rd-in{grid-template-columns:1fr 1fr}.rd-marca{grid-column:1/-1}}
+
+/* perfil */
+.eu{display:flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:3px 12px 3px 3px;font-size:14px;font-weight:500}
+.av{width:28px;height:28px;border-radius:50%;overflow:hidden;display:grid;place-items:center;background:var(--terra-s);color:var(--terra);font-weight:700;flex:none}
+.av img{width:100%;height:100%;object-fit:cover;display:block}
+.av-g{width:96px;height:96px;font-size:36px}
+.perfil{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap}

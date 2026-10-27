@@ -35,14 +35,17 @@ Deno.serve(async (req) => {
   const plano = ["mensal", "semestral", "teste"].includes(String(b.plano)) ? String(b.plano) : "mensal";
   const vence = b.vence_em ? String(b.vence_em) : null;
   const redirectTo = typeof b.redirectTo === "string" ? b.redirectTo : undefined;
+  const senha = typeof b.senha === "string" ? b.senha : "";
+  if (senha && senha.length < 8) return json({ erro: "A senha precisa ter pelo menos 8 caracteres." }, 400);
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ erro: "E-mail inválido." }, 400);
   if (vence && !/^\d{4}-\d{2}-\d{2}$/.test(vence)) return json({ erro: "Data de vencimento inválida." }, 400);
 
-  // 3) Cria a conta e manda o convite (o perfil é criado sozinho pelo banco)
-  const { data: conv, error: eConv } = await admin.auth.admin.inviteUserByEmail(email, {
-    data: { nome },
-    redirectTo,
-  });
+  // 3) Cria a conta (o perfil é criado sozinho pelo banco).
+  //    Com senha: a conta já nasce confirmada e você passa a senha ao aluno.
+  //    Sem senha: o aluno recebe um convite por e-mail.
+  const { data: conv, error: eConv } = senha
+    ? await admin.auth.admin.createUser({ email, password: senha, email_confirm: true, user_metadata: { nome } })
+    : await admin.auth.admin.inviteUserByEmail(email, { data: { nome }, redirectTo });
   if (eConv) {
     const ja = /already|registered|exists/i.test(eConv.message);
     return json({ erro: ja ? "Já existe uma conta com esse e-mail." : "Não consegui criar: " + eConv.message }, ja ? 409 : 400);
@@ -54,5 +57,5 @@ Deno.serve(async (req) => {
     .eq("id", conv.user.id);
   if (ePerfil) return json({ erro: "Conta criada, mas não consegui liberar: " + ePerfil.message }, 500);
 
-  return json({ ok: true, id: conv.user.id, email });
+  return json({ ok: true, id: conv.user.id, email, convite: !senha });
 });

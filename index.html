@@ -14,9 +14,10 @@
   <div class="hero"><h1>Painel de<span class="script">estudos</span></h1></div>
   <section class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>Entrar</div><div class="win-body">
     <form id="f" class="stack">
-      <p class="muted" style="margin:0">Digite o e-mail que você usou para assinar. Vamos mandar um link de acesso, sem senha.</p>
       <label class="field"><span class="mono">E-mail</span><input id="email" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
-      <button class="btn solid" id="go">Receber link de acesso</button>
+      <label class="field" id="campoSenha"><span class="mono">Senha</span><input id="senha" type="password" autocomplete="current-password" placeholder="A senha que você recebeu"></label>
+      <button class="btn solid" id="go">Entrar</button>
+      <div class="row" style="justify-content:space-between;align-items:center"><button type="button" class="btn ghost" id="modo" style="padding-left:0">Entrar com link no e-mail</button><button type="button" class="btn ghost" id="esqueci" style="padding-right:0">Esqueci a senha</button></div>
     </form>
     <div id="out"></div>
   </div></section>
@@ -31,23 +32,34 @@
   const { sb, esc } = App;
   // Se já está logado, vai direto para o painel
   if (await App.sessao()) { location.replace("/app.html"); return; }
-  const out = document.getElementById("out"), go = document.getElementById("go");
-  document.getElementById("f").addEventListener("submit", async (e) => {
+  const out = document.getElementById("out"), go = document.getElementById("go"), $ = (id) => document.getElementById(id);
+  let porLink = false;
+  const aviso = (t, ruim) => { out.innerHTML = `<div class="msg ${ruim ? "bad" : ""}">${t}</div>`; };
+  const erroAmigavel = (m) => /invalid login|credentials/i.test(m) ? "E-mail ou senha incorretos." : /rate|seconds|limit/i.test(m) ? "Muitas tentativas seguidas. Espere um minuto e tente de novo." : /signups not allowed|not found/i.test(m) ? "Não achamos uma conta com esse e-mail. Fale com o administrador." : /not confirmed/i.test(m) ? "Sua conta ainda não foi confirmada. Fale com o administrador." : "Não consegui agora: " + esc(m);
+  $("modo").onclick = () => { porLink = !porLink; $("campoSenha").hidden = porLink; $("esqueci").hidden = porLink; go.textContent = porLink ? "Receber link de acesso" : "Entrar"; $("modo").textContent = porLink ? "Entrar com senha" : "Entrar com link no e-mail"; out.innerHTML = ""; };
+  $("esqueci").onclick = async () => {
+    const email = $("email").value.trim().toLowerCase(); if (!email) { $("email").focus(); return aviso("Digite seu e-mail primeiro.", true); }
+    const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + "/app.html" });
+    if (error) return aviso(erroAmigavel(error.message), true);
+    aviso(`Se existir uma conta com <b>${esc(email)}</b>, enviamos um link para criar uma senha nova.`);
+  };
+  $("f").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const email = document.getElementById("email").value.trim().toLowerCase();
-    go.disabled = true; go.textContent = "Enviando…"; out.innerHTML = "";
-    const { error } = await sb.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false, emailRedirectTo: location.origin + "/app.html" },
-    });
-    go.disabled = false; go.textContent = "Receber link de acesso";
-    if (error) {
-      const semConta = /signups not allowed|not found|user/i.test(error.message);
-      const limite = /rate|seconds|limit/i.test(error.message);
-      out.innerHTML = `<div class="msg bad">${semConta ? "Não achamos uma conta com esse e-mail. Confira o endereço ou fale com o administrador." : limite ? "Muitos pedidos seguidos. Espere um minuto e tente de novo." : "Não consegui enviar agora: " + esc(error.message)}</div>`;
-      return;
+    const email = $("email").value.trim().toLowerCase();
+    go.disabled = true; out.innerHTML = "";
+    if (porLink) {
+      go.textContent = "Enviando…";
+      const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false, emailRedirectTo: location.origin + "/app.html" } });
+      go.disabled = false; go.textContent = "Receber link de acesso";
+      if (error) return aviso(erroAmigavel(error.message), true);
+      return aviso(`Pronto! Abra o e-mail que enviamos para <b>${esc(email)}</b> e toque no link.`);
     }
-    out.innerHTML = `<div class="msg">Pronto! Abra o e-mail que enviamos para <b>${esc(email)}</b> e toque no link. Pode fechar esta página.</div>`;
+    const senha = $("senha").value; if (!senha) { go.disabled = false; $("senha").focus(); return aviso("Digite a senha.", true); }
+    go.textContent = "Entrando…";
+    const { error } = await sb.auth.signInWithPassword({ email, password: senha });
+    go.disabled = false; go.textContent = "Entrar";
+    if (error) return aviso(erroAmigavel(error.message), true);
+    location.replace("/app.html");
   });
 })();
 </script>

@@ -68,8 +68,9 @@
         <label class="field" style="flex:1 1 220px"><span class="mono">E-mail</span><input name="email" type="email" required></label>
         <label class="field" style="flex:0 1 130px"><span class="mono">Plano</span><select name="plano"><option>mensal</option><option>semestral</option><option>teste</option></select></label>
         <label class="field" style="flex:0 1 160px"><span class="mono">Vence em</span><input name="vence_em" type="date" value="${somaDias(null, 30)}"></label>
-        <button class="btn solid">Criar e enviar convite</button></form>
-        <p class="muted" style="font-size:13px;margin:10px 0 0">O aluno recebe um e-mail com o link de acesso. Na primeira entrada, ele monta o painel (matérias e provas).</p>${msg ? `<div class="msg ${msg.bad ? "bad" : ""}">${esc(msg.t)}</div>` : ""}`)
+        <label class="field" style="flex:1 1 200px"><span class="mono">Senha inicial</span><span class="row" style="gap:6px;flex-wrap:nowrap"><input name="senha" id="senhaNova" minlength="8" autocomplete="new-password" placeholder="Vazio = convite por e-mail"><button type="button" class="btn" data-a="gerar">Gerar</button></span></label>
+        <button class="btn solid">Criar aluno</button></form>
+        <p class="muted" style="font-size:13px;margin:10px 0 0">Com senha: a conta já fica pronta e você passa o e-mail e a senha para o aluno (ele pode trocar depois). Sem senha: ele recebe um convite por e-mail. Na primeira entrada, ele monta o painel.</p>${msg ? `<div class="msg ${msg.bad ? "bad" : ""}">${esc(msg.t)}</div>` : ""}`)
       + win(`Alunos · ${emDia} em dia de ${alunos.filter((a) => !a.is_admin).length}`, `<div class="row" style="margin-bottom:10px"><input class="inp" id="busca" placeholder="Buscar por nome ou e-mail" value="${esc(filtro)}" style="max-width:320px"></div>
         <div class="tablewrap"><table><thead><tr><th>Aluno</th><th>Faculdade</th><th>Plano</th><th>Vencimento</th><th>Situação</th><th>IA no mês</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">Nenhum aluno.</td></tr>`}</tbody></table></div>`);
   }
@@ -81,7 +82,9 @@
     Object.assign(alunos.find((a) => a.id === id), upd); draw(); toast("Salvo");
   }
   V.addEventListener("click", async (e) => {
-    const b = e.target.closest("[data-a]"); if (!b) return; const tr = b.closest("tr"); if (!tr) return;
+    const b = e.target.closest("[data-a]"); if (!b) return;
+    if (b.dataset.a === "gerar") { const ch = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"; const r = crypto.getRandomValues(new Uint32Array(10)); document.getElementById("senhaNova").value = Array.from(r, (x) => ch[x % ch.length]).join(""); return; }
+    const tr = b.closest("tr"); if (!tr) return;
     const a = alunos.find((x) => x.id === tr.dataset.id);
     if (b.dataset.a === "salvar") salvarLinha(tr);
     if (b.dataset.a === "ativo") { if (a.id === eu.id && a.ativo) return toast("Você não pode bloquear a si mesmo."); salvarLinha(tr, { ativo: !a.ativo }); }
@@ -90,11 +93,11 @@
   V.addEventListener("input", (e) => { if (e.target.id === "busca") { filtro = e.target.value.trim().toLowerCase(); const pos = e.target.selectionStart; draw(); const i = document.getElementById("busca"); i.focus(); i.setSelectionRange(pos, pos); } });
   V.addEventListener("submit", async (e) => {
     if (e.target.id !== "novo") return; e.preventDefault();
-    const fd = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector("button"); btn.disabled = true; btn.textContent = "Criando…";
+    const fd = Object.fromEntries(new FormData(e.target)); if (!fd.senha) delete fd.senha; const btn = e.target.querySelector("button"); btn.disabled = true; btn.textContent = "Criando…";
     const { data, error } = await sb.functions.invoke("admin-criar-aluno", { body: { ...fd, redirectTo: location.origin + "/app.html" } });
     let erro = data?.erro; if (!erro && error) { try { erro = (await error.context.json()).erro } catch (_) { erro = error.message } }
     if (erro) return draw({ t: erro, bad: true });
-    await carregar(); draw({ t: `Convite enviado para ${fd.email}.` });
+    await carregar(); draw({ t: data?.convite ? `Convite enviado para ${fd.email}.` : `Conta criada. Passe para o aluno: e-mail ${fd.email} e senha ${fd.senha}` });
   });
   carregar();
 })();

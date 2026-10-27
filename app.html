@@ -13,7 +13,7 @@
 <div class="wrap">
   <header class="top">
     <a class="brand" href="/app.html">Painel de Estudos</a>
-    <div class="row" style="align-items:center"><span class="mono" id="quem"></span><a id="lnkAdmin" class="btn ghost" href="/admin.html" hidden>Administração</a><button class="btn ghost" id="sair">Sair</button></div>
+    <div class="row" style="align-items:center"><button class="eu" id="eu" hidden aria-label="Meu perfil"><span class="av" id="euAv"></span><span id="euNome"></span></button><a id="lnkAdmin" class="btn ghost" href="/admin.html" hidden>Administração</a><button class="btn ghost" id="sair">Sair</button></div>
   </header>
   <main id="view"><p class="muted">Carregando…</p></main>
 </div>
@@ -25,6 +25,8 @@
 (async () => {
   const { sb, esc, toast, win } = App;
   const V = document.getElementById("view");
+  // link de "esqueci a senha": o Supabase manda type=recovery na URL (lido antes de ele limpar a URL)
+  if (/type=recovery/.test(location.hash)) sessionStorage.setItem("recuperando", "1");
   document.getElementById("sair").onclick = App.sair;
 
   // Espera o Supabase ler o link mágico da URL (se veio do e-mail)
@@ -32,8 +34,11 @@
   if (!s) { location.replace("/"); return; }
   let P;
   try { P = await App.meuPerfil(); } catch (e) { V.innerHTML = `<div class="msg bad">Não consegui carregar seu perfil: ${esc(e.message)}</div>`; return; }
-  document.getElementById("quem").textContent = P.email;
+  pintarEu();
+  document.getElementById("eu").onclick = () => perfilTela();
   if (P.is_admin) document.getElementById("lnkAdmin").hidden = false;
+  // veio do e-mail de "esqueci a senha": pede a senha nova antes de tudo
+  if (sessionStorage.getItem("recuperando") === "1") return perfilTela(true);
 
   if (!App.acessoOk(P)) {
     const venceu = P.ativo && P.vence_em;
@@ -121,6 +126,88 @@
   }
 
   /* ================= INÍCIO (os módulos completos chegam na Etapa 3) ================= */
+  /* ================= PERFIL: nome de usuário, foto e senha ================= */
+  function nomeExib() { return P.usuario || (P.nome || "").split(" ")[0] || P.email.split("@")[0]; }
+  function avatarHTML(tam) {
+    const ini = esc(nomeExib().slice(0, 1).toUpperCase());
+    return P.avatar_url ? `<img src="${esc(P.avatar_url)}" alt="" width="${tam}" height="${tam}">` : `<span>${ini}</span>`;
+  }
+  function pintarEu() {
+    document.getElementById("eu").hidden = false;
+    document.getElementById("euAv").innerHTML = avatarHTML(28);
+    document.getElementById("euNome").textContent = nomeExib();
+  }
+  async function reduzirFoto(file) {
+    const img = await createImageBitmap(file);
+    const lado = Math.min(img.width, img.height), T = 320;
+    const c = document.createElement("canvas"); c.width = T; c.height = T;
+    c.getContext("2d").drawImage(img, (img.width - lado) / 2, (img.height - lado) / 2, lado, lado, 0, 0, T, T);
+    return await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.86));
+  }
+  function perfilTela(recuperando) {
+    if (recuperando) sessionStorage.setItem("recuperando", "1");
+    const voltar = () => { if (location.hash) history.replaceState(null, "", location.pathname); if (!App.acessoOk(P) && !P.is_admin) return location.reload(); return P.onboarding_ok ? home() : onboarding(); };
+    V.onclick = null;
+    V.innerHTML = `<div class="hero"><h1>Meu<span class="script">perfil</span></h1></div>`
+      + (recuperando ? "" : win("Foto e nome", `<div class="perfil">
+          <div class="av av-g" id="avG">${avatarHTML(96)}</div>
+          <div class="stack" style="flex:1;min-width:0">
+            <label class="field"><span class="mono">Nome de usuário</span><input id="usuario" maxlength="30" value="${esc(P.usuario || nomeExib())}"></label>
+            <div class="row"><label class="btn" style="cursor:pointer">Escolher foto<input type="file" id="foto" accept="image/jpeg,image/png,image/webp" hidden></label>
+            ${P.avatar_url ? `<button class="btn ghost" id="tirarFoto">Remover foto</button>` : ""}<button class="btn solid" id="salvarPerfil">Salvar</button></div>
+            <span class="muted" style="font-size:13px">${esc(P.email)}</span>
+          </div></div><div id="msgPerfil"></div>`))
+      + win(recuperando ? "Crie sua senha nova" : "Trocar senha", `<form id="fSenha" class="stack" style="max-width:380px">
+          <label class="field"><span class="mono">Senha nova</span><input id="s1" type="password" minlength="8" autocomplete="new-password" required></label>
+          <label class="field"><span class="mono">Repita a senha</span><input id="s2" type="password" minlength="8" autocomplete="new-password" required></label>
+          <button class="btn solid">Salvar senha</button></form><div id="msgSenha"></div>`)
+      + (recuperando ? "" : `<div class="row" style="margin-top:16px"><button class="btn ghost" id="voltar">Voltar ao painel</button></div>`);
+    let novaFoto = null;
+    const q = (id) => document.getElementById(id);
+    if (q("voltar")) q("voltar").onclick = voltar;
+    if (q("foto")) q("foto").onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      if (f.size > 15 * 1024 * 1024) return toast("Foto muito grande.");
+      try { novaFoto = await reduzirFoto(f); q("avG").innerHTML = `<img src="${URL.createObjectURL(novaFoto)}" alt="" width="96" height="96">`; }
+      catch (_) { toast("Não consegui abrir essa imagem."); }
+    };
+    if (q("tirarFoto")) q("tirarFoto").onclick = async () => {
+      const { error } = await sb.from("perfis").update({ avatar_url: null }).eq("id", P.id);
+      if (error) return toast("Erro: " + error.message);
+      await sb.storage.from("avatares").remove([`${P.id}/foto.jpg`]);
+      P.avatar_url = null; pintarEu(); perfilTela(); toast("Foto removida");
+    };
+    if (q("salvarPerfil")) q("salvarPerfil").onclick = async () => {
+      const b = q("salvarPerfil"), usuario = q("usuario").value.trim();
+      if (usuario.length < 2) return (q("msgPerfil").innerHTML = `<div class="msg bad">O nome de usuário precisa ter pelo menos 2 letras.</div>`);
+      b.disabled = true; b.textContent = "Salvando…";
+      try {
+        const upd = { usuario };
+        if (novaFoto) {
+          const caminho = `${P.id}/foto.jpg`;
+          const up = await sb.storage.from("avatares").upload(caminho, novaFoto, { upsert: true, contentType: "image/jpeg", cacheControl: "60" });
+          if (up.error) throw up.error;
+          upd.avatar_url = sb.storage.from("avatares").getPublicUrl(caminho).data.publicUrl + "?v=" + Date.now();
+        }
+        const { error } = await sb.from("perfis").update(upd).eq("id", P.id); if (error) throw error;
+        Object.assign(P, upd); novaFoto = null; pintarEu(); toast("Perfil salvo");
+        q("msgPerfil").innerHTML = "";
+      } catch (e) { q("msgPerfil").innerHTML = `<div class="msg bad">Não consegui salvar: ${esc(e.message || e)}</div>`; }
+      b.disabled = false; b.textContent = "Salvar";
+    };
+    q("fSenha").onsubmit = async (e) => {
+      e.preventDefault();
+      const s1 = q("s1").value, s2 = q("s2").value;
+      if (s1.length < 8) return (q("msgSenha").innerHTML = `<div class="msg bad">Use pelo menos 8 caracteres.</div>`);
+      if (s1 !== s2) return (q("msgSenha").innerHTML = `<div class="msg bad">As duas senhas não são iguais.</div>`);
+      const { error } = await sb.auth.updateUser({ password: s1 });
+      if (error) return (q("msgSenha").innerHTML = `<div class="msg bad">${/same|different/i.test(error.message) ? "A senha nova precisa ser diferente da atual." : "Não consegui trocar: " + esc(error.message)}</div>`);
+      sessionStorage.removeItem("recuperando"); toast("Senha salva");
+      if (recuperando) return voltar();
+      q("fSenha").reset(); q("msgSenha").innerHTML = `<div class="msg">Senha trocada. Use a nova no próximo login.</div>`;
+    };
+  }
+
   async function home() {
     V.onclick = null;
     const [{ data: disc }, { data: provas }] = await Promise.all([
