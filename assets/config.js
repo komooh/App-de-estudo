@@ -8,4 +8,6 @@ window.APP_CONFIG = {
   CONTATO_EMAIL: "vini10arthur@gmail.com",
   CONTATO_WHATSAPP: "5567991265754", // só vira o botão "WhatsApp"; o número não aparece escrito no site
   RESPONSAVEL: "Arthur Vinicius de Almeida",
+  // E-mail de leitura do site no Google Drive: o aluno compartilha a pasta com ele (não é segredo)
+  DRIVE_EMAIL_LEITOR: "leitor-drive@painel-de-estudos-513000.iam.gserviceaccount.com",
 };
