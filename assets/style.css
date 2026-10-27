@@ -65,3 +65,14 @@ td{padding:8px;border-bottom:1px solid var(--line);font-size:14px;vertical-align
 td input,td select{background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:5px 6px}
 .toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:9px 16px;border-radius:999px;font-size:14px;z-index:20}
 @media (max-width:640px){.discrow{grid-template-columns:1fr}.provgrid{grid-template-columns:1fr 1fr}.provgrid .lbl{grid-column:1/-1}}
+/* rodapé */
+.rodape{background:#141311;color:#D9D3C8;margin-top:60px;padding:44px max(16px,env(safe-area-inset-left)) calc(24px + env(safe-area-inset-bottom))}
+.rd-in{max-width:1000px;margin:0 auto;display:grid;grid-template-columns:1.5fr .8fr 1fr 1.2fr 1.4fr;gap:24px}
+.rd-marca .brand{color:#F4EFE6;font-size:19px}
+.rd-marca p{color:#9A9388;font-size:13.5px;max-width:30ch;margin:10px 0 0}
+.rd-col{display:flex;flex-direction:column;gap:9px;min-width:0}
+.rd-col h4{margin:0 0 4px;font-size:13px;font-weight:500;color:#8A8378}
+.rd-col a{color:#F4EFE6;text-decoration:none;font-size:14px;font-weight:500;overflow-wrap:anywhere}
+.rd-col a:hover{text-decoration:underline}
+.rd-base{max-width:1000px;margin:34px auto 0;padding-top:16px;border-top:1px solid #2C2925;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12.5px;color:#8A8378}
+@media (max-width:760px){.rd-in{grid-template-columns:1fr 1fr}.rd-marca{grid-column:1/-1}}
