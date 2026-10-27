@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Painel de Estudos · Entrar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=DM+Mono:wght@400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Pinyon+Script&display=swap">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<div class="wrap narrow">
+  <div class="hero"><h1>Painel de<span class="script">estudos</span></h1></div>
+  <section class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>Entrar</div><div class="win-body">
+    <form id="f" class="stack">
+      <p class="muted" style="margin:0">Digite o e-mail que você usou para assinar. Vamos mandar um link de acesso, sem senha.</p>
+      <label class="field"><span class="mono">E-mail</span><input id="email" type="email" autocomplete="email" required placeholder="voce@email.com"></label>
+      <button class="btn solid" id="go">Receber link de acesso</button>
+    </form>
+    <div id="out"></div>
+  </div></section>
+  <p class="muted" style="text-align:center;font-size:13px;margin-top:18px">Ainda não tem acesso? Fale com o administrador da sua turma.</p>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.79.0/dist/umd/supabase.js"></script>
+<script src="/assets/config.js"></script>
+<script src="/assets/comum.js"></script>
+<script>
+(async () => {
+  const { sb, esc } = App;
+  // Se já está logado, vai direto para o painel
+  if (await App.sessao()) { location.replace("/app.html"); return; }
+  const out = document.getElementById("out"), go = document.getElementById("go");
+  document.getElementById("f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email = document.getElementById("email").value.trim().toLowerCase();
+    go.disabled = true; go.textContent = "Enviando…"; out.innerHTML = "";
+    const { error } = await sb.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false, emailRedirectTo: location.origin + "/app.html" },
+    });
+    go.disabled = false; go.textContent = "Receber link de acesso";
+    if (error) {
+      const semConta = /signups not allowed|not found|user/i.test(error.message);
+      const limite = /rate|seconds|limit/i.test(error.message);
+      out.innerHTML = `<div class="msg bad">${semConta ? "Não achamos uma conta com esse e-mail. Confira o endereço ou fale com o administrador." : limite ? "Muitos pedidos seguidos. Espere um minuto e tente de novo." : "Não consegui enviar agora: " + esc(error.message)}</div>`;
+      return;
+    }
+    out.innerHTML = `<div class="msg">Pronto! Abra o e-mail que enviamos para <b>${esc(email)}</b> e toque no link. Pode fechar esta página.</div>`;
+  });
+})();
+</script>
+</body>
+</html>

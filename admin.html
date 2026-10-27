@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Painel de Estudos · Administração</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=DM+Mono:wght@400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Pinyon+Script&display=swap">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/app.html">Painel de Estudos</a>
+    <div class="row" style="align-items:center"><a class="btn ghost" href="/app.html">Meu painel</a><button class="btn ghost" id="sair">Sair</button></div>
+  </header>
+  <div class="hero"><h1>Painel do<span class="script">administrador</span></h1></div>
+  <main id="view"><p class="muted">Carregando…</p></main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.79.0/dist/umd/supabase.js"></script>
+<script src="/assets/config.js"></script>
+<script src="/assets/comum.js"></script>
+<script>
+(async () => {
+  const { sb, esc, toast, win } = App;
+  const V = document.getElementById("view");
+  document.getElementById("sair").onclick = App.sair;
+  if (!(await App.sessao())) { location.replace("/"); return; }
+  const eu = await App.meuPerfil().catch(() => null);
+  if (!eu?.is_admin) { V.innerHTML = `<div class="msg bad">Esta página é só do administrador.</div>`; return; }
+
+  let alunos = [], facs = [], uso = {}, filtro = "";
+  const mes = App.isoHoje().slice(0, 8) + "01";
+  const somaDias = (iso, n) => { const d = iso && iso >= App.isoHoje() ? new Date(iso + "T12:00") : new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  function status(a) {
+    if (!a.ativo) return ["Bloqueado", "s-bad"];
+    if (a.vence_em && a.vence_em < App.isoHoje()) return ["Vencido", "s-bad"];
+    if (a.vence_em) { const n = Math.round((new Date(a.vence_em + "T00:00") - App.hoje()) / 864e5); if (n <= 5) return [`Vence em ${n}d`, "s-warn"]; }
+    return ["Em dia", "s-ok"];
+  }
+  async function carregar() {
+    const [a, f, u] = await Promise.all([
+      sb.from("perfis").select("*").order("criado_em", { ascending: false }),
+      sb.from("faculdades").select("id,nome"),
+      sb.from("uso_ia").select("*").eq("mes", mes),
+    ]);
+    if (a.error) { V.innerHTML = `<div class="msg bad">${esc(a.error.message)}</div>`; return; }
+    alunos = a.data; facs = f.data || []; uso = Object.fromEntries((u.data || []).map((x) => [x.aluno_id, x]));
+    draw();
+  }
+  function draw(msg) {
+    const fac = (id) => facs.find((f) => f.id === id)?.nome || "—";
+    const lista = alunos.filter((a) => !filtro || (a.nome || "").toLowerCase().includes(filtro) || a.email.includes(filtro));
+    const emDia = alunos.filter((a) => status(a)[1] === "s-ok" && !a.is_admin).length;
+    const rows = lista.map((a) => { const s = status(a), u = uso[a.id];
+      return `<tr data-id="${a.id}">
+        <td><b>${esc(a.nome || "—")}</b>${a.is_admin ? ` <span class="chip s-warn">admin</span>` : ""}<div class="muted" style="font-size:12.5px">${esc(a.email)}</div></td>
+        <td style="font-size:13px">${esc(fac(a.faculdade_id))}${a.semestre ? ` · ${a.semestre}º${a.turma ? " " + esc(a.turma) : ""}` : ""}${a.onboarding_ok ? "" : `<div class="muted">não configurou</div>`}</td>
+        <td><select data-k="plano"><option ${a.plano === "mensal" ? "selected" : ""}>mensal</option><option ${a.plano === "semestral" ? "selected" : ""}>semestral</option><option ${a.plano === "teste" ? "selected" : ""}>teste</option></select></td>
+        <td><input type="date" data-k="vence_em" value="${esc(a.vence_em || "")}"><div class="row" style="gap:4px;margin-top:4px"><button class="btn ghost" style="padding:2px 6px;font-size:12px" data-a="mais" data-n="30">+30d</button><button class="btn ghost" style="padding:2px 6px;font-size:12px" data-a="mais" data-n="180">+6m</button></div></td>
+        <td><span class="chip ${s[1]}">${s[0]}</span></td>
+        <td class="tnum" style="font-size:13px">${u ? `${u.resumos}/${a.limite_resumos_mes} resumos<br>${u.questoes} questões` : `0/${a.limite_resumos_mes}`}</td>
+        <td><div class="row" style="gap:6px"><button class="btn" data-a="salvar">Salvar</button><button class="btn ghost" data-a="ativo">${a.ativo ? "Bloquear" : "Liberar"}</button></div></td></tr>`; }).join("");
+    V.innerHTML = win("Novo aluno", `<form id="novo" class="row">
+        <label class="field" style="flex:1 1 180px"><span class="mono">Nome</span><input name="nome" required></label>
+        <label class="field" style="flex:1 1 220px"><span class="mono">E-mail</span><input name="email" type="email" required></label>
+        <label class="field" style="flex:0 1 130px"><span class="mono">Plano</span><select name="plano"><option>mensal</option><option>semestral</option><option>teste</option></select></label>
+        <label class="field" style="flex:0 1 160px"><span class="mono">Vence em</span><input name="vence_em" type="date" value="${somaDias(null, 30)}"></label>
+        <button class="btn solid">Criar e enviar convite</button></form>
+        <p class="muted" style="font-size:13px;margin:10px 0 0">O aluno recebe um e-mail com o link de acesso. Na primeira entrada, ele monta o painel (matérias e provas).</p>${msg ? `<div class="msg ${msg.bad ? "bad" : ""}">${esc(msg.t)}</div>` : ""}`)
+      + win(`Alunos · ${emDia} em dia de ${alunos.filter((a) => !a.is_admin).length}`, `<div class="row" style="margin-bottom:10px"><input class="inp" id="busca" placeholder="Buscar por nome ou e-mail" value="${esc(filtro)}" style="max-width:320px"></div>
+        <div class="tablewrap"><table><thead><tr><th>Aluno</th><th>Faculdade</th><th>Plano</th><th>Vencimento</th><th>Situação</th><th>IA no mês</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">Nenhum aluno.</td></tr>`}</tbody></table></div>`);
+  }
+  async function salvarLinha(tr, extra) {
+    const id = tr.dataset.id;
+    const upd = { plano: tr.querySelector('[data-k="plano"]').value, vence_em: tr.querySelector('[data-k="vence_em"]').value || null, ...extra };
+    const { error } = await sb.from("perfis").update(upd).eq("id", id);
+    if (error) return toast("Erro: " + error.message);
+    Object.assign(alunos.find((a) => a.id === id), upd); draw(); toast("Salvo");
+  }
+  V.addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-a]"); if (!b) return; const tr = b.closest("tr"); if (!tr) return;
+    const a = alunos.find((x) => x.id === tr.dataset.id);
+    if (b.dataset.a === "salvar") salvarLinha(tr);
+    if (b.dataset.a === "ativo") { if (a.id === eu.id && a.ativo) return toast("Você não pode bloquear a si mesmo."); salvarLinha(tr, { ativo: !a.ativo }); }
+    if (b.dataset.a === "mais") { const inp = tr.querySelector('[data-k="vence_em"]'); inp.value = somaDias(inp.value, +b.dataset.n); }
+  });
+  V.addEventListener("input", (e) => { if (e.target.id === "busca") { filtro = e.target.value.trim().toLowerCase(); const pos = e.target.selectionStart; draw(); const i = document.getElementById("busca"); i.focus(); i.setSelectionRange(pos, pos); } });
+  V.addEventListener("submit", async (e) => {
+    if (e.target.id !== "novo") return; e.preventDefault();
+    const fd = Object.fromEntries(new FormData(e.target)); const btn = e.target.querySelector("button"); btn.disabled = true; btn.textContent = "Criando…";
+    const { data, error } = await sb.functions.invoke("admin-criar-aluno", { body: { ...fd, redirectTo: location.origin + "/app.html" } });
+    let erro = data?.erro; if (!erro && error) { try { erro = (await error.context.json()).erro } catch (_) { erro = error.message } }
+    if (erro) return draw({ t: erro, bad: true });
+    await carregar(); draw({ t: `Convite enviado para ${fd.email}.` });
+  });
+  carregar();
+})();
+</script>
+</body>
+</html>

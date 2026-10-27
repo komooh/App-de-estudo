@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Painel de Estudos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=DM+Mono:wght@400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Pinyon+Script&display=swap">
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <a class="brand" href="/app.html">Painel de Estudos</a>
+    <div class="row" style="align-items:center"><span class="mono" id="quem"></span><a id="lnkAdmin" class="btn ghost" href="/admin.html" hidden>Administração</a><button class="btn ghost" id="sair">Sair</button></div>
+  </header>
+  <main id="view"><p class="muted">Carregando…</p></main>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.79.0/dist/umd/supabase.js"></script>
+<script src="/assets/config.js"></script>
+<script src="/assets/comum.js"></script>
+<script>
+(async () => {
+  const { sb, esc, toast, win } = App;
+  const V = document.getElementById("view");
+  document.getElementById("sair").onclick = App.sair;
+
+  // Espera o Supabase ler o link mágico da URL (se veio do e-mail)
+  const s = await App.sessao();
+  if (!s) { location.replace("/"); return; }
+  let P;
+  try { P = await App.meuPerfil(); } catch (e) { V.innerHTML = `<div class="msg bad">Não consegui carregar seu perfil: ${esc(e.message)}</div>`; return; }
+  document.getElementById("quem").textContent = P.email;
+  if (P.is_admin) document.getElementById("lnkAdmin").hidden = false;
+
+  if (!App.acessoOk(P)) {
+    const venceu = P.ativo && P.vence_em;
+    V.innerHTML = `<div class="hero"><h1>Acesso<span class="script">${venceu ? "vencido" : "pendente"}</span></h1></div>` + win("Seu acesso",
+      `<p style="margin:0">${venceu ? `Sua assinatura venceu em <b>${new Date(P.vence_em + "T12:00").toLocaleDateString("pt-BR")}</b>. Fale com o administrador para renovar; seus dados continuam guardados.` : "Sua conta ainda não foi liberada. Fale com o administrador da sua turma."}</p>`);
+    if (!P.is_admin) return;
+  }
+  if (!P.onboarding_ok) return onboarding();
+  return home();
+
+  /* ================= CONFIGURAÇÃO GUIADA (primeira entrada) ================= */
+  async function onboarding() {
+    const { data: facs } = await sb.from("faculdades").select("*").eq("ativa", true).order("nome");
+    const st = { passo: 1, nome: P.nome || "", faculdade_id: P.faculdade_id || facs?.[0]?.id || null, semestre: P.semestre || "", turma: P.turma || "",
+      disc: [{ nome: "", professor: "", tem_pratica: false }], provas: {} };
+    const PASSOS = ["Você", "Matérias", "Provas", "Notas"];
+    const fac = () => (facs || []).find((f) => f.id == st.faculdade_id);
+    const kinds = (d) => [["P1", "teorica"], ["P2", "teorica"], ["Final", "teorica"], ...(d.tem_pratica ? [["P1", "pratica"], ["P2", "pratica"], ["Final", "pratica"]] : [])];
+    const kKey = (i, t, m) => `${i}|${t}|${m}`;
+    const lbl = (t, m) => `${t} ${m === "pratica" ? "prática" : "teórica"}`;
+    function draw(err) {
+      let body = "";
+      if (st.passo === 1) body = `
+        <label class="field"><span class="mono">Seu nome</span><input id="nome" value="${esc(st.nome)}" required></label>
+        <label class="field"><span class="mono">Faculdade</span><select id="fac">${(facs || []).map((f) => `<option value="${f.id}" ${f.id == st.faculdade_id ? "selected" : ""}>${esc(f.nome)}</option>`).join("")}</select></label>
+        <div class="row"><label class="field" style="flex:1"><span class="mono">Semestre</span><select id="sem"><option value="">—</option>${Array.from({ length: 12 }, (_, i) => `<option ${st.semestre == i + 1 ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label>
+        <label class="field" style="flex:1"><span class="mono">Turma (opcional)</span><input id="turma" value="${esc(st.turma)}" placeholder="Ex.: F"></label></div>`;
+      if (st.passo === 2) body = `<p class="muted" style="margin:0">Coloque todas as matérias deste semestre. Marque "tem prática" nas que têm prova prática separada.</p>
+        ${st.disc.map((d, i) => `<div class="discrow">
+          <label class="field"><span class="mono">Matéria</span><input data-d="${i}" data-k="nome" value="${esc(d.nome)}" placeholder="Ex.: Farmacologia 2"></label>
+          <label class="field"><span class="mono">Professor</span><input data-d="${i}" data-k="professor" value="${esc(d.professor)}" placeholder="Opcional"></label>
+          <label class="check"><input type="checkbox" data-d="${i}" data-k="tem_pratica" ${d.tem_pratica ? "checked" : ""}>tem prática</label>
+          <button class="btn ghost" data-a="rmDisc" data-i="${i}" aria-label="Remover matéria" ${st.disc.length < 2 ? "disabled" : ""}>Remover</button></div>`).join("")}
+        <button class="btn" data-a="addDisc" style="align-self:flex-start">+ Adicionar matéria</button>`;
+      if (st.passo === 3) body = `<p class="muted" style="margin:0">As datas são obrigatórias: é com elas que a agenda monta seu plano de estudo. Se ainda não saiu a data de alguma, coloque a data prevista e ajuste depois.</p>
+        ${st.disc.map((d, i) => `<div class="card"><h3>${esc(d.nome)}</h3><div class="provgrid">${kinds(d).map(([t, m]) => { const v = st.provas[kKey(i, t, m)] || {};
+          return `<span class="lbl">${lbl(t, m)}</span><input class="inp" type="date" data-p="${kKey(i, t, m)}" data-k="data" value="${esc(v.data || "")}" aria-label="${esc(d.nome)} ${lbl(t, m)} data"><input class="inp" type="time" data-p="${kKey(i, t, m)}" data-k="hora" value="${esc(v.hora || "07:00")}" aria-label="hora">`; }).join("")}</div></div>`).join("")}`;
+      if (st.passo === 4) { const r = fac()?.regra_notas || {};
+        body = `<p style="margin:0">Regra de notas da <b>${esc(fac()?.nome || "faculdade")}</b> (já preenchida):</p>
+        <ul style="margin:0;padding-left:20px">
+          <li>Total de <b>${r.total ?? 100}</b> pontos por matéria; aprova com <b>${r.aprova ?? 60}</b>.</li>
+          <li>P1 vale ${r.p1 ?? 20} e P2 vale ${r.p2 ?? 20}.</li>
+          <li>Final: ${r.final_sem_pratica ?? 40} sem prática, ou ${r.final_teorica_com_pratica ?? 30} teórica + ${r.final_pratica ?? 10} prática.</li>
+          <li>Nota de processo até ${r.processo_max ?? 20} (práticas, presença e trabalhos).</li></ul>
+        <p class="muted" style="margin:0">Se alguma regra estiver diferente, avise o administrador.</p>`; }
+      V.innerHTML = `<div class="hero"><h1>Vamos montar<span class="script">seu painel</span></h1></div>` + win(`Passo ${st.passo} de 4 · ${PASSOS[st.passo - 1]}`,
+        `<div class="steps">${PASSOS.map((_, i) => `<i class="${i < st.passo ? "on" : ""}"></i>`).join("")}</div>
+        <div class="stack">${body}</div>${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
+        <div class="row" style="justify-content:space-between;margin-top:18px"><button class="btn ghost" data-a="volta" ${st.passo === 1 ? "disabled" : ""}>Voltar</button>
+        <button class="btn solid" data-a="segue">${st.passo === 4 ? "Concluir e abrir meu painel" : "Continuar"}</button></div>`);
+    }
+    function ler() {
+      if (st.passo === 1) { st.nome = V.querySelector("#nome").value.trim(); st.faculdade_id = V.querySelector("#fac").value; st.semestre = V.querySelector("#sem").value; st.turma = V.querySelector("#turma").value.trim(); }
+      V.querySelectorAll("[data-d]").forEach((el) => { const d = st.disc[+el.dataset.d]; if (d) d[el.dataset.k] = el.type === "checkbox" ? el.checked : el.value.trim(); });
+      V.querySelectorAll("[data-p]").forEach((el) => { (st.provas[el.dataset.p] = st.provas[el.dataset.p] || {})[el.dataset.k] = el.value; });
+    }
+    function valida() {
+      if (st.passo === 1) { if (!st.nome) return "Escreva seu nome."; if (!st.faculdade_id) return "Escolha a faculdade."; if (!st.semestre) return "Escolha o semestre."; }
+      if (st.passo === 2) { st.disc = st.disc.filter((d) => d.nome || d.professor); if (!st.disc.length) { st.disc = [{ nome: "", professor: "", tem_pratica: false }]; return "Coloque pelo menos uma matéria."; }
+        if (st.disc.some((d) => !d.nome)) return "Toda matéria precisa de nome."; }
+      if (st.passo === 3) { for (let i = 0; i < st.disc.length; i++) for (const [t, m] of kinds(st.disc[i])) if (!st.provas[kKey(i, t, m)]?.data) return `Falta a data de ${lbl(t, m)} de ${st.disc[i].nome}.`; }
+      return "";
+    }
+    async function salvar() {
+      V.querySelector('[data-a="segue"]').disabled = true; V.querySelector('[data-a="segue"]').textContent = "Salvando…";
+      try {
+        let r = await sb.from("perfis").update({ nome: st.nome, faculdade_id: +st.faculdade_id, semestre: +st.semestre, turma: st.turma || null }).eq("id", P.id); if (r.error) throw r.error;
+        r = await sb.from("disciplinas").delete().eq("aluno_id", P.id); if (r.error) throw r.error; // recomeço limpo se a 1ª tentativa falhou no meio
+        r = await sb.from("disciplinas").insert(st.disc.map((d, i) => ({ nome: d.nome, professor: d.professor || null, tem_pratica: !!d.tem_pratica, ordem: i }))).select("id"); if (r.error) throw r.error;
+        const ids = r.data.map((x) => x.id);
+        const provas = []; st.disc.forEach((d, i) => kinds(d).forEach(([t, m]) => { const v = st.provas[kKey(i, t, m)]; provas.push({ disciplina_id: ids[i], tipo: t, modalidade: m, data: v.data, hora: v.hora || null }); }));
+        r = await sb.from("provas").insert(provas); if (r.error) throw r.error;
+        r = await sb.from("perfis").update({ onboarding_ok: true }).eq("id", P.id); if (r.error) throw r.error;
+        P = await App.meuPerfil(); toast("Painel pronto!"); home();
+      } catch (e) { draw("Não consegui salvar: " + (e.message || e)); }
+    }
+    V.onclick = async (e) => {
+      const b = e.target.closest("[data-a]"); if (!b) return; ler();
+      if (b.dataset.a === "addDisc") { st.disc.push({ nome: "", professor: "", tem_pratica: false }); draw(); V.querySelectorAll('[data-k="nome"]')[st.disc.length - 1]?.focus(); }
+      if (b.dataset.a === "rmDisc") { st.disc.splice(+b.dataset.i, 1); draw(); }
+      if (b.dataset.a === "volta") { st.passo--; draw(); }
+      if (b.dataset.a === "segue") { const err = valida(); if (err) return draw(err); if (st.passo < 4) { st.passo++; draw(); window.scrollTo(0, 0); } else salvar(); }
+    };
+    draw();
+  }
+
+  /* ================= INÍCIO (os módulos completos chegam na Etapa 3) ================= */
+  async function home() {
+    V.onclick = null;
+    const [{ data: disc }, { data: provas }] = await Promise.all([
+      sb.from("disciplinas").select("*").order("ordem"),
+      sb.from("provas").select("*").gte("data", App.isoHoje()).order("data").order("hora"),
+    ]);
+    const nomeD = (id) => (disc || []).find((d) => d.id === id)?.nome || "";
+    const dias = (d) => Math.round((new Date(d + "T00:00") - App.hoje()) / 864e5);
+    const prox = (provas || []).slice(0, 6).map((p) => { const n = dias(p.data);
+      return `<div class="card"><span class="mono">${esc(p.tipo)} ${p.modalidade === "pratica" ? "prática" : "teórica"} · ${new Date(p.data + "T12:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" })}${p.hora ? " · " + p.hora.slice(0, 5) : ""}</span><h3>${esc(nomeD(p.disciplina_id))}</h3><div class="big tnum">${n === 0 ? "Hoje" : n === 1 ? "Amanhã" : n + " dias"}</div></div>`; }).join("");
+    V.innerHTML = `<div class="hero"><h1>Olá, ${esc((P.nome || "").split(" ")[0] || "")}<span class="script">bons estudos</span></h1></div>`
+      + win("Próximas provas", prox ? `<div class="cards">${prox}</div>` : `<div class="empty">Nenhuma prova futura cadastrada.</div>`)
+      + win("Minhas matérias", (disc || []).length ? `<div class="cards">${disc.map((d) => `<div class="card"><h3>${esc(d.nome)}</h3><span class="muted" style="font-size:13px">${esc(d.professor || "")}</span>${d.tem_pratica ? `<span class="chip s-warn" style="align-self:flex-start">tem prática</span>` : ""}</div>`).join("")}</div>` : `<div class="empty">Nenhuma matéria.</div>`)
+      + win("Em breve", `<p style="margin:0" class="muted">Agenda de estudos, temas de cada prova, resumos, banco de questões e calculadora de pontos chegam na próxima etapa.</p>`);
+  }
+})();
+</script>
+</body>
+</html>
