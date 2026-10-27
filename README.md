@@ -18,6 +18,8 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `supabase/03_drive.sql` | Tabelas do Google Drive (pastas ligadas, conexão e materiais) |
 | `supabase/functions/drive-oauth` | Função do botão "Entrar com o Google" |
 | `supabase/functions/drive-varrer` | Função que lê a pasta do Drive, liga os arquivos às matérias e cria os temas |
+| `supabase/04_semestres.sql` | Semestres de cada aluno (o histórico fica guardado) e a lista de matérias de cada semestre |
+| `supabase/05_livros.sql` | Livros dos alunos (só o texto) e a busca dentro deles |
 
 ## Como colocar no ar (uma vez)
 
@@ -59,6 +61,32 @@ Cada aluno liga a pasta dele de um destes dois jeitos: **compartilhando a pasta*
 8. **(Opcional) Ler as pastas sozinho todo dia:** no fim do `03_drive.sql` há um bloco comentado com o agendamento (pg_cron + pg_net + Vault). Só use se quiser.
 
 Arquivos lidos: PDF com texto, Word (.docx), PowerPoint (.pptx), Google Docs, Google Slides, .txt e .md. PDF escaneado (só imagem) aparece como "sem texto"; arquivos acima de 25 MB, como "grande demais".
+
+### 6. Semestres
+Quando o aluno passa de semestre, ele **não precisa de conta nova**. No perfil (clique no nome dele, no alto) aparece **Meu semestre**, com o semestre atual e o botão **Adicionar semestre**. Esse botão abre a mesma configuração do começo (semestre, turma, matérias com professores, datas das provas; nada é obrigatório). Ao concluir, o semestre anterior é encerrado e fica guardado com tudo: matérias, provas, notas, temas e materiais. Ele aparece no perfil em **Semestres anteriores**, só para consulta. O painel mostra só o semestre atual.
+
+Ao escolher o semestre, as matérias já vêm preenchidas pela lista da faculdade (1º ao 8º semestre da Universidad Interamericana; 9º e 10º ainda sem lista). O aluno pode mudar o nome, tirar ou adicionar matérias. As "Optativa" vêm com um aviso para trocar pelo nome da optativa dele. Você mantém essa lista na página de administração, na janela **Matérias por semestre**.
+
+O que fazer (uma vez):
+1. Supabase → **SQL Editor** → **New query**. Cole todo o `supabase/04_semestres.sql` e clique em **Run**. Ele cria o semestre atual de quem já usa o site, com as matérias que a pessoa já tem.
+2. **Republique a drive-varrer colando o novo index.ts** (Edge Functions → drive-varrer → Code → apague tudo, cole `supabase/functions/drive-varrer/index.ts` e clique em **Deploy**). A função nova liga os arquivos só às matérias do semestre atual (os arquivos já ligados a semestres antigos continuam lá) e entende nomes em espanhol e em português (ex.: pasta "Farmacologia 2" = "Farmacología II", "Anatopato" = "Anatomía Patológica", "Gestão" = "Gestión").
+
+Ainda não dá para editar as matérias do semestre atual depois de configurado (só criando um semestre novo). Isso fica para a próxima etapa.
+
+### 7. Livros
+Cada aluno tem a janela **Meus livros**, com o botão **Adicionar livro**. Ele escolhe o arquivo (PDF, EPUB, Word .docx ou .txt). O **próprio navegador** do aluno lê o texto página por página (com barra de progresso) e grava **só o texto**, em trechos de cerca de 2.000 letras com o número da página. O arquivo do livro **não** é enviado nem guardado, então não gasta o espaço de arquivos do Supabase. O livro fica só na conta do aluno: ninguém mais vê (nem o administrador, que vê só a lista de títulos).
+
+Embaixo tem **Procurar nos meus livros**, para testar: mostra o livro, a página e o trecho com as palavras achadas. A busca ignora acentos e plural ("pneumonia" acha "pneumonias"; "coracao" acha "coração"). É essa busca que os resumos vão usar depois, para mostrar o que o livro diz e deixar o aluno escolher "do jeito do professor" ou "corrigido pelos livros".
+
+O que fazer (uma vez):
+1. Supabase → **SQL Editor** → **New query**. Cole todo o `supabase/05_livros.sql` e clique em **Run** (depois do 04).
+2. Mais nada: não há função nova para publicar.
+
+Limites e espaço:
+- Cada aluno pode ter **5 livros** e no máximo **8.000 trechos** somando todos (cerca de 3.500 páginas). Para mudar, edite os números na função `limites_livros()` no começo do `05_livros.sql` e rode de novo.
+- Um livro de 1.000 páginas ocupa uns 5 a 8 MB no banco. O plano grátis tem 500 MB no total: acompanhe em **Project Settings → Usage** (Database size). Com muitos alunos usando livros, vai precisar do plano Pro.
+- PDF escaneado (páginas que são fotos) não tem texto: o site avisa e não grava nada.
+- Livros muito grandes (mais de 1.000 páginas) podem demorar alguns minutos e pesar no celular; no computador é melhor. Se a página for fechada no meio, o livro aparece como "incompleto": é só apagar e enviar de novo.
 
 ## Configuração pública
 `assets/config.js` tem só a URL do projeto e a chave **publishable** do Supabase, que podem ficar no navegador. A chave secreta (service_role) e a chave da API do Claude **nunca** entram neste repositório.

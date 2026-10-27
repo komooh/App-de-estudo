@@ -17,6 +17,7 @@
   </header>
   <div class="hero"><h1>Painel do<span class="script">administrador</span></h1></div>
   <main id="view"><p class="muted">Carregando…</p></main>
+  <div id="cat"></div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.79.0/dist/umd/supabase.js"></script>
 <script src="/assets/config.js"></script>
@@ -48,7 +49,7 @@
     ]);
     if (a.error) { V.innerHTML = `<div class="msg bad">${esc(a.error.message)}</div>`; return; }
     alunos = a.data; facs = f.data || []; uso = Object.fromEntries((u.data || []).map((x) => [x.aluno_id, x]));
-    draw();
+    draw(); if (!CAT.iniciado) { CAT.iniciado = true; catTela(); }
   }
   function draw(msg) {
     const fac = (id) => facs.find((f) => f.id === id)?.nome || "Não informada";
@@ -99,6 +100,48 @@
     if (erro) return draw({ t: erro, bad: true });
     await carregar(); draw({ t: data?.convite ? `Convite enviado para ${fd.email}.` : `Conta criada. Passe para o aluno: e-mail ${fd.email} e senha ${fd.senha}` });
   });
+  /* ---------- Matérias por semestre (catálogo usado na configuração do aluno) ---------- */
+  const CAT = { iniciado: false, fac: null, sem: 1, msg: null };
+  async function catTela() {
+    const box = document.getElementById("cat");
+    if (!CAT.fac) CAT.fac = (facs.find((f) => f.nome === "Universidad Interamericana") || facs[0])?.id;
+    const { data, error } = CAT.fac ? await sb.from("catalogo_materias").select("id,nome,ordem").eq("faculdade_id", CAT.fac).eq("semestre", CAT.sem).order("ordem").order("nome") : { data: [] };
+    const lista = data || [];
+    box.innerHTML = win("Matérias por semestre", `<p class="muted" style="margin:0 0 12px;font-size:13.5px">Quando o aluno escolhe o semestre na configuração, o painel já coloca estas matérias. Ele pode mudar, tirar ou adicionar outras. Mudar aqui não altera quem já configurou.</p>
+      <div class="row" style="margin-bottom:12px"><label class="field" style="flex:1 1 220px"><span class="mono">Faculdade</span><select id="catFac">${facs.map((f) => `<option value="${f.id}" ${f.id == CAT.fac ? "selected" : ""}>${esc(f.nome)}</option>`).join("")}</select></label>
+        <label class="field" style="flex:0 1 140px"><span class="mono">Semestre</span><select id="catSem">${Array.from({ length: 10 }, (_, i) => `<option value="${i + 1}" ${CAT.sem == i + 1 ? "selected" : ""}>${i + 1}º</option>`).join("")}</select></label></div>
+      ${error ? `<div class="msg bad">${/catalogo|schema cache|relation/i.test(error.message) ? "Falta rodar o 04_semestres.sql no Supabase." : esc(error.message)}</div>`
+        : lista.length ? `<ul class="cat-lista">${lista.map((m) => `<li data-id="${m.id}"><input class="inp" value="${esc(m.nome)}" maxlength="120" aria-label="Nome da matéria"><button class="btn" data-c="renomear">Salvar</button><button class="btn ghost" data-c="tirar">Remover</button></li>`).join("")}</ul>`
+        : `<div class="empty">Nenhuma matéria neste semestre. Os alunos vão digitar as deles.</div>`}
+      <form id="catNovo" class="row" style="margin-top:12px"><label class="field" style="flex:1 1 220px"><span class="mono">Nova matéria</span><input name="nome" maxlength="120" required placeholder="Ex.: Pediatría"></label><button class="btn solid">Adicionar</button></form>
+      ${CAT.msg ? `<div class="msg ${CAT.msg.bad ? "bad" : ""}">${esc(CAT.msg.t)}</div>` : ""}`);
+    CAT.msg = null;
+    box.querySelector("#catFac").onchange = (e) => { CAT.fac = +e.target.value; catTela(); };
+    box.querySelector("#catSem").onchange = (e) => { CAT.sem = +e.target.value; catTela(); };
+    box.querySelector("#catNovo").onsubmit = async (e) => {
+      e.preventDefault(); const nome = e.target.nome.value.trim(); if (!nome) return;
+      const ordem = lista.reduce((m, x) => Math.max(m, x.ordem), -1) + 1;
+      const { error } = await sb.from("catalogo_materias").insert({ faculdade_id: CAT.fac, semestre: CAT.sem, nome, ordem });
+      CAT.msg = error ? { bad: true, t: /duplicate|unique/i.test(error.message) ? "Essa matéria já está na lista." : "Erro: " + error.message } : null;
+      if (!error) toast("Matéria adicionada"); catTela();
+    };
+    box.querySelector(".win-body").onclick = async (e) => {
+      const b = e.target.closest("[data-c]"); if (!b) return;
+      const li = b.closest("li"), id = li.dataset.id;
+      if (b.dataset.c === "renomear") {
+        const nome = li.querySelector("input").value.trim(); if (!nome) return toast("Escreva o nome.");
+        const { error } = await sb.from("catalogo_materias").update({ nome }).eq("id", id);
+        if (error) return toast(/duplicate|unique/i.test(error.message) ? "Essa matéria já está na lista." : "Erro: " + error.message);
+        toast("Salvo");
+      }
+      if (b.dataset.c === "tirar") {
+        if (!confirm(`Remover "${li.querySelector("input").value}" da lista do ${CAT.sem}º semestre?`)) return;
+        const { error } = await sb.from("catalogo_materias").delete().eq("id", id);
+        if (error) return toast("Erro: " + error.message);
+        toast("Removida"); catTela();
+      }
+    };
+  }
   carregar();
 })();
 </script>

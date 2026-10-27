@@ -72,13 +72,31 @@ function idDaPasta(entrada: string): string | null {
   return m ? m[1] : null;
 }
 
+// >>> nomes das matérias (testado em teste_materias.ts)
 const PALAVRAS_VAZIAS = new Set(["de", "da", "do", "das", "dos", "e", "a", "o", "as", "os", "em", "na", "no", "nas", "nos", "para", "y", "la", "el", "del", "los", "las", "en",
   "materia", "disciplina", "aula", "aulas", "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x"]);
 const ROMANOS: Record<string, string> = { i: "1", ii: "2", iii: "3", iv: "4", v: "5", vi: "6", vii: "7", viii: "8", ix: "9", x: "10" };
 function semAcento(s: string) { return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase(); }
-/** Palavras que importam no nome (sem acento, sem número, sem "de/da/e"). */
+// Nomes em espanhol (catálogo da faculdade) e em português/abreviados (pastas do aluno) viram a mesma forma.
+const EXPRESSOES: [RegExp, string][] = [
+  [/\banatomia patologica\b|\banatomopatologia\b|\banatomo patologia\b|\banatopato(logia)?\b|\banatomopato\b/g, "anatomopatologia"],
+  [/\bprimeiros socorros\b/g, "primeros auxilios"],
+  [/\blingua (castelhana|espanhola)\b|\bespanhol\b|\bcastellano\b/g, "lengua castellana"],
+];
+const SINONIMOS: Record<string, string> = {
+  gestao: "gestion", cirurgia: "cirugia", pneumologia: "neumologia", pneumo: "neumo", imunologia: "inmunologia",
+  bioestatistica: "bioestadistica", nutricao: "nutricion", redacao: "redaccion", fisiopato: "fisiopatologia", saude: "salud",
+};
+function canonica(w: string): string {
+  if (SINONIMOS[w]) return SINONIMOS[w];
+  if (w.length > 5 && w.endsWith("cao")) return w.slice(0, -3) + "cion";   // educação -> educacion
+  return w;
+}
+/** Palavras que importam no nome (sem acento, sem número, sem "de/da/e"), já no mesmo idioma. */
 function palavras(s: string): string[] {
-  return semAcento(s).replace(/[^a-z]+/g, " ").split(" ").filter((w) => w.length > 1 && !PALAVRAS_VAZIAS.has(w));
+  let t = semAcento(s).replace(/[^a-z]+/g, " ").replace(/\s+/g, " ").trim();
+  for (const [re, por] of EXPRESSOES) t = t.replace(re, por);
+  return t.split(" ").map(canonica).filter((w) => w.length > 1 && !PALAVRAS_VAZIAS.has(w));
 }
 /** Número do nome (Farmacologia 2 / Farmacologia II) ou null. */
 function numeroDoNome(s: string): string | null {
@@ -103,7 +121,7 @@ function notaMateria(pasta: string, materia: string): number {
   }
   if (!n) return 0;
   const na = numeroDoNome(pasta), nb = numeroDoNome(materia);
-  if (na && nb) n += na === nb ? 0.5 : -1;
+  if (na && nb) { if (na !== nb) return 0; n += 0.5; }   // "Farmacologia 1" nunca é "Farmacología II"
   return n > 0 ? n : 0;
 }
 /** Escolhe a matéria pelo caminho: 1ª subpasta, depois as mais fundas, por último a pasta raiz. */
@@ -119,6 +137,7 @@ function materiaDoCaminho(caminho: string[], materias: { id: number; nome: strin
   }
   return null;
 }
+// <<< nomes das matérias
 /** Nome do tema a partir do nome do arquivo. */
 function nomeDoTema(arquivo: string): string {
   let s = String(arquivo || "").replace(/\.(pdf|pptx?|docx?|txt|md|key|odt|odp)$/i, "");
@@ -357,13 +376,17 @@ async function varrerFonte(admin: SupabaseClient, f: Fonte, inicio: number, r: R
     });
     const arquivos = await listarTudo(token, raiz, inicio + ORCAMENTO_MS - 20_000);
 
-    // matérias e temas do aluno
+    // matérias do semestre ATUAL do aluno (as de semestres anteriores não recebem arquivos novos)
+    const { data: semAtual, error: e0 } = await admin.from("semestres").select("id").eq("aluno_id", f.aluno_id).eq("atual", true).maybeSingle();
+    let consultaMaterias = admin.from("disciplinas").select("id,nome").eq("aluno_id", f.aluno_id);
+    if (!e0 && semAtual) consultaMaterias = consultaMaterias.eq("semestre_id", semAtual.id); // sem a tabela de semestres: usa todas
     const [{ data: materias, error: e1 }, { data: temas, error: e2 }, { data: existentes, error: e3 }] = await Promise.all([
-      admin.from("disciplinas").select("id,nome").eq("aluno_id", f.aluno_id),
+      consultaMaterias,
       admin.from("temas").select("id,disciplina_id,nome").eq("aluno_id", f.aluno_id),
       admin.from("materiais").select("id,fonte_id,drive_file_id,modificado_em,status,tema_id,disciplina_id").eq("aluno_id", f.aluno_id),
     ]);
     if (e1 || e2 || e3) throw new Error("banco: " + (e1 || e2 || e3)!.message);
+    const atuais = new Set((materias || []).map((m) => m.id));
     const porArquivo = new Map((existentes || []).map((m) => [m.drive_file_id, m]));
     const temaPorChave = new Map<string, number>();
     const temaIds = new Set<number>();
@@ -371,12 +394,15 @@ async function varrerFonte(admin: SupabaseClient, f: Fonte, inicio: number, r: R
 
     // 1) matéria de cada arquivo e temas que faltam
     const linhas = arquivos.map((a) => {
-      const disciplina_id = materiaDoCaminho(a.caminho, materias || []);
-      return { a, disciplina_id, temaNome: nomeDoTema(a.name), velho: porArquivo.get(a.id) };
+      const velho = porArquivo.get(a.id);
+      // arquivo já ligado a uma matéria de semestre anterior: continua lá (o histórico não muda)
+      const antigo = !!velho?.disciplina_id && !atuais.has(velho.disciplina_id);
+      const disciplina_id = antigo ? velho!.disciplina_id : materiaDoCaminho(a.caminho, materias || []);
+      return { a, disciplina_id, antigo, temaNome: nomeDoTema(a.name), velho };
     });
     const novosTemas = new Map<string, { aluno_id: string; disciplina_id: number; nome: string; origem: string }>();
     for (const l of linhas) {
-      if (!l.disciplina_id) continue;
+      if (!l.disciplina_id || l.antigo) continue;
       if (l.velho?.tema_id && temaIds.has(l.velho.tema_id) && l.velho.disciplina_id === l.disciplina_id) continue;
       const k = `${l.disciplina_id}|${chaveTema(l.temaNome)}`;
       if (!temaPorChave.has(k) && !novosTemas.has(k)) novosTemas.set(k, { aluno_id: f.aluno_id, disciplina_id: l.disciplina_id, nome: l.temaNome, origem: "drive" });

@@ -38,9 +38,48 @@
   const DRV = { aba: null, ocupado: false, msg: null, volta: driveVolta };
   const DRV_STATUS = { ok: ["s-ok", "em dia"], varrendo: ["s-warn", "lendo"], pendente: ["s-warn", "falta ler"], erro: ["s-bad", "erro"], reconectar: ["s-bad", "reconectar"] };
   const MAT_STATUS = { ok: ["s-ok", "lido"], pendente: ["s-ok", "pronto"], sem_texto: ["s-warn", "sem texto"], grande_demais: ["s-warn", "grande demais"], erro: ["s-bad", "erro"] };
+  // livros (o resto do código dos livros está no fim, em "LIVROS")
+  const PDFJS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/legacy/build/";
+  const JSZIP = { src: "https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js", sri: "sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" };
+  const LIV = { ocupado: false, aberto: false, msg: null, arq: null, pdf: null, busca: "", res: null };
+  const LIV_STATUS = { ok: ["s-ok", "pronto"], processando: ["s-warn", "incompleto"], erro: ["s-bad", "erro"] };
+  const FORMATOS = { pdf: "PDF", epub: "EPUB", docx: "Word", txt: "Texto" };
+  let pdfjsLib = null;
+  async function carregarPdfjs() {
+    if (pdfjsLib) return pdfjsLib;
+    pdfjsLib = await import(PDFJS + "pdf.min.mjs");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + "pdf.worker.min.mjs";
+    return pdfjsLib;
+  }
+  function carregarJSZip() {
+    if (window.JSZip) return Promise.resolve(window.JSZip);
+    return new Promise((ok, falha) => { const s = document.createElement("script"); s.src = JSZIP.src; s.integrity = JSZIP.sri; s.crossOrigin = "anonymous";
+      s.onload = () => ok(window.JSZip); s.onerror = () => falha(new Error("Não consegui carregar o leitor de EPUB/Word. Confira a internet.")); document.head.appendChild(s); });
+  }
+  const formatoDe = (f) => { const ext = (f.name.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase();
+    return ext === "pdf" || f.type === "application/pdf" ? "pdf" : ext === "epub" ? "epub" : ext === "docx" ? "docx" : ext === "txt" || ext === "md" ? "txt" : null; };
+  const tituloDoArquivo = (n) => n.replace(/\.[a-z0-9]+$/i, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 300);
+  // texto limpo: sem caracteres de controle (o banco recusa \0), palavras hifenizadas no fim da linha juntadas
+  const limpar = (t) => String(t || "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ")
+    .replace(/(\p{L})-\s*\n\s*(\p{Ll})/gu, "$1$2").replace(/\s+/g, " ").trim();
+  const onde = (t, formato) => { // "p. 10" / "p. 10 a 11" / "seção 3"
+    if (t.pagina_ini == null) return "";
+    const pal = formato === "pdf" ? "p." : "seção";
+    return t.pagina_fim && t.pagina_fim !== t.pagina_ini ? `${pal} ${t.pagina_ini} a ${t.pagina_fim}` : `${pal} ${t.pagina_ini}`;
+  };
+
   const VOLTA_MSG = { conectado: "Google conectado. Agora cole o link da pasta.", negado: "Você não deu a permissão no Google.",
     expirou: "O pedido expirou. Tente conectar de novo.", sem_permissao: "Marque a permissão de ver os arquivos do Drive e tente de novo.", erro: "Não consegui conectar com o Google. Tente de novo." };
   let P;
+  // semestres: ok=false quando o 04_semestres.sql ainda não rodou (o painel funciona do jeito antigo)
+  let SEM = { ok: false, atual: null, lista: [] };
+  async function carregarSemestres() {
+    const { data, error } = await sb.from("semestres").select("*").order("inicio").order("id");
+    SEM = error ? { ok: false, atual: null, lista: [] } : { ok: true, lista: data || [], atual: (data || []).find((x) => x.atual) || null };
+    return SEM;
+  }
+  const nomeSem = (x) => x?.numero ? `${x.numero}º semestre` : "Semestre sem número";
+  const dataBR = (d) => d ? new Date(d + "T12:00").toLocaleDateString("pt-BR") : "";
   try { P = await App.meuPerfil(); } catch (e) { V.innerHTML = `<div class="msg bad">Não consegui carregar seu perfil: ${esc(e.message)}</div>`; return; }
   pintarEu();
   document.getElementById("eu").onclick = () => perfilTela();
@@ -58,10 +97,28 @@
   return home();
 
   /* ================= CONFIGURAÇÃO GUIADA (primeira entrada) ================= */
-  async function onboarding() {
-    const { data: facs } = await sb.from("faculdades").select("*").eq("ativa", true).order("nome");
-    const st = { passo: 1, nome: P.nome || "", faculdade_id: P.faculdade_id || facs?.[0]?.id || null, semestre: P.semestre || "", turma: P.turma || "",
-      disc: [{ nome: "", professor: "", tem_pratica: false }], provas: {} };
+  // novo=true: "Adicionar semestre" (o semestre de agora fica guardado; só o novo é montado)
+  async function onboarding(novo) {
+    V.onclick = null;
+    const [{ data: facs }, { data: catalogo }] = await Promise.all([sb.from("faculdades").select("*").eq("ativa", true).order("nome"),
+      sb.from("catalogo_materias").select("faculdade_id,semestre,nome,ordem").order("ordem"), carregarSemestres()]);
+    const numAtual = +(SEM.atual?.numero || P.semestre || 0);
+    const st = { passo: 1, nome: P.nome || "", faculdade_id: P.faculdade_id || facs?.[0]?.id || null,
+      semestre: novo ? (numAtual ? Math.min(numAtual + 1, 12) : "") : (P.semestre || ""), turma: (novo ? SEM.atual?.turma : null) || P.turma || "",
+      disc: [{ nome: "", professor: "", tem_pratica: false }], provas: {}, semId: null, catChave: "", catLista: null, catVazio: false };
+    // Matérias do catálogo para a faculdade + semestre escolhidos (o aluno pode mudar tudo depois)
+    const doCatalogo = () => (catalogo || []).filter((c) => c.faculdade_id == st.faculdade_id && c.semestre == st.semestre).map((c) => c.nome);
+    const assinatura = (lista) => JSON.stringify(lista.map((d) => [d.nome, d.professor, !!d.tem_pratica]));
+    function preencherDoCatalogo() {
+      const chave = `${st.faculdade_id}|${st.semestre}`;
+      if (!st.semestre || chave === st.catChave) return;
+      const nomes = doCatalogo();
+      const digitou = st.disc.some((d) => d.nome || d.professor) && (!st.catLista || assinatura(st.disc) !== st.catLista);
+      st.catChave = chave; st.catVazio = !nomes.length;
+      if (digitou && !confirm(nomes.length ? `Trocar as matérias que você colocou pela lista do ${st.semestre}º semestre?` : `Ainda não temos a lista do ${st.semestre}º semestre. Apagar as matérias que você colocou e começar do zero?`)) { st.catLista = null; return; }
+      st.disc = nomes.length ? nomes.map((nome) => ({ nome, professor: "", tem_pratica: false })) : [{ nome: "", professor: "", tem_pratica: false }];
+      st.provas = {}; st.catLista = nomes.length ? assinatura(st.disc) : null;
+    }
     const PASSOS = ["Você", "Matérias", "Provas", "Notas"];
     const fac = () => (facs || []).find((f) => f.id == st.faculdade_id);
     const kinds = (d) => [["P1", "teorica"], ["P2", "teorica"], ["Final", "teorica"], ...(d.tem_pratica ? [["P1", "pratica"], ["P2", "pratica"], ["Final", "pratica"]] : [])];
@@ -69,17 +126,20 @@
     const lbl = (t, m) => `${t} ${m === "pratica" ? "prática" : "teórica"}`;
     function draw(err) {
       let body = "";
-      if (st.passo === 1) body = `
+      if (st.passo === 1) body = (novo ? `<p class="muted" style="margin:0">O ${esc(nomeSem(SEM.atual).toLowerCase())} fica guardado do jeito que está: matérias, provas, notas e materiais. Você encontra ele no seu perfil, em "Semestres anteriores".</p>` : "") + `
         <label class="field"><span class="mono">Seu nome</span><input id="nome" value="${esc(st.nome)}" required></label>
         <label class="field"><span class="mono">Faculdade</span><select id="fac">${(facs || []).map((f) => `<option value="${f.id}" ${f.id == st.faculdade_id ? "selected" : ""}>${esc(f.nome)}</option>`).join("")}</select></label>
         <div class="row"><label class="field" style="flex:1"><span class="mono">Semestre</span><select id="sem"><option value="">Escolha</option>${Array.from({ length: 12 }, (_, i) => `<option ${st.semestre == i + 1 ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label>
         <label class="field" style="flex:1"><span class="mono">Turma (opcional)</span><input id="turma" value="${esc(st.turma)}" placeholder="Ex.: F"></label></div>`;
-      if (st.passo === 2) body = `<p class="muted" style="margin:0">Coloque as matérias deste semestre e marque "tem prática" nas que têm prova prática separada. Se preferir, continue e adicione depois.</p>
+      if (st.passo === 2) body = (st.catLista ? `<p style="margin:0">Já colocamos as matérias do <b>${esc(st.semestre)}º semestre</b>. Coloque o nome dos professores, tire o que não for seu e adicione o que faltar.</p>`
+          : st.catVazio && st.semestre ? `<div class="msg" style="margin:0">Ainda não temos a lista deste semestre; adicione suas matérias.</div>` : "")
+        + `<p class="muted" style="margin:0">${st.catLista ? "" : `Coloque as matérias ${novo ? "do semestre novo, com o nome dos professores," : "deste semestre"}. `}Marque "tem prática" nas que têm prova prática separada. Se preferir, continue e adicione depois.</p>
         ${st.disc.map((d, i) => `<div class="discrow">
           <label class="field"><span class="mono">Matéria</span><input data-d="${i}" data-k="nome" value="${esc(d.nome)}" placeholder="Ex.: Farmacologia 2"></label>
           <label class="field"><span class="mono">Professor</span><input data-d="${i}" data-k="professor" value="${esc(d.professor)}" placeholder="Opcional"></label>
           <label class="check"><input type="checkbox" data-d="${i}" data-k="tem_pratica" ${d.tem_pratica ? "checked" : ""}>tem prática</label>
-          <button class="btn ghost" data-a="rmDisc" data-i="${i}" aria-label="Remover matéria" ${st.disc.length < 2 ? "disabled" : ""}>Remover</button></div>`).join("")}
+          <button class="btn ghost" data-a="rmDisc" data-i="${i}" aria-label="Remover ${esc(d.nome || "matéria")}">Remover</button>
+          ${/^optativa\b/i.test(d.nome) ? `<span class="disc-dica">Troque "${esc(d.nome)}" pelo nome da sua optativa (ex.: Medicina Tropical).</span>` : ""}</div>`).join("")}
         <button class="btn" data-a="addDisc" style="align-self:flex-start">+ Adicionar matéria</button>`;
       if (st.passo === 3) body = `<p class="muted" style="margin:0">Preencha as datas que você já sabe. As que ainda não saíram podem ficar em branco: é só colocar depois. A agenda monta o plano de estudo com as datas que existirem.</p>
         ${discValidas().length ? "" : `<div class="empty">Você não colocou matérias no passo anterior. Pode continuar e adicionar depois.</div>`}
@@ -93,11 +153,11 @@
           <li>Final: ${r.final_sem_pratica ?? 40} sem prática, ou ${r.final_teorica_com_pratica ?? 30} teórica + ${r.final_pratica ?? 10} prática.</li>
           <li>Nota de processo até ${r.processo_max ?? 20} (práticas, presença e trabalhos).</li></ul>
         <p class="muted" style="margin:0">Se alguma regra estiver diferente, avise o administrador.</p>`; }
-      V.innerHTML = `<div class="hero"><h1>Vamos montar<span class="script">seu painel</span></h1></div>` + win(`Passo ${st.passo} de 4 · ${PASSOS[st.passo - 1]}`,
+      V.innerHTML = `<div class="hero"><h1>${novo ? "Novo" : "Vamos montar"}<span class="script">${novo ? "semestre" : "seu painel"}</span></h1></div>` + win(`Passo ${st.passo} de 4 · ${PASSOS[st.passo - 1]}`,
         `<div class="steps">${PASSOS.map((_, i) => `<i class="${i < st.passo ? "on" : ""}"></i>`).join("")}</div>
         <div class="stack">${body}</div>${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
-        <div class="row" style="justify-content:space-between;margin-top:18px"><button class="btn ghost" data-a="volta" ${st.passo === 1 ? "disabled" : ""}>Voltar</button>
-        <button class="btn solid" data-a="segue">${st.passo === 4 ? "Concluir e abrir meu painel" : "Continuar"}</button></div>`);
+        <div class="row" style="justify-content:space-between;margin-top:18px">${novo && st.passo === 1 ? `<button class="btn ghost" data-a="cancela">Cancelar</button>` : `<button class="btn ghost" data-a="volta" ${st.passo === 1 ? "disabled" : ""}>Voltar</button>`}
+        <button class="btn solid" data-a="segue">${st.passo === 4 ? (novo ? "Criar o semestre novo" : "Concluir e abrir meu painel") : "Continuar"}</button></div>`);
     }
     function ler() {
       if (st.passo === 1) { st.nome = V.querySelector("#nome").value.trim(); st.faculdade_id = V.querySelector("#fac").value; st.semestre = V.querySelector("#sem").value; st.turma = V.querySelector("#turma").value.trim(); }
@@ -110,25 +170,35 @@
     async function salvar() {
       V.querySelector('[data-a="segue"]').disabled = true; V.querySelector('[data-a="segue"]').textContent = "Salvando…";
       try {
-        let r = await sb.from("perfis").update({ nome: st.nome || null, faculdade_id: st.faculdade_id ? +st.faculdade_id : null, semestre: st.semestre ? +st.semestre : null, turma: st.turma || null }).eq("id", P.id); if (r.error) throw r.error;
-        r = await sb.from("disciplinas").delete().eq("aluno_id", P.id); if (r.error) throw r.error; // recomeço limpo se a 1ª tentativa falhou no meio
+        const semDados = { numero: st.semestre ? +st.semestre : null, turma: st.turma || null, faculdade_id: st.faculdade_id ? +st.faculdade_id : null };
+        let r = await sb.from("perfis").update({ nome: st.nome || null, faculdade_id: semDados.faculdade_id, semestre: semDados.numero, turma: semDados.turma }).eq("id", P.id); if (r.error) throw r.error;
+        if (SEM.ok) {
+          // 1ª configuração: usa o semestre atual (se já existe). Novo semestre: cria um (o anterior é encerrado pelo banco).
+          if (!st.semId && !novo && SEM.atual) st.semId = SEM.atual.id;
+          if (st.semId) { r = await sb.from("semestres").update(semDados).eq("id", st.semId); if (r.error) throw r.error; }
+          else { r = await sb.from("semestres").insert({ ...semDados, inicio: App.isoHoje(), atual: true }).select("id").single(); if (r.error) throw r.error; st.semId = r.data.id; }
+          // só as matérias DESTE semestre são refeitas (recomeço limpo se a 1ª tentativa falhou no meio)
+          r = await sb.from("disciplinas").delete().eq("semestre_id", st.semId); if (r.error) throw r.error;
+        } else if (novo) throw new Error("falta rodar o 04_semestres.sql no Supabase");
+        else { r = await sb.from("disciplinas").delete().eq("aluno_id", P.id); if (r.error) throw r.error; }
         const lista = st.disc.map((d, i) => ({ d, i })).filter((x) => x.d.nome);
         if (lista.length) {
-          r = await sb.from("disciplinas").insert(lista.map(({ d }, k) => ({ nome: d.nome, professor: d.professor || null, tem_pratica: !!d.tem_pratica, ordem: k }))).select("id"); if (r.error) throw r.error;
+          r = await sb.from("disciplinas").insert(lista.map(({ d }, k) => ({ nome: d.nome, professor: d.professor || null, tem_pratica: !!d.tem_pratica, ordem: k, ...(SEM.ok ? { semestre_id: st.semId } : {}) }))).select("id"); if (r.error) throw r.error;
           const ids = r.data.map((x) => x.id);
           const provas = []; lista.forEach(({ d, i }, k) => kinds(d).forEach(([t, m]) => { const v = st.provas[kKey(i, t, m)]; if (v && v.data) provas.push({ disciplina_id: ids[k], tipo: t, modalidade: m, data: v.data, hora: v.hora || null }); }));
           if (provas.length) { r = await sb.from("provas").insert(provas); if (r.error) throw r.error; }
         }
         r = await sb.from("perfis").update({ onboarding_ok: true }).eq("id", P.id); if (r.error) throw r.error;
-        P = await App.meuPerfil(); toast("Painel pronto!"); home();
+        P = await App.meuPerfil(); toast(novo ? `${nomeSem({ numero: semDados.numero })} criado!` : "Painel pronto!"); home();
       } catch (e) { draw("Não consegui salvar: " + (e.message || e)); }
     }
     V.onclick = async (e) => {
       const b = e.target.closest("[data-a]"); if (!b) return; ler();
       if (b.dataset.a === "addDisc") { st.disc.push({ nome: "", professor: "", tem_pratica: false }); draw(); V.querySelectorAll('[data-k="nome"]')[st.disc.length - 1]?.focus(); }
-      if (b.dataset.a === "rmDisc") { st.disc.splice(+b.dataset.i, 1); draw(); }
+      if (b.dataset.a === "rmDisc") { st.disc.splice(+b.dataset.i, 1); if (!st.disc.length) st.disc.push({ nome: "", professor: "", tem_pratica: false }); draw(); }
       if (b.dataset.a === "volta") { st.passo--; draw(); }
-      if (b.dataset.a === "segue") { const err = valida(); if (err) return draw(err); if (st.passo < 4) { st.passo++; draw(); window.scrollTo(0, 0); } else salvar(); }
+      if (b.dataset.a === "cancela") return perfilTela();
+      if (b.dataset.a === "segue") { const err = valida(); if (err) return draw(err); if (st.passo < 4) { if (st.passo === 1) preencherDoCatalogo(); st.passo++; draw(); window.scrollTo(0, 0); } else salvar(); }
     };
     draw();
   }
@@ -164,7 +234,8 @@
             <div class="row"><label class="btn" style="cursor:pointer">Escolher foto<input type="file" id="foto" accept="image/jpeg,image/png,image/webp" hidden></label>
             ${P.avatar_url ? `<button class="btn ghost" id="tirarFoto">Remover foto</button>` : ""}<button class="btn solid" id="salvarPerfil">Salvar</button></div>
             <span class="muted" style="font-size:13px">${esc(P.email)}</span>
-          </div></div><div id="msgPerfil"></div>`))
+          </div></div><div id="msgPerfil"></div>`)
+        + (P.onboarding_ok && (App.acessoOk(P) || P.is_admin) ? win("Meu semestre", `<div id="semBox"><p class="muted" style="margin:0">Carregando…</p></div>`) : ""))
       + win(recuperando ? "Crie sua senha nova" : "Trocar senha", `<form id="fSenha" class="stack" style="max-width:380px">
           <label class="field"><span class="mono">Senha nova</span><input id="s1" type="password" minlength="8" autocomplete="new-password" required></label>
           <label class="field"><span class="mono">Repita a senha</span><input id="s2" type="password" minlength="8" autocomplete="new-password" required></label>
@@ -172,6 +243,7 @@
       + (recuperando ? "" : `<div class="row" style="margin-top:16px"><button class="btn ghost" id="voltar">Voltar ao painel</button></div>`);
     let novaFoto = null;
     const q = (id) => document.getElementById(id);
+    if (q("semBox")) semestreBox();
     if (q("voltar")) q("voltar").onclick = voltar;
     if (q("foto")) q("foto").onchange = async (e) => {
       const f = e.target.files[0]; if (!f) return;
@@ -216,22 +288,76 @@
     };
   }
 
+  /* ================= SEMESTRES: o atual, adicionar um novo e ver os anteriores ================= */
+  async function semestreBox() {
+    await carregarSemestres();
+    const box = document.getElementById("semBox"); if (!box) return;
+    if (!SEM.ok) { box.innerHTML = `<p class="muted" style="margin:0">A parte de semestres ainda não foi ativada no banco (falta rodar o 04_semestres.sql).</p>`; return; }
+    const a = SEM.atual, antigos = SEM.lista.filter((x) => !x.atual).reverse();
+    box.innerHTML = `<div class="stack">
+      <div class="sem-atual"><span class="mono">Semestre atual</span>
+        <div class="sem-num">${a ? esc(nomeSem(a)) : "Nenhum semestre"}</div>
+        ${a ? `<span class="muted" style="font-size:13.5px">${a.turma ? `Turma ${esc(a.turma)} · ` : ""}desde ${esc(dataBR(a.inicio))}</span>` : ""}</div>
+      <div class="row"><button class="btn solid" id="addSem">Adicionar semestre</button></div>
+      <p class="muted" style="margin:0;font-size:13.5px">Passou de semestre? Clique em "Adicionar semestre" e monte o novo: matérias, professores e datas das provas. Nada do semestre de agora é apagado.</p>
+      ${antigos.length ? `<h3 style="margin-top:4px">Semestres anteriores</h3><ul class="sem-lista">${antigos.map((x) => `<li><div style="min-width:0"><b>${esc(nomeSem(x))}</b>${x.turma ? ` <span class="muted">· turma ${esc(x.turma)}</span>` : ""}
+        <div class="muted" style="font-size:13px">${esc(dataBR(x.inicio))}${x.fim ? " a " + esc(dataBR(x.fim)) : ""}</div></div><button class="btn" data-sem="${x.id}">Ver</button></li>`).join("")}</ul>` : ""}</div>`;
+    box.onclick = (e) => {
+      if (e.target.closest("#addSem")) return onboarding(true);
+      const b = e.target.closest("[data-sem]"); if (b) semestreTela(SEM.lista.find((x) => x.id == b.dataset.sem));
+    };
+  }
+  // Um semestre anterior, só para consulta
+  async function semestreTela(sem) {
+    if (!sem) return perfilTela();
+    V.onclick = null; window.scrollTo(0, 0);
+    V.innerHTML = `<div class="hero"><h1>${esc(nomeSem(sem))}<span class="script">guardado</span></h1></div>` + win("Matérias", `<p class="muted" style="margin:0">Carregando…</p>`);
+    const { data: disc, error } = await sb.from("disciplinas").select("*").eq("semestre_id", sem.id).order("ordem");
+    const ids = (disc || []).map((d) => d.id);
+    const vazio = { data: [] };
+    const [{ data: provas }, { data: notas }, { data: temas }, { data: mats }] = ids.length ? await Promise.all([
+      sb.from("provas").select("disciplina_id,tipo,modalidade,data").in("disciplina_id", ids).order("data"),
+      sb.from("notas").select("disciplina_id,campo,valor").in("disciplina_id", ids),
+      sb.from("temas").select("id,disciplina_id").in("disciplina_id", ids),
+      sb.from("materiais").select("id,disciplina_id").in("disciplina_id", ids),
+    ]) : [vazio, vazio, vazio, vazio];
+    const de = (lista, d) => (lista || []).filter((x) => x.disciplina_id === d.id);
+    const nota = (v) => v == null ? "sem nota" : String(+v).replace(".", ",");
+    const cards = (disc || []).map((d) => { const pv = de(provas, d), nt = de(notas, d), tm = de(temas, d).length, mt = de(mats, d).length;
+      return `<div class="card"><h3>${esc(d.nome)}</h3>${d.professor ? `<span class="muted" style="font-size:13px">${esc(d.professor)}</span>` : ""}
+        ${pv.length ? `<ul class="sem-mini">${pv.map((p) => `<li>${esc(p.tipo)} ${p.modalidade === "pratica" ? "prática" : "teórica"}<span class="tnum">${esc(dataBR(p.data))}</span></li>`).join("")}</ul>` : ""}
+        ${nt.length ? `<div style="font-size:13.5px">Notas: ${nt.map((n) => `${esc(n.campo.replace("_", " "))} <b class="tnum">${esc(nota(n.valor))}</b>`).join(" · ")}</div>` : ""}
+        <span class="muted" style="font-size:13px">${tm} ${tm === 1 ? "tema" : "temas"} · ${mt} ${mt === 1 ? "material" : "materiais"}</span></div>`; }).join("");
+    V.innerHTML = `<div class="hero"><h1>${esc(nomeSem(sem))}<span class="script">guardado</span></h1></div>`
+      + win("Resumo", `<p style="margin:0">${sem.turma ? `Turma ${esc(sem.turma)} · ` : ""}${esc(dataBR(sem.inicio))}${sem.fim ? " a " + esc(dataBR(sem.fim)) : ""}. Este semestre fica guardado só para consulta.</p>`)
+      + win("Matérias", error ? `<div class="msg bad" style="margin:0">Não consegui carregar: ${esc(error.message)}</div>` : cards ? `<div class="cards">${cards}</div>` : `<div class="empty">Nenhuma matéria neste semestre.</div>`)
+      + `<div class="row" style="margin-top:16px"><button class="btn ghost" id="volSem">Voltar ao perfil</button></div>`;
+    document.getElementById("volSem").onclick = () => perfilTela();
+  }
+
   async function home() {
     V.onclick = null;
-    const [{ data: disc }, { data: provas }] = await Promise.all([
-      sb.from("disciplinas").select("*").order("ordem"),
+    await carregarSemestres();
+    // só o semestre atual aparece aqui; os anteriores ficam no perfil
+    let qDisc = sb.from("disciplinas").select("*").order("ordem");
+    if (SEM.atual) qDisc = qDisc.eq("semestre_id", SEM.atual.id);
+    const [{ data: disc }, { data: provasTodas }] = await Promise.all([
+      qDisc,
       sb.from("provas").select("*").gte("data", App.isoHoje()).order("data").order("hora"),
     ]);
+    const provas = (provasTodas || []).filter((p) => (disc || []).some((d) => d.id === p.disciplina_id));
     const nomeD = (id) => (disc || []).find((d) => d.id === id)?.nome || "";
     const dias = (d) => Math.round((new Date(d + "T00:00") - App.hoje()) / 864e5);
     const prox = (provas || []).slice(0, 6).map((p) => { const n = dias(p.data);
       return `<div class="card"><span class="mono">${esc(p.tipo)} ${p.modalidade === "pratica" ? "prática" : "teórica"} · ${new Date(p.data + "T12:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" })}${p.hora ? " · " + p.hora.slice(0, 5) : ""}</span><h3>${esc(nomeD(p.disciplina_id))}</h3><div class="big tnum">${n === 0 ? "Hoje" : n === 1 ? "Amanhã" : n + " dias"}</div></div>`; }).join("");
     V.innerHTML = `<div class="hero"><h1>Olá, ${esc((P.nome || "").split(" ")[0] || "")}<span class="script">bons estudos</span></h1></div>`
       + win("Próximas provas", prox ? `<div class="cards">${prox}</div>` : `<div class="empty">Nenhuma prova futura cadastrada.</div>`)
-      + win("Minhas matérias", (disc || []).length ? `<div class="cards">${disc.map((d) => `<div class="card"><h3>${esc(d.nome)}</h3><span class="muted" style="font-size:13px">${esc(d.professor || "")}</span>${d.tem_pratica ? `<span class="chip s-warn" style="align-self:flex-start">tem prática</span>` : ""}</div>`).join("")}</div>` : `<div class="empty">Nenhuma matéria.</div>`)
+      + win(SEM.atual?.numero ? `Minhas matérias · ${SEM.atual.numero}º semestre` : "Minhas matérias", (disc || []).length ? `<div class="cards">${disc.map((d) => `<div class="card"><h3>${esc(d.nome)}</h3><span class="muted" style="font-size:13px">${esc(d.professor || "")}</span>${d.tem_pratica ? `<span class="chip s-warn" style="align-self:flex-start">tem prática</span>` : ""}</div>`).join("")}</div>` : `<div class="empty">Nenhuma matéria.</div>`)
       + win("Meu Google Drive", `<div id="drv"><p class="muted" style="margin:0">Carregando…</p></div>`)
+      + win("Meus livros", `<div id="liv"><p class="muted" style="margin:0">Carregando…</p></div>`)
       + win("Em breve", `<p style="margin:0" class="muted">Agenda de estudos, temas de cada prova, resumos, banco de questões e calculadora de pontos chegam na próxima etapa.</p>`);
     driveTela(disc || []);
+    livrosTela();
   }
 
   /* ================= GOOGLE DRIVE: ligar a pasta e importar os materiais ================= */
@@ -286,7 +412,8 @@
 
     // materiais agrupados por matéria
     const grupos = (disc || []).map((d) => ({ nome: d.nome, itens: (mats || []).filter((m) => m.disciplina_id === d.id) }))
-      .concat([{ nome: "Sem matéria", sem: true, itens: (mats || []).filter((m) => !m.disciplina_id || !(disc || []).some((d) => d.id === m.disciplina_id)) }])
+      .concat([{ nome: "Sem matéria", sem: true, itens: (mats || []).filter((m) => !m.disciplina_id) },
+        { nome: "De semestres anteriores", itens: (mats || []).filter((m) => m.disciplina_id && !(disc || []).some((d) => d.id === m.disciplina_id)) }])
       .filter((x) => x.itens.length);
     const abrir = (mats || []).length <= 30;
     const lista = !(mats || []).length ? (ligadas.length ? `<div class="empty">Nenhum material importado ainda. Clique em "Varrer agora".</div>` : "")
@@ -365,6 +492,228 @@
     } catch (e) { DRV.msg = { bad: true, t: e.message }; }
     DRV.ocupado = false;
     await driveTela(disc);
+  }
+
+  /* ================= LIVROS: o aluno envia o livro dele e procura nele ================= */
+  // O arquivo NÃO sai do aparelho: o navegador tira o texto, corta em trechos com o número
+  // da página e grava só o texto no banco (tabelas livros e livro_trechos, 05_livros.sql).
+  // A busca (buscar_nos_livros) é a base para os resumos compararem livro x slides do professor.
+  // Junta as páginas em trechos de ~2.000 letras, cortando em fim de frase, sem misturar capítulos
+  function fatiar(unidades, alvo = 2000, max = 2600) {
+    const out = []; let cur = "", ini = null, fim = null, cap = null;
+    const fecha = () => { if (cur) out.push({ pagina_ini: ini, pagina_fim: fim, capitulo: cap ? cap.slice(0, 300) : null, texto: cur }); cur = ""; ini = null; fim = null; };
+    for (const u of unidades) {
+      let t = limpar(u.texto); if (!t) continue;
+      if (cur && u.cap !== cap && cur.length >= alvo * 0.4) fecha();
+      while (t) {
+        if (!cur) { ini = u.pag; cap = u.cap || null; }
+        if (cur.length + t.length + 1 <= max) { cur += (cur ? " " : "") + t; fim = u.pag; t = ""; if (cur.length >= alvo) fecha(); continue; }
+        if (cur.length >= alvo * 0.5) { fecha(); continue; }
+        const lim = max - cur.length - 1;
+        let corte = t.lastIndexOf(". ", lim); if (corte < lim * 0.5) corte = t.lastIndexOf(" ", lim); if (corte < lim * 0.3) corte = lim; else corte += 1;
+        cur += (cur ? " " : "") + t.slice(0, corte).trim(); fim = u.pag; t = t.slice(corte).trim(); fecha();
+      }
+    }
+    fecha();
+    return out;
+  }
+
+  async function lerPDF(doc, prog) {
+    const n = doc.numPages, caps = [];
+    try { // sumário do PDF (se tiver): vira o "capítulo" de cada trecho
+      const pagDe = async (dest) => { const d = typeof dest === "string" ? await doc.getDestination(dest) : dest; return d && d[0] ? (await doc.getPageIndex(d[0])) + 1 : null; };
+      const ol = (await doc.getOutline()) || [];
+      for (const it of ol.slice(0, 300)) {
+        const p = await pagDe(it.dest).catch(() => null); if (p) caps.push({ p, t: it.title });
+        for (const sub of (it.items || []).slice(0, 60)) { const q = await pagDe(sub.dest).catch(() => null); if (q) caps.push({ p: q, t: `${it.title} · ${sub.title}` }); }
+      }
+      caps.sort((a, b) => a.p - b.p);
+    } catch (_) { }
+    const capDe = (p) => { let c = null; for (const x of caps) { if (x.p <= p) c = x.t; else break; } return c; };
+    const unidades = [];
+    for (let i = 1; i <= n; i++) {
+      const pg = await doc.getPage(i);
+      const tc = await pg.getTextContent();
+      unidades.push({ pag: i, cap: capDe(i), texto: tc.items.map((it) => (it.str || "") + (it.hasEOL ? "\n" : "")).join("") });
+      pg.cleanup();
+      if (i % 5 === 0 || i === n) prog(i / n, `Lendo a página ${i} de ${n}…`);
+    }
+    return { paginas: n, unidades };
+  }
+  function textoHTML(html) { // texto de um capítulo de EPUB (o DOMParser não roda scripts nem carrega imagens)
+    const d = new DOMParser().parseFromString(html, "text/html");
+    d.querySelectorAll("script,style").forEach((e) => e.remove());
+    d.querySelectorAll("p,div,li,br,tr,h1,h2,h3,h4,h5,h6").forEach((e) => e.append("\n"));
+    const h = d.querySelector("h1,h2,h3")?.textContent || d.querySelector("title")?.textContent || "";
+    return { texto: d.body?.textContent || "", titulo: limpar(h) };
+  }
+  async function lerEPUB(file, prog) {
+    const JSZip = await carregarJSZip(); const zip = await JSZip.loadAsync(file);
+    const xml = (t) => new DOMParser().parseFromString(t, "application/xml");
+    const cont = xml(await zip.file("META-INF/container.xml").async("string"));
+    const opfPath = cont.querySelector("rootfile").getAttribute("full-path"), base = opfPath.includes("/") ? opfPath.replace(/[^/]+$/, "") : "";
+    const opf = xml(await zip.file(opfPath).async("string"));
+    const man = {}; opf.querySelectorAll("manifest > item").forEach((i) => { man[i.getAttribute("id")] = i.getAttribute("href"); });
+    const spine = [...opf.querySelectorAll("spine > itemref")].map((r) => man[r.getAttribute("idref")]).filter(Boolean);
+    const meta = { titulo: opf.getElementsByTagName("dc:title")[0]?.textContent || "", autor: opf.getElementsByTagName("dc:creator")[0]?.textContent || "" };
+    const unidades = [];
+    for (let i = 0; i < spine.length; i++) {
+      const caminho = decodeURIComponent((base + spine[i]).replace(/#.*$/, ""));
+      const f = zip.file(caminho); if (!f) continue;
+      const { texto, titulo } = textoHTML(await f.async("string"));
+      unidades.push({ pag: i + 1, cap: titulo || null, texto });
+      prog((i + 1) / spine.length, `Lendo a seção ${i + 1} de ${spine.length}…`);
+    }
+    return { paginas: null, unidades, meta };
+  }
+  async function lerDOCX(file, prog) {
+    const JSZip = await carregarJSZip(); const zip = await JSZip.loadAsync(file);
+    const d = new DOMParser().parseFromString(await zip.file("word/document.xml").async("string"), "application/xml");
+    const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+    const unidades = []; let cap = null;
+    for (const p of d.getElementsByTagNameNS(W, "p")) {
+      const t = [...p.getElementsByTagNameNS(W, "t")].map((x) => x.textContent).join("");
+      const estilo = p.getElementsByTagNameNS(W, "pStyle")[0]?.getAttributeNS(W, "val") || "";
+      if (/^(heading|t[ií]tulo)\s*[12]$/i.test(estilo.replace(/\s/g, "")) && t.trim()) cap = t.trim();
+      unidades.push({ pag: null, cap, texto: t + "\n" });
+    }
+    prog(1, "Texto lido.");
+    return { paginas: null, unidades };
+  }
+  async function lerTXT(file, prog) { const t = await file.text(); prog(1, "Texto lido."); return { paginas: null, unidades: t.split(/\n{2,}/).map((x) => ({ pag: null, cap: null, texto: x })) }; }
+
+  async function livrosTela() {
+    const box = document.getElementById("liv"); if (!box) return;
+    const { data: livros, error } = await sb.from("livros").select("id,titulo,autor,edicao,formato,paginas,status,erro,total_trechos,criado_em").order("criado_em", { ascending: false });
+    if (!document.getElementById("liv")) return;
+    if (error) { box.innerHTML = /livros|relation|schema cache/i.test(error.message) ? `<p class="muted" style="margin:0">A parte de livros ainda não foi ativada no banco (falta rodar o 05_livros.sql).</p>` : `<div class="msg bad" style="margin:0">Não consegui carregar seus livros: ${esc(error.message)}</div>`; return; }
+    const L = livros || [];
+    const lista = L.length ? `<ul class="liv-lista">${L.map((l) => { const [cls, txt] = LIV_STATUS[l.status] || ["s-warn", l.status];
+      const info = [l.autor, l.edicao ? `${l.edicao}` : "", FORMATOS[l.formato] || "", l.paginas ? `${l.paginas} páginas` : "", l.total_trechos ? `${l.total_trechos} trechos` : ""].filter(Boolean).map(esc).join(" · ");
+      return `<li><div style="min-width:0"><b class="liv-tit">${esc(l.titulo)}</b><div class="muted" style="font-size:13px">${info}</div>
+        ${l.status === "processando" ? `<div style="font-size:13px;color:var(--warn)">O envio parou no meio. Apague e envie de novo.</div>` : ""}${l.status === "erro" && l.erro ? `<div style="font-size:13px;color:var(--bad)">${esc(l.erro)}</div>` : ""}</div>
+        <div class="row" style="align-items:center;flex-wrap:nowrap"><span class="chip ${cls}">${esc(txt)}</span><button class="btn ghost" data-liv="apagar" data-id="${l.id}" ${LIV.ocupado ? "disabled" : ""} aria-label="Apagar ${esc(l.titulo)}">Apagar</button></div></li>`; }).join("")}</ul>`
+      : `<div class="empty">Nenhum livro ainda.</div>`;
+    const form = !LIV.aberto ? `<div class="row"><button class="btn solid" data-liv="abrir" ${LIV.ocupado ? "disabled" : ""}>Adicionar livro</button></div>`
+      : `<form id="livForm" class="stack liv-form">
+        <label class="field"><span class="mono">Arquivo do livro (PDF, EPUB, Word ou .txt)</span><input type="file" id="livArq" accept=".pdf,.epub,.docx,.txt,.md,application/pdf,application/epub+zip" ${LIV.ocupado ? "disabled" : ""}></label>
+        <label class="field"><span class="mono">Título</span><input id="livTit" maxlength="300" value="${esc(LIV.form?.titulo || "")}" placeholder="Ex.: Harrison Medicina Interna"></label>
+        <div class="row"><label class="field" style="flex:2 1 180px"><span class="mono">Autor (opcional)</span><input id="livAut" maxlength="300" value="${esc(LIV.form?.autor || "")}"></label>
+        <label class="field" style="flex:1 1 100px"><span class="mono">Edição (opcional)</span><input id="livEd" maxlength="60" value="${esc(LIV.form?.edicao || "")}" placeholder="Ex.: 21ª"></label></div>
+        <div class="row"><button class="btn solid" ${LIV.ocupado ? "disabled" : ""}>${LIV.ocupado ? "Lendo…" : "Ler e guardar"}</button><button type="button" class="btn ghost" data-liv="fechar" ${LIV.ocupado ? "disabled" : ""}>Cancelar</button></div></form>`;
+    box.innerHTML = `<div class="stack">
+      <p style="margin:0">Guarde aqui os livros que você usa. Depois, nos resumos, você vai poder comparar o que o livro diz com os slides do professor.</p>
+      <p class="muted" style="margin:0;font-size:13.5px">O livro fica só na sua conta: ninguém mais vê. O arquivo não é enviado; o site lê o texto aqui no seu aparelho e guarda só o texto, com o número das páginas. Livros grandes levam alguns minutos.</p>
+      ${lista}${form}
+      <div id="livProg" aria-live="polite">${LIV.msg ? `<div class="msg ${LIV.msg.bad ? "bad" : ""}" style="margin:0">${esc(LIV.msg.t)}</div>` : ""}</div>
+      ${L.some((l) => l.status === "ok") ? `<form id="livBusca" class="row" role="search"><label class="field" style="flex:1 1 220px"><span class="mono">Procurar nos meus livros</span>
+        <input id="livQ" type="search" maxlength="200" value="${esc(LIV.busca)}" placeholder="Ex.: pneumonia comunitária tratamento"></label><button class="btn solid">Procurar</button></form>
+      <div id="livRes">${LIV.res || ""}</div>` : ""}</div>`;
+
+    const q = (id) => document.getElementById(id);
+    if (q("livArq")) q("livArq").onchange = () => escolher(q("livArq").files[0]);
+    if (q("livForm")) q("livForm").onsubmit = (e) => { e.preventDefault(); enviar(); };
+    if (q("livBusca")) q("livBusca").onsubmit = (e) => { e.preventDefault(); procurar(q("livQ").value.trim()); };
+    box.onclick = async (e) => {
+      const b = e.target.closest("[data-liv]"); if (!b || LIV.ocupado) return;
+      if (b.dataset.liv === "abrir") { LIV.aberto = true; LIV.msg = null; LIV.form = null; LIV.arq = null; await livrosTela(); q("livArq")?.focus(); }
+      if (b.dataset.liv === "fechar") { LIV.aberto = false; LIV.arq = null; LIV.pdf = null; LIV.form = null; livrosTela(); }
+      if (b.dataset.liv === "apagar") {
+        const l = L.find((x) => x.id == b.dataset.id);
+        if (!confirm(`Apagar "${l?.titulo || "este livro"}"? O texto guardado dele sai do painel.`)) return;
+        b.disabled = true;
+        const { error } = await sb.from("livros").delete().eq("id", b.dataset.id);
+        LIV.msg = error ? { bad: true, t: "Não consegui apagar: " + error.message } : null; LIV.res = null;
+        if (!error) toast("Livro apagado"); livrosTela();
+      }
+    };
+  }
+  function formLivro() { const v = (id) => document.getElementById(id)?.value.trim() || ""; return { titulo: v("livTit"), autor: v("livAut"), edicao: v("livEd") }; }
+  async function escolher(file) {
+    LIV.arq = null; LIV.pdf = null; LIV.msg = null; if (!file) return;
+    const prog = document.getElementById("livProg");
+    const formato = formatoDe(file);
+    if (!formato) { prog.innerHTML = `<div class="msg bad" style="margin:0">Esse tipo de arquivo não dá. Use PDF, EPUB, Word (.docx) ou .txt.</div>`; return; }
+    if (file.size > 400 * 1024 * 1024) { prog.innerHTML = `<div class="msg bad" style="margin:0">Arquivo grande demais (mais de 400 MB).</div>`; return; }
+    LIV.arq = { file, formato };
+    const tit = document.getElementById("livTit"), aut = document.getElementById("livAut");
+    if (!tit.value) tit.value = tituloDoArquivo(file.name);
+    prog.innerHTML = "";
+    if (formato === "pdf") { // título e autor de dentro do PDF, se tiver
+      try {
+        const lib = await carregarPdfjs();
+        const doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: true }).promise;
+        if (LIV.arq?.file !== file) return doc.destroy();
+        LIV.pdf = doc;
+        const info = (await doc.getMetadata().catch(() => null))?.info || {};
+        const t = limpar(info.Title), a = limpar(info.Author);
+        if (t && t.length > 3 && !/^(untitled|microsoft|documento?\d*)/i.test(t) && tit.value === tituloDoArquivo(file.name)) tit.value = t.slice(0, 300);
+        if (a && !aut.value) aut.value = a.slice(0, 300);
+        prog.innerHTML = `<p class="muted" style="margin:0;font-size:13.5px">${doc.numPages} páginas. Confira o título e clique em "Ler e guardar".</p>`;
+      } catch (e) { prog.innerHTML = `<div class="msg bad" style="margin:0">${esc(/password/i.test(e?.name + e?.message) ? "Esse PDF tem senha. Tire a senha e tente de novo." : "Não consegui abrir esse PDF. " + (e?.message || ""))}</div>`; LIV.arq = null; }
+    }
+  }
+  async function enviar() {
+    if (LIV.ocupado) return;
+    const prog = document.getElementById("livProg"), f = formLivro();
+    if (!LIV.arq) return (prog.innerHTML = `<div class="msg bad" style="margin:0">Escolha o arquivo do livro.</div>`);
+    if (!f.titulo) f.titulo = tituloDoArquivo(LIV.arq.file.name) || "Livro";
+    LIV.form = f; LIV.ocupado = true; LIV.msg = null;
+    const avisoSair = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", avisoSair);
+    await livrosTela();
+    const barra = (frac, txt) => { const el = document.getElementById("livProg"); if (el) el.innerHTML = `<div class="liv-prog"><progress max="100" value="${Math.round(frac * 100)}"></progress><span class="muted" style="font-size:13.5px">${esc(txt)}</span></div>`; };
+    const { file, formato } = LIV.arq; let livroId = null;
+    try {
+      barra(0, "Abrindo o arquivo…");
+      let r;
+      if (formato === "pdf") {
+        if (!LIV.pdf) { const lib = await carregarPdfjs(); LIV.pdf = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: true }).promise; }
+        r = await lerPDF(LIV.pdf, (x, t) => barra(x * 0.7, t));
+      } else if (formato === "epub") r = await lerEPUB(file, (x, t) => barra(x * 0.7, t));
+      else if (formato === "docx") r = await lerDOCX(file, (x, t) => barra(x * 0.7, t));
+      else r = await lerTXT(file, (x, t) => barra(x * 0.7, t));
+      const trechos = fatiar(r.unidades);
+      const letras = trechos.reduce((s, t) => s + t.texto.length, 0);
+      if (!trechos.length || (r.paginas && letras < r.paginas * 40)) {
+        throw Object.assign(new Error(formato === "pdf" ? "Esse PDF parece escaneado (as páginas são fotos, sem texto). O site ainda não lê texto de imagens. Se tiver uma versão com texto (dá para selecionar as palavras), use ela." : "Não achei texto nesse arquivo."), { semLivro: true });
+      }
+      barra(0.7, "Guardando…");
+      const ins = await sb.from("livros").insert({ titulo: f.titulo, autor: f.autor || null, edicao: f.edicao || null, formato, paginas: r.paginas, arquivo_nome: file.name.slice(0, 300), status: "processando" }).select("id").single();
+      if (ins.error) throw ins.error;
+      livroId = ins.data.id;
+      const LOTE = 100;
+      for (let i = 0; i < trechos.length; i += LOTE) {
+        const lote = trechos.slice(i, i + LOTE).map((t) => ({ ...t, livro_id: livroId }));
+        let e = (await sb.from("livro_trechos").insert(lote)).error;
+        if (e && !/limite/i.test(e.message)) e = (await sb.from("livro_trechos").insert(lote)).error; // uma nova tentativa se a internet falhar
+        if (e) throw e;
+        barra(0.7 + 0.3 * Math.min(1, (i + LOTE) / trechos.length), `Guardando os trechos… ${Math.min(i + LOTE, trechos.length)} de ${trechos.length}`);
+      }
+      const fim = await sb.from("livros").update({ status: "ok", total_trechos: trechos.length }).eq("id", livroId);
+      if (fim.error) throw fim.error;
+      LIV.msg = { t: `Pronto: "${f.titulo}" guardado${r.paginas ? ` (${r.paginas} páginas)` : ""}. Já dá para procurar nele.` };
+      LIV.aberto = false; LIV.form = null; toast("Livro guardado");
+    } catch (e) {
+      const m = e?.message || String(e);
+      LIV.msg = { bad: true, t: e?.semLivro ? m : /limite/i.test(m) ? m : "Não consegui guardar o livro: " + m };
+      if (livroId) await sb.from("livros").update({ status: "erro", erro: m.slice(0, 300) }).eq("id", livroId);
+    }
+    try { LIV.pdf?.destroy(); } catch (_) { }
+    LIV.pdf = null; LIV.arq = null; LIV.ocupado = false;
+    window.removeEventListener("beforeunload", avisoSair);
+    livrosTela();
+  }
+  async function procurar(consulta) {
+    const res = document.getElementById("livRes"); LIV.busca = consulta;
+    if (!consulta) { LIV.res = null; res.innerHTML = ""; return; }
+    res.innerHTML = `<p class="muted" style="margin:0">Procurando…</p>`;
+    const { data, error } = await sb.rpc("buscar_nos_livros", { consulta, limite: 10 });
+    if (error) LIV.res = `<div class="msg bad" style="margin:0">Não consegui procurar: ${esc(error.message)}</div>`;
+    else if (!(data || []).length) LIV.res = `<div class="empty">Nada encontrado para "${esc(consulta)}". Tente outras palavras.</div>`;
+    else LIV.res = `<ul class="liv-res">${data.map((x) => `<li><div class="liv-onde"><b>${esc(x.titulo)}</b>${onde(x, x.formato) ? ` · <span class="tnum">${esc(onde(x, x.formato))}</span>` : ""}${x.capitulo ? ` <span class="muted">· ${esc(x.capitulo)}</span>` : ""}</div>
+      <p class="liv-trecho">${esc(x.snippet).replace(/⟦/g, "<mark>").replace(/⟧/g, "</mark>")}</p></li>`).join("")}</ul>`;
+    if (document.getElementById("livRes")) document.getElementById("livRes").innerHTML = LIV.res;
   }
 })();
 </script>

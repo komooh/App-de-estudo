@@ -8,9 +8,9 @@ Duas listas que guiam o projeto: o que um site profissional precisa ter por baix
 | --- | --- | --- | --- |
 | 1 | Servidor (site no ar 24h) | Cloudflare Pages | Pronto para publicar |
 | 2 | Domínio próprio | A comprar quando o nome for decidido | Pendente |
-| 3 | Banco de dados | Supabase (Postgres) | Pronto (`supabase/schema.sql`) |
+| 3 | Banco de dados | Supabase (Postgres). Histórico por semestre (`04_semestres.sql`); livros só como texto, com limite por aluno (`05_livros.sql`) para caber nos 500 MB do plano grátis | Pronto |
 | 4 | Login | Link mágico por e-mail, só para quem foi convidado | Pronto |
-| 5 | Permissões | Regras do banco (RLS): cada aluno só vê o que é dele; aluno não muda plano nem vencimento | Pronto e testado |
+| 5 | Permissões | Regras do banco (RLS): cada aluno só vê o que é dele (semestres, livros e busca nos livros também); aluno não muda plano nem vencimento; só o admin muda a lista de matérias | Pronto e testado |
 | 6 | API entre a tela e o banco | Supabase + Edge Functions (criar aluno; Google Drive; IA na Etapa 3) | Parcial |
 | 7 | Gateway de pagamento | Por enquanto pagamento por fora (Pix/transferência); Mercado Pago ou Pagopar depois | Fora da versão 1 |
 | 8 | Webhook do pagamento | Só quando houver gateway | Fora da versão 1 |

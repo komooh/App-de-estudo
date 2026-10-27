@@ -94,3 +94,27 @@ td input,td select{background:var(--card2);border:1px solid var(--line);border-r
 .drv-lista li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);font-size:14px}
 .drv-lista li:last-child{border-bottom:0}
 .drv-nome{min-width:0;overflow-wrap:anywhere}
+
+/* semestres */
+.sem-atual{display:flex;flex-direction:column;gap:2px}
+.sem-num{font-family:var(--f-display);font-weight:800;font-size:26px;letter-spacing:-.02em;line-height:1.1}
+.sem-lista{list-style:none;margin:0;padding:0}
+.sem-lista li{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.sem-mini{list-style:none;margin:2px 0;padding:0;font-size:13.5px}
+.sem-mini li{display:flex;justify-content:space-between;gap:8px}
+
+/* livros */
+.liv-lista,.liv-res{list-style:none;margin:0;padding:0}
+.liv-lista li{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px 12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.liv-tit,.liv-onde{overflow-wrap:anywhere}
+.liv-form{border:1px solid var(--line);border-radius:10px;padding:12px}
+.liv-form input[type=file]{font-size:14px;max-width:100%}
+.liv-prog{display:flex;flex-direction:column;gap:6px}
+.liv-prog progress{width:100%;height:10px;accent-color:var(--terra)}
+.liv-res li{border-top:1px solid var(--line);padding:10px 0}
+.liv-trecho{margin:4px 0 0;font-size:14px;overflow-wrap:anywhere}
+.liv-trecho mark{background:var(--terra-s);color:inherit;border-radius:3px;padding:0 2px}
+.disc-dica{grid-column:1/-1;font-size:13px;color:var(--warn)}
+.cat-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.cat-lista li{display:flex;gap:8px;align-items:center}
+.cat-lista .inp{flex:1;min-width:0}
