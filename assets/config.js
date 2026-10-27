@@ -6,7 +6,6 @@ window.APP_CONFIG = {
   NOME_PRODUTO: "Painel de Estudos",
   // Contato público (aparece no rodapé, nos termos e na privacidade). Troque aqui quando mudar.
   CONTATO_EMAIL: "vini10arthur@gmail.com",
-  CONTATO_TELEFONE: "+55 (67) 99126-5754",
-  CONTATO_WHATSAPP: "5567991265754",
+  CONTATO_WHATSAPP: "5567991265754", // só vira o botão "WhatsApp"; o número não aparece escrito no site
   RESPONSAVEL: "Arthur Vinicius de Almeida",
 };
