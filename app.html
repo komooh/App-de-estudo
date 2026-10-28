@@ -157,8 +157,8 @@
           ${/^optativa\b/i.test(d.nome) ? `<span class="disc-dica">Troque "${esc(d.nome)}" pelo nome da sua optativa (ex.: Medicina Tropical).</span>` : ""}</div>`).join("")}
         <button class="btn" data-a="addDisc" style="align-self:flex-start">+ Adicionar matéria</button>`;
       if (st.passo === 3) body = `<p class="muted" style="margin:0">Preencha as datas que você já sabe. As que ainda não saíram podem ficar em branco: é só colocar depois. A agenda monta o plano de estudo com as datas que existirem.</p>
-        ${discValidas().length ? `<div class="card imp-cal"><div class="row" style="align-items:center;justify-content:space-between"><span style="flex:1 1 220px">Tem o calendário oficial das provas? A IA lê o PDF ou a foto e preenche as datas para você conferir.</span>
-          <label class="btn ${st.cal.busy ? "" : "solid"}" style="cursor:pointer">Importar calendário (PDF ou foto)<input type="file" id="onbCal" accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" hidden ${st.cal.busy ? "disabled" : ""}></label></div>
+        ${discValidas().length ? `<div class="card imp-cal"><div class="row" style="align-items:center;justify-content:space-between"><span style="flex:1 1 220px">Tem algum documento da faculdade com as datas das provas (cronograma, calendário)? A IA lê o PDF ou a foto e preenche as datas para você conferir.</span>
+          <label class="btn ${st.cal.busy ? "" : "solid"}" style="cursor:pointer">Importar documento (PDF ou foto)<input type="file" id="onbCal" accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" hidden ${st.cal.busy ? "disabled" : ""}></label></div>
           ${st.cal.msg ? `<div class="msg ${st.cal.msg.bad ? "bad" : ""}" style="margin:0" aria-live="polite">${esc(st.cal.msg.t)}</div>` : ""}
           ${st.cal.provas ? `<div id="calRev">${Leitor.revisaoHTML(st.cal.provas, discOpcoes())}</div><div class="row">${st.cal.provas.length ? `<button class="btn solid" data-a="calUsar">Usar estas datas</button>` : ""}<button class="btn ghost" data-a="calDesc">Cancelar</button></div>` : ""}</div>`
           : `<div class="empty">Você não colocou matérias no passo anterior. Pode continuar e adicionar depois.</div>`}
@@ -480,7 +480,7 @@
     Fila.iniciar(P.id);
     Tarefas.iniciar({ chamar, aoAbrir: async (t) => { if (!Painel.ativo()) await home(); Painel.abrirTarefa(t); } });
   }
-  // Configurações (Google Drive, livros, enviar arquivos, importar calendário, ajustes do semestre): uma tela do painel
+  // Configurações (Google Drive, livros, enviar arquivos, importar documento, ajustes do semestre): uma tela do painel
   function abrirConfig() {
     if (!P.onboarding_ok || (!App.acessoOk(P) && !P.is_admin)) return;
     if (window.Painel?.ativo()) return Painel.abrir("config");

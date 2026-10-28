@@ -396,3 +396,15 @@ details.mats .drv-lista li{align-items:flex-start}
 .tf-acoes .btn{padding:5px 10px;font-size:13px}
 .bg-aviso{margin-bottom:12px}
 @media (max-width:520px){.tf-painel{left:12px;right:12px;width:auto;top:calc(58px + env(safe-area-inset-top,0px))}}
+/* importar documento: revisão por destino */
+.doc-cab{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--card2)}
+.docsec{border-top:1px solid var(--line);padding-top:10px}
+.docsec h3{font-size:15px;margin:0 0 8px}
+.doc-lista{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.doc-lista li{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.doc-lista li input:not([type=checkbox]),.doc-lista textarea{background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:6px 8px;min-width:0;flex:1 1 160px;width:100%}
+.doc-nota{align-items:flex-start!important}
+.doc-item{display:block!important;border-bottom:1px solid var(--line);padding-bottom:8px}
+.doc-item summary{cursor:pointer}
+.doc-nota-v{margin-top:8px;padding-left:10px;border-left:3px solid var(--line)}
+.rev td input:not([type=checkbox]){min-width:0;width:100%}

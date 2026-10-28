@@ -1,5 +1,5 @@
 // Painel de estudo: as abas Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica e Laminário,
-// e a tela Configurações (Google Drive, livros, enviar arquivos, importar calendário e ajustes do semestre).
+// e a tela Configurações (Google Drive, livros, enviar arquivos, importar documento e ajustes do semestre).
 // O app.html chama Painel.iniciar(...) depois do login e da configuração.
 // Tudo o que é de cada aluno fica no Supabase (06_estudo.sql); a IA só roda no servidor (função "ia"),
 // e só quando o aluno pede. Todo texto do aluno ou da IA passa por esc() ou pelo DOMPurify.
@@ -90,7 +90,7 @@
     const ids = (disc || []).map((d) => d.id);
     const vazio = Promise.resolve({ data: [] });
     const porDisc = (t, cols) => ids.length ? sb.from(t).select(cols).in("disciplina_id", ids) : vazio;
-    const [temas, provas, notas, mats, res, mapas, pref, fac, hor, cal, ev, ligas, horas, uso, facs] = await Promise.all([
+    const [temas, provas, notas, mats, res, mapas, pref, fac, hor, cal, ev, ligas, horas, uso, facs, docs] = await Promise.all([
       porDisc("temas", "*"), porDisc("provas", "*"), porDisc("notas", "disciplina_id,campo,valor"),
       sb.from("materiais").select("id,nome,status,tema_id,disciplina_id,mime,fonte_id").eq("ignorado", false),
       sb.from("resumos").select("tema_id"), sb.from("mapas").select("tema_id"),
@@ -101,6 +101,7 @@
       sb.from("ligas").select("*").order("id"), sb.from("horas_compl").select("*").order("id"),
       sb.from("uso_ia").select("*").eq("mes", mesAtual()).maybeSingle(),
       sb.from("faculdades").select("id,nome").eq("ativa", true).order("nome"),
+      sb.from("documentos").select("*").order("criado_em", { ascending: false }).limit(100),
     ]);
     const falta06 = [pref, hor, cal, ev, mapas].some((r) => r.error && erroBanco(r.error));
     const notasMap = {};
@@ -111,7 +112,7 @@
       resIds: new Set((res.data || []).map((r) => r.tema_id)), mapaIds: new Set((mapas.data || []).map((r) => r.tema_id)),
       pref: pref.data || {}, regra: fac.data?.regra_notas || {}, faculdade: fac.data?.nome || "",
       horarios: hor.data || [], cal: cal.data || [], eventos: ev.data || [], ligas: ligas.data || [], horas: horas.data || [],
-      uso: uso.data || {}, questoes: null, laminas: null, faculdades: facs.data || [],
+      uso: uso.data || {}, questoes: null, laminas: null, faculdades: facs.data || [], docs: docs.data || [],
     };
   }
   async function carregarQuestoes() {
@@ -274,79 +275,149 @@
     render(); toast(enviado(m) ? "Arquivo apagado" : "Arquivo oculto: não volta na próxima leitura do Drive");
   }
 
-  /* ================= IMPORTAR O CALENDÁRIO DE PROVAS (PDF ou foto) ================= */
-  // O navegador tira o texto do PDF mantendo as colunas (Leitor.layoutTexto) ou reduz a foto; a função "ia"
-  // lê as provas da turma do aluno. Nada é salvo antes de o aluno revisar e confirmar.
+  /* ================= IMPORTAR DOCUMENTO (calendário, cronograma de provas, horário, regulamento, avisos…) ================= */
+  // O navegador tira o texto do PDF mantendo as colunas; páginas escaneadas e fotos viram JPEG na pasta privada
+  // "tarefas" do Storage. A IA (tarefa no servidor) classifica o documento e extrai o que serve ao painel.
+  // NADA é salvo antes de o aluno conferir: cada item tem caixinha e campos editáveis, separados pelo destino.
+  const TIPO_DOC = { calendario_geral: "Calendário acadêmico", cronograma_provas: "Cronograma de provas", horario_aulas: "Horário de aulas", programa_materia: "Programa de matéria", regulamento: "Regulamento", aviso: "Aviso", material_de_estudo: "Material de estudo", outro: "Documento" };
+  const CATEG = [["feriado", "Feriado"], ["prova", "Provas"], ["matricula", "Matrícula"], ["aula", "Aulas"], ["recesso", "Recesso"], ["prazo", "Prazo"], ["outro", "Outro"]];
+  const catParaTipo = (e) => e.categoria === "feriado" || e.categoria === "recesso" ? "feriado" : e.categoria === "prova" ? (/final/i.test(e.titulo) ? "final" : /pr[aá]ctic|pr[aá]tic/i.test(e.titulo) ? "pratica" : "parcial") : e.categoria === "aula" ? "aulas" : "outro";
+  const DIAS_C = ["", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+  const COPY_DOC = "Mande qualquer documento da faculdade: calendário acadêmico, cronograma de provas, horário de aulas, regulamento, avisos… A IA entende e coloca no painel; você confere antes de salvar. Para slides e material de estudo, use Enviar arquivos.";
   function vImportCal() {
     const c = ui.cal, dis = c.busy ? "disabled" : "";
     const usados = `${S.uso.calendarios || 0} de ${H.P.limite_calendarios_mes ?? 10} importações usadas este mês`;
     const rodando = c.tarefa && Tarefas.lista().some((t) => t.id === c.tarefa && (t.status === "na_fila" || t.status === "rodando"));
-    let corpo = `<p style="margin:0">Mande o calendário oficial das provas (o PDF da faculdade ou uma foto/print da tabela). A IA acha a linha da sua turma${H.SEM().atual?.turma ? ` (${esc(semNome())}, turma ${esc(H.SEM().atual.turma)})` : ""} e mostra as provas para você conferir antes de salvar.</p>
-      <div class="row" style="align-items:center"><label class="btn ${c.file ? "" : "solid"}" style="cursor:pointer">Importar calendário (PDF ou foto)<input type="file" data-a="calArq" accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" hidden ${dis}></label>
+    let corpo = `<p style="margin:0">${esc(COPY_DOC)}</p>
+      <div class="row" style="align-items:center"><label class="btn ${c.file ? "" : "solid"}" style="cursor:pointer">Importar documento (PDF ou foto)<input type="file" data-a="calArq" accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" hidden ${dis}></label>
       ${c.file ? `<span class="drv-nome" style="font-size:14px">${esc(c.file.name)}</span><button class="btn solid" data-a="calLer" ${dis}>${c.busy ? "Preparando…" : "Ler com IA"}</button>` : ""}</div>`;
     if (rodando) corpo += `<p class="muted" style="margin:0;font-size:13px">Lendo… acompanhe em <button class="lnk" data-a="verTarefas" data-abre-tarefas>Tarefas</button>.</p>`;
-    if (c.msg) corpo += `<div class="msg ${c.msg.bad ? "bad" : ""}" style="margin:0" aria-live="polite">${esc(c.msg.t)}</div>`;
-    if (c.provas) corpo += `<div id="calRev">${Leitor.revisaoHTML(c.provas, S.disc)}</div>
-      ${c.provas.length ? `<p class="muted" style="margin:0;font-size:13px">Confira cada linha: escolha a matéria do painel (ou "Não importar"), o tipo, a data e a hora. Se já existir a mesma prova (mesma matéria, P1/P2/Final e teórica/prática), a data é trocada pela nova.</p>` : ""}
-      <div class="row">${c.provas.length ? `<button class="btn solid" data-a="calSalvar" ${dis}>Salvar no calendário</button>` : ""}<button class="btn ghost" data-a="calCancelar" ${dis}>Cancelar</button></div>`;
-    return `<div class="stack">${corpo}<p class="muted" style="margin:0;font-size:12.5px">${esc(usados)}. A leitura é feita por IA e pode errar: confira as datas.</p></div>`;
+    if (c.msg) corpo += `<div class="msg ${c.msg.bad ? "bad" : ""}" style="margin:0" aria-live="polite">${esc(c.msg.t)}${c.msg.enviar ? ` <button class="lnk" data-a="goEnviar">Ir para Enviar arquivos</button>` : ""}</div>`;
+    if (c.doc) corpo += vRevisaoDoc(c);
+    return `<div class="stack">${corpo}<p class="muted" style="margin:0;font-size:12.5px">${esc(usados)} (material de estudo e documentos sem nada para o painel não contam). A leitura é feita por IA e pode errar: confira as datas.</p></div>`;
   }
-  // O texto do PDF (ou a foto reduzida, guardada na pasta privada "tarefas" do Storage) vai para uma
-  // tarefa da IA no servidor: o aluno pode sair da tela; quando fica pronta, ele confere aqui.
+  const chk = (sec, i, on) => `<input type="checkbox" data-sec="${sec}" data-i="${i}" data-k="ok" ${on ? "checked" : ""} aria-label="Usar">`;
+  const inp = (sec, i, k, v, extra = "") => `<input data-sec="${sec}" data-i="${i}" data-k="${k}" value="${esc(v ?? "")}" ${extra}>`;
+  function vRevisaoDoc(c) {
+    const d = c.doc, sec = (titulo, n, corpo) => n ? `<section class="docsec"><h3>${titulo} <span class="muted">(${n})</span></h3>${corpo}</section>` : "";
+    const cab = `<div class="doc-cab"><span class="chip">${esc(TIPO_DOC[d.tipo] || "Documento")}</span>${d.titulo ? ` <b>${esc(d.titulo)}</b>` : ""}${d.resumo ? `<p style="margin:6px 0 0">${esc(d.resumo)}</p>` : ""}</div>`;
+    const provas = sec("Provas → Calendário de provas e Agenda", c.provas.length, `<div id="calRev">${Leitor.revisaoHTML(c.provas, S.disc)}</div><p class="muted" style="margin:0;font-size:13px">Se já existir a mesma prova (matéria, P1/P2/Final e teórica/prática), a data é trocada pela nova.</p>`);
+    const eventos = sec("Eventos → Calendário acadêmico", d.eventos.length, `<div class="tablewrap rev-wrap"><table class="rev"><thead><tr><th>Usar</th><th>Evento</th><th>Início</th><th>Fim</th><th>Tipo</th></tr></thead><tbody>${d.eventos.map((e, i) => `<tr><td>${chk("eventos", i, e.ok)}</td>
+        <td>${inp("eventos", i, "titulo", e.titulo, 'maxlength="160" aria-label="Evento"')}${e.repetido ? `<span class="muted" style="display:block;font-size:12px">já está no calendário</span>` : ""}</td>
+        <td>${inp("eventos", i, "data_ini", e.data_ini, 'type="date" aria-label="Início"')}</td><td>${inp("eventos", i, "data_fim", e.data_fim, 'type="date" aria-label="Fim"')}</td>
+        <td><select data-sec="eventos" data-i="${i}" data-k="categoria" aria-label="Tipo">${CATEG.map(([k, l]) => `<option value="${k}" ${e.categoria === k ? "selected" : ""}>${l}</option>`).join("")}</select></td></tr>`).join("")}</tbody></table></div>`);
+    const horarios = sec("Horários → Aulas", d.horarios.length, `<div class="tablewrap rev-wrap"><table class="rev"><thead><tr><th>Usar</th><th>Matéria</th><th>Dia</th><th>Início</th><th>Fim</th><th>Sala</th></tr></thead><tbody>${d.horarios.map((h, i) => `<tr><td>${chk("horarios", i, h.ok)}</td>
+        <td><span class="rev-doc">${esc(h.materia)}</span><select data-sec="horarios" data-i="${i}" data-k="disciplina_id" aria-label="Matéria"><option value="">Outra (o nome do documento)</option>${S.disc.map((x) => `<option value="${x.id}" ${x.id == h.disciplina_id ? "selected" : ""}>${esc(x.nome)}</option>`).join("")}</select></td>
+        <td><select data-sec="horarios" data-i="${i}" data-k="dia_semana" aria-label="Dia">${DIAS_C.slice(1).map((n, j) => `<option value="${j + 1}" ${h.dia_semana == j + 1 ? "selected" : ""}>${n}</option>`).join("")}</select></td>
+        <td>${inp("horarios", i, "hora_ini", h.hora_ini, 'type="time" aria-label="Início"')}</td><td>${inp("horarios", i, "hora_fim", h.hora_fim, 'type="time" aria-label="Fim"')}</td><td>${inp("horarios", i, "sala", h.sala, 'maxlength="60" aria-label="Sala"')}</td></tr>`).join("")}</tbody></table></div>`);
+    const novas = d.materias.filter((m) => m.disciplina_id == null);
+    const materias = sec("Matérias que faltam no painel", novas.length, `<ul class="doc-lista">${d.materias.map((m, i) => m.disciplina_id != null ? "" : `<li>${chk("materias", i, m.ok)}${inp("materias", i, "nome", m.nome, 'maxlength="120" aria-label="Matéria"')}${inp("materias", i, "professor", m.professor, 'maxlength="120" placeholder="Professor (opcional)" aria-label="Professor"')}</li>`).join("")}</ul>`);
+    const notas = sec("Notas → Documentos importados (Configurações)", d.notas.length, `<ul class="doc-lista">${d.notas.map((n, i) => `<li class="doc-nota">${chk("notas", i, n.ok)}<div style="flex:1;min-width:0">${inp("notas", i, "titulo", n.titulo, 'maxlength="120" aria-label="Título da nota"')}<textarea class="inp" rows="3" data-sec="notas" data-i="${i}" data-k="texto" maxlength="2000" aria-label="Texto da nota">${esc(n.texto)}</textarea></div></li>`).join("")}</ul>`);
+    const algo = c.provas.length + d.eventos.length + d.horarios.length + novas.length + d.notas.length;
+    return `<div id="docRev" class="stack">${cab}${provas}${eventos}${horarios}${materias}${notas}
+      <div class="row">${algo ? `<button class="btn solid" data-a="calSalvar" ${c.busy ? "disabled" : ""}>Salvar no painel</button>` : ""}<button class="btn ghost" data-a="calCancelar" ${c.busy ? "disabled" : ""}>${algo ? "Cancelar" : "Fechar"}</button></div></div>`;
+  }
   async function lerCalendario() {
     const c = ui.cal; if (c.busy || !c.file) return;
-    c.busy = true; c.provas = null; c.msg = { t: "Abrindo o arquivo…" }; render();
+    c.busy = true; c.doc = null; c.provas = null; c.msg = { t: "Abrindo o arquivo…" }; render();
     const passo = (t) => { c.msg = { t }; render(); };
     try {
-      const prep = await Leitor.prepararCalendario(c.file, H.carregarPdfjs, passo);
-      let corpo = { acao: "calendario", texto: prep.texto };
-      if (prep.imagem) {
-        passo("Enviando a foto…");
-        const bin = atob(prep.imagem.base64), bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        const caminho = `${H.P.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
-        const up = await sb.storage.from("tarefas").upload(caminho, new Blob([bytes], { type: "image/jpeg" }), { contentType: "image/jpeg", upsert: false });
-        if (up.error) throw new Error(/bucket|not found/i.test(up.error.message) ? "Falta rodar o 08_tarefas.sql no Supabase." : "Não consegui enviar a foto: " + up.error.message);
-        corpo = { acao: "calendario", imagem_caminho: caminho };
+      const prep = await Leitor.prepararDocumento(c.file, H.carregarPdfjs, passo);
+      const caminhos = [];
+      for (let i = 0; i < prep.imagens.length; i++) {
+        passo(prep.imagens.length > 1 ? `Enviando as páginas que são imagem (${i + 1} de ${prep.imagens.length})…` : "Enviando a imagem…");
+        const caminho = `${H.P.id}/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+        const up = await sb.storage.from("tarefas").upload(caminho, prep.imagens[i], { contentType: "image/jpeg", upsert: false });
+        if (up.error) { if (caminhos.length) sb.storage.from("tarefas").remove(caminhos); throw new Error(/bucket|not found/i.test(up.error.message) ? "Falta rodar o 08_tarefas.sql no Supabase." : "Não consegui enviar a imagem: " + up.error.message); }
+        caminhos.push(caminho);
       }
+      const corpo = { acao: "documento", nome: c.file.name.slice(0, 150), ...(prep.texto ? { texto: prep.texto } : {}), ...(caminhos.length ? { imagem_caminhos: caminhos } : {}) };
       const r = await Tarefas.criar(corpo);
-      ui.cal = { file: null, busy: false, tarefa: r.tarefa_id, provas: null,
-        msg: { t: "A IA está lendo o calendário no servidor (uns 20 a 40 segundos). Pode usar o resto do site: quando terminar, aparece um aviso e a tabela para conferir." } };
-    } catch (e) { c.busy = false; c.msg = { bad: true, t: e.message || "Não consegui ler o calendário." }; }
+      ui.cal = { file: null, busy: false, tarefa: r.tarefa_id, provas: null, doc: null,
+        msg: { t: `A IA está lendo o documento no servidor (uns 20 a 60 segundos${prep.cortado ? "; ele é grande: vão só as primeiras páginas" : ""}). Pode usar o resto do site: quando terminar, aparece um aviso e você confere aqui.` } };
+    } catch (e) { c.busy = false; c.msg = { bad: true, t: e.message || "Não consegui ler o documento." }; }
     render();
   }
-  /** Tarefa do calendário pronta: mostra a tabela para o aluno conferir (nada é salvo antes). */
+  /** Tarefa pronta: monta a revisão (nada é salvo antes). Repetidos já marcados como não usar. */
   function aplicarCalendario(t) {
     const r = t.resultado || {};
     const ids = S.disc.map((d) => d.id), nomes = S.disc.map((d) => d.nome);
-    const provas = (r.provas || []).map((p) => { const id = p.disciplina_id != null && ids.includes(p.disciplina_id) ? p.disciplina_id : ids[Leitor.casarMateria(p.materia, nomes)] ?? null; return { ...p, disciplina_id: id, ok: id != null }; });
-    ui.cal = { file: null, busy: false, tarefa: null, provas,
-      msg: provas.length ? { t: `Achei ${provas.length} prova${provas.length === 1 ? "" : "s"}${r.semestre ? ` do ${r.semestre}º semestre${r.turma ? `, turma ${r.turma}` : ""}` : ""}. Nada foi salvo ainda.${r.aviso ? " " + r.aviso : ""}` }
-        : { bad: true, t: r.aviso || "Não achei provas da sua turma nesse arquivo. Confira seu semestre e turma em Configurações." } };
+    const casa = (id, nome) => id != null && ids.includes(id) ? id : ids[Leitor.casarMateria(nome, nomes)] ?? null;
+    const provas = (r.provas || []).map((p) => { const id = casa(p.disciplina_id, p.materia); return { ...p, disciplina_id: id, ok: id != null }; });
+    const jaTem = new Set(S.cal.map((x) => `${String(x.nome).toLowerCase()}|${x.inicio}`));
+    const doc = {
+      tipo: r.tipo || "outro", titulo: r.titulo || "", resumo: r.resumo || "", nome: r.nome || "",
+      eventos: (r.eventos || []).map((e) => { const rep = jaTem.has(`${e.titulo.toLowerCase()}|${e.data_ini}`); return { ...e, ok: !rep, repetido: rep }; }),
+      horarios: (r.horarios || []).map((h) => ({ ...h, disciplina_id: casa(h.disciplina_id, h.materia), ok: true })),
+      materias: (r.materias || []).map((m) => ({ ...m, disciplina_id: casa(m.disciplina_id, m.nome), ok: true })),
+      notas: (r.notas || []).map((n) => ({ ...n, ok: true })),
+    };
+    const n = provas.length + doc.eventos.length + doc.horarios.length + doc.materias.filter((m) => m.disciplina_id == null).length + doc.notas.length;
+    const estudo = doc.tipo === "material_de_estudo";
+    ui.cal = { file: null, busy: false, tarefa: null, provas, doc: estudo ? null : doc,
+      msg: estudo ? { bad: true, enviar: true, t: r.aviso || "Isso parece material de estudo. Para usar nos resumos e questões, mande em Enviar arquivos." }
+        : n ? { t: `${TIPO_DOC[doc.tipo] || "Documento"}: achei ${n} ${n === 1 ? "item" : "itens"} para o painel. Nada foi salvo ainda: confira e clique em "Salvar no painel".${r.aviso ? " " + r.aviso : ""}` }
+        : { bad: true, t: r.aviso || "Não achei nada para colocar no painel nesse documento." } };
     atualizarUso().then(() => { if (ui.tab === "cal" || ui.tab === "config") render(); });
   }
+  /** Grava o que o aluno marcou: provas, eventos, horários, matérias novas e o registro do documento (com as notas). */
   async function salvarCalendario() {
-    const box = document.getElementById("calRev"); if (!box || ui.cal.busy) return;
-    const lista = Leitor.lerRevisao(box);
-    if (!lista.length) return toast("Marque pelo menos uma prova com matéria e data.");
-    ui.cal.busy = true; render();
-    let n = 0, erro = null;
-    for (const p of lista) {
+    const c = ui.cal, d = c.doc; if (!d || c.busy) return;
+    const box = document.getElementById("calRev");
+    const provas = box ? Leitor.lerRevisao(box) : [];
+    const usar = (k) => d[k].filter((x) => x.ok);
+    const eventos = usar("eventos").filter((e) => e.titulo.trim() && /^\d{4}-\d{2}-\d{2}$/.test(e.data_ini));
+    const horarios = usar("horarios").filter((h) => h.hora_ini && h.hora_fim && h.hora_fim > h.hora_ini);
+    const materias = d.materias.filter((m) => m.ok && m.disciplina_id == null && m.nome.trim());
+    const notas = usar("notas").filter((n) => n.titulo.trim() && n.texto.trim()).map((n) => ({ titulo: n.titulo.trim().slice(0, 120), texto: n.texto.trim().slice(0, 2000) }));
+    if (!provas.length && !eventos.length && !horarios.length && !materias.length && !notas.length) return toast("Marque pelo menos um item.");
+    c.busy = true; render();
+    const erros = [], feito = { provas: 0, eventos: 0, horarios: 0, materias: 0 };
+    // o registro do documento (memória): resumo e notas
+    let docId = null;
+    { const { data, error } = await sb.from("documentos").insert({ nome: (d.nome || d.titulo || "Documento").slice(0, 200), tipo: d.tipo === "material_de_estudo" ? "outro" : d.tipo, titulo: d.titulo || null, resumo: d.resumo || null, notas }).select("*").single();
+      if (error) erros.push(/documentos|schema cache/i.test(error.message) ? "falta rodar o 08_tarefas.sql" : error.message); else { docId = data.id; (S.docs = S.docs || []).unshift(data); } }
+    for (const p of provas) {
       const campos = { data: p.data, hora: p.hora };
       const ex = S.provas.find((x) => x.disciplina_id === p.disciplina_id && x.tipo === p.tipo && (x.modalidade || "teorica") === p.modalidade);
-      if (ex) { const { error } = await sb.from("provas").update(campos).eq("id", ex.id); if (error) { erro = error; continue; } Object.assign(ex, campos); n++; }
-      else { const { data, error } = await sb.from("provas").insert({ disciplina_id: p.disciplina_id, tipo: p.tipo, modalidade: p.modalidade, ...campos }).select("*").single(); if (error) { erro = error; continue; } S.provas.push(data); n++; }
+      if (ex) { const { error } = await sb.from("provas").update(campos).eq("id", ex.id); if (error) { erros.push(error.message); continue; } Object.assign(ex, campos); feito.provas++; }
+      else { const { data, error } = await sb.from("provas").insert({ disciplina_id: p.disciplina_id, tipo: p.tipo, modalidade: p.modalidade, ...campos }).select("*").single(); if (error) { erros.push(error.message); continue; } S.provas.push(data); feito.provas++; }
     }
-    ui.cal = { file: null, busy: false, msg: erro ? { bad: true, t: `${n} salva${n === 1 ? "" : "s"}; algumas não: ${erro.message}` } : { t: `${n} prova${n === 1 ? "" : "s"} salva${n === 1 ? "" : "s"} no calendário. Elas já aparecem na Agenda.` }, provas: null };
-    const prim = lista.map((p) => p.data).sort()[0]; if (prim) { ui.calY = +prim.slice(0, 4); ui.calM = +prim.slice(5, 7) - 1; }
-    render(); toast(`${n} prova${n === 1 ? "" : "s"} salva${n === 1 ? "" : "s"}`);
+    for (const e of eventos) {
+      const linha = { nome: e.titulo.trim().slice(0, 160), tipo: catParaTipo(e), inicio: e.data_ini, fim: e.data_fim && e.data_fim > e.data_ini ? e.data_fim : null, descricao: e.descricao || null, documento_id: docId };
+      const { data, error } = await sb.from("calendario").insert(linha).select("*").single();
+      if (error) { if (!/duplicate|calendario_sem_repetir|23505/i.test(error.message + error.code)) erros.push(error.message); continue; } // repetido: já existe
+      S.cal.push(data); feito.eventos++;
+    }
+    for (const h of horarios) {
+      const { data, error } = await sb.from("horarios").insert({ semestre_id: H.SEM().atual?.id ?? null, disciplina_id: h.disciplina_id ? +h.disciplina_id : null, nome: h.disciplina_id ? null : h.materia.slice(0, 120), sala: h.sala || null, dia: +h.dia_semana, inicio: h.hora_ini, fim: h.hora_fim }).select("*").single();
+      if (error) { erros.push(error.message); continue; } S.horarios.push(data); feito.horarios++;
+    }
+    for (const m of materias) {
+      const { data, error } = await sb.from("disciplinas").insert({ nome: m.nome.trim().slice(0, 120), professor: (m.professor || "").trim() || null, ordem: S.disc.length, ...(H.SEM().atual ? { semestre_id: H.SEM().atual.id } : {}) }).select("*").single();
+      if (error) { erros.push(error.message); continue; } S.disc.push(data); feito.materias++;
+    }
+    const partes = [[feito.provas, "prova", "provas"], [feito.eventos, "evento", "eventos"], [feito.horarios, "aula", "aulas"], [feito.materias, "matéria", "matérias"], [notas.length && docId ? notas.length : 0, "nota", "notas"]].filter(([n]) => n).map(([n, a, b]) => `${n} ${n === 1 ? a : b}`);
+    ui.cal = { file: null, busy: false, provas: null, doc: null, msg: erros.length ? { bad: true, t: `${partes.length ? "Salvo: " + partes.join(", ") + ". " : ""}Não salvou tudo: ${erros[0]}` } : { t: `Salvo no painel: ${partes.join(", ") || "nada novo"}.` } };
+    const prim = [...provas.map((p) => p.data), ...eventos.map((e) => e.data_ini)].sort()[0]; if (prim) { ui.calY = +prim.slice(0, 4); ui.calM = +prim.slice(5, 7) - 1; }
+    render(); toast(partes.length ? `Salvo: ${partes.join(", ")}` : "Nada novo para salvar");
+  }
+  /** Configurações: documentos importados (o resumo da IA e as notas guardadas) */
+  function vDocumentos() {
+    const L = S.docs || [];
+    if (!L.length) return `<p class="muted" style="margin:0">Nenhum documento importado ainda. Use "Importar documento" acima ou na aba Calendário.</p>`;
+    return `<ul class="doc-lista">${L.map((d) => `<li class="doc-item"><details ${ui.confDoc === d.id ? "open" : ""}><summary><b>${esc(d.titulo || d.nome || "Documento")}</b> <span class="muted">· ${esc(TIPO_DOC[d.tipo] || "Documento")} · ${esc(new Date(d.criado_em).toLocaleDateString("pt-BR"))}${(d.notas || []).length ? ` · ${(d.notas || []).length} nota${d.notas.length === 1 ? "" : "s"}` : ""}</span></summary>
+      ${d.nome && d.titulo ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Arquivo: ${esc(d.nome)}</p>` : ""}${d.resumo ? `<p style="margin:6px 0">${esc(d.resumo)}</p>` : ""}
+      ${(d.notas || []).map((n) => `<div class="doc-nota-v"><b>${esc(n.titulo)}</b><div class="resumo" style="font-size:14px">${md(n.texto)}</div></div>`).join("")}
+      <div class="row" style="margin-top:8px">${ui.confDoc === d.id ? `<button class="btn" data-a="delDoc" data-id="${d.id}" style="color:var(--bad);border-color:var(--bad)">Apagar</button><button class="btn ghost" data-a="cancelDel">Não</button><span class="muted" style="font-size:13px">As datas que já foram para o calendário continuam lá.</span>` : `<button class="btn ghost" data-a="askDoc" data-id="${d.id}">Apagar este registro</button>`}</div></details></li>`).join("")}</ul>`;
   }
 
   /* ================= CONFIGURAÇÕES ================= */
   function vConfig() {
     return hero("Suas", "configurações", "var(--ink)")
       + janela("Enviar arquivos", `<div class="win-body">${vUpload()}</div>`)
-      + janela("Importar calendário de provas", `<div class="win-body">${vImportCal()}</div>`)
+      + janela("Importar documento", `<div class="win-body">${vImportCal()}</div>`)
+      + janela("Documentos importados", `<div class="win-body">${vDocumentos()}</div>`)
       + janela("Semestres", `<div class="win-body">${vSemestres()}</div>`);
   }
   /** Semestre atual (número, turma e faculdade) e a turma dos semestres anteriores */
@@ -362,7 +433,7 @@
           <label class="field" style="flex:0 1 120px"><span class="mono">Turma (sala)</span>${App.campoTurma("turma", a.turma, "semTurma")}</label>
           ${facs.length ? `<label class="field" style="flex:1 1 220px"><span class="mono">Faculdade</span><select name="fac">${facs.map((f) => `<option value="${f.id}" ${f.id == (a.faculdade_id || H.P.faculdade_id) ? "selected" : ""}>${esc(f.nome)}</option>`).join("")}</select></label>` : ""}
           <button class="btn solid">Salvar</button></div>
-        <p class="muted" style="margin:0;font-size:13px">Turma é a letra da sua sala (ex.: F), como aparece no calendário de provas. A importação do calendário procura a linha deste semestre e desta turma.</p></form>`
+        <p class="muted" style="margin:0;font-size:13px">Turma é a letra da sua sala (ex.: F), como aparece no calendário de provas. Ao importar um documento com grade por turma (ex.: cronograma de provas), a IA procura a linha deste semestre e desta turma.</p></form>`
       : `<p style="margin:0">Nenhum semestre atual.</p>`}
       ${antigos.length ? `<h3 style="margin:16px 0 6px">Semestres anteriores</h3><ul class="sem-lista">${antigos.map((x) => `<li><form data-form="editSemAnt" data-id="${x.id}" class="row" style="align-items:flex-end;width:100%">
           <span style="flex:1 1 160px;min-width:0"><b>${x.numero ? `${x.numero}º semestre` : "Semestre sem número"}</b><span class="muted" style="display:block;font-size:13px">${esc(dataBR(x.inicio))}${x.fim ? " a " + esc(dataBR(x.fim)) : ""}</span></span>
@@ -755,7 +826,7 @@
     return hero("Calendário", "de provas", "var(--wine)") + janela("Próximas avaliações", `<div class="win-body"><div class="row" style="justify-content:space-between;align-items:center"><h2>Olá! ${greet}</h2><span class="chip" style="background:var(--wine-s);color:var(--wine)">${in14} avaliaç${in14 === 1 ? "ão" : "ões"} em 14 dias</span></div>${cards ? `<div class="next">${cards}</div>` : `<div class="empty" style="margin-top:14px">Nenhuma avaliação futura.</div>`}</div>`)
       + janela(ui.calView === "mes" ? `${MESES[ui.calM]} ${ui.calY}` : `Calendário ${ui.calY}`, `<div class="win-body calwrap"><div style="min-width:0">${calBody}</div>
         <div class="legend"><span class="mono">Legenda</span><span><i class="sw" style="background:var(--wine)"></i>Prova</span><span><i class="sw" style="background:var(--wine-s)"></i>Prática, seminário, entrega</span><span><i class="sw" style="border:1.5px solid var(--ink)"></i>Hoje</span><span><i class="sw" style="height:4px;background:var(--wine)"></i>Período de parciais</span><span><i class="sw" style="height:4px;background:var(--gold)"></i>Semana prática</span><span><i class="sw" style="height:4px;background:var(--navy)"></i>Exames finais</span><span><i class="sw fersw"></i>Feriado</span><div class="tip">${tip}</div></div></div>`)
-      + janela("Importar calendário de provas", `<div class="win-body">${vImportCal()}</div>`)
+      + janela("Importar documento", `<div class="win-body">${vImportCal()}</div>`)
       + vAcad()
       + janela("Cadastrar avaliação", `<div class="win-body">${S.disc.length ? `<form class="row" data-form="addProva">
         <label class="field" style="flex:1 1 180px"><span class="mono">Disciplina</span><select name="disc">${S.disc.map((d) => `<option value="${d.id}">${esc(d.nome)}</option>`).join("")}</select></label>
@@ -1040,11 +1111,11 @@
     let questoes = false;
     for (const t of lista) {
       const r = t.resultado || {};
-      if (t.status !== "pronta") { if (t.tipo === "questoes" && ui.genTarefa === t.id) { ui.genMsg = t.erro || "Não deu certo."; ui.genTarefa = null; } if (t.tipo === "calendario" && ui.cal.tarefa === t.id) ui.cal = { file: null, busy: false, provas: null, msg: { bad: true, t: t.erro || "Não consegui ler o calendário." } }; continue; }
+      if (t.status !== "pronta") { if (t.tipo === "questoes" && ui.genTarefa === t.id) { ui.genMsg = t.erro || "Não deu certo."; ui.genTarefa = null; } if ((t.tipo === "documento" || t.tipo === "calendario") && ui.cal.tarefa === t.id) ui.cal = { file: null, busy: false, provas: null, msg: { bad: true, t: t.erro || "Não consegui ler o documento." } }; continue; }
       if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; S.resIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode !== "mapa") { loadRes(r.tema_id); Tarefas.vista([t.id]); } }
       if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; S.mapaIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode === "mapa") { ui.mmCol = {}; loadMapa(r.tema_id); Tarefas.vista([t.id]); } }
       if (t.tipo === "questoes") { questoes = true; if (ui.genTarefa === t.id) { ui.genTarefa = null; ui.qDisc = r.disciplina_id; ui.genMsg = msgQuestoes(r); } }
-      if (t.tipo === "calendario" && ui.cal.tarefa === t.id && (ui.tab === "cal" || ui.tab === "config")) { aplicarCalendario(t); Tarefas.vista([t.id]); }
+      if ((t.tipo === "documento" || t.tipo === "calendario") && ui.cal.tarefa === t.id && (ui.tab === "cal" || ui.tab === "config")) { aplicarCalendario(t); Tarefas.vista([t.id]); }
     }
     if (questoes && S.questoes) await carregarQuestoes().catch(() => { });
     atualizarUso().then(() => render());
@@ -1055,7 +1126,7 @@
     if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; openRes(r.tema_id); }
     else if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; openMapa(r.tema_id); }
     else if (t.tipo === "questoes") { fecharSheet(); if (S.questoes) await carregarQuestoes().catch(() => { }); ui.tab = "quest"; ui.qMode = "prat"; ui.qDisc = r.disciplina_id || ""; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); window.scrollTo(0, 0); }
-    else if (t.tipo === "calendario") { fecharSheet(); ui.tab = "cal"; aplicarCalendario(t); render(); document.getElementById("calRev")?.scrollIntoView({ block: "center" }); }
+    else if (t.tipo === "documento" || t.tipo === "calendario") { fecharSheet(); ui.tab = "cal"; aplicarCalendario(t); render(); document.getElementById("docRev")?.scrollIntoView({ block: "start" }); }
   }
   let sheetRAF = 0;
   function renderSheetSoon() { if (!sheetRAF) sheetRAF = requestAnimationFrame(() => { sheetRAF = 0; renderSheet(); }); }
@@ -1338,13 +1409,16 @@
       case "askMat": ui.confMat = +id; render(); break;
       case "delMat": ui.confMat = null; apagarMaterial(+id); break;
       case "calLer": lerCalendario(); break;
-      case "calCancelar": ui.cal = { file: null, busy: false, msg: null, provas: null }; render(); break;
+      case "calCancelar": ui.cal = { file: null, busy: false, msg: null, provas: null, doc: null }; render(); break;
       case "verTarefas": Tarefas.abrir(); break;
+      case "goEnviar": abrirTela("config"); setTimeout(() => document.getElementById("upArq")?.closest(".win")?.scrollIntoView({ block: "start" }), 50); break;
+      case "askDoc": ui.confDoc = +id; render(); break;
+      case "delDoc": { ui.confDoc = null; if (await del("documentos", id)) { S.docs = (S.docs || []).filter((x) => x.id != id); toast("Registro apagado"); } render(); break; }
       case "calSalvar": salvarCalendario(); break;
       case "askDel": ui.confDel = +id; render(); break;
       case "askDisc": ui.confDisc = +id; ui.cfgOpen = true; render(); break;
       case "askLam": ui.confLam = +id; ui.lamGer = true; render(); break;
-      case "cancelDel": ui.confDel = null; ui.confDisc = null; ui.confLam = null; ui.confMat = null; render(); break;
+      case "cancelDel": ui.confDel = null; ui.confDisc = null; ui.confLam = null; ui.confMat = null; ui.confDoc = null; render(); break;
       case "openRes": if (id) openRes(+id); break;
       case "closeRes": fecharSheet(); break;
       case "openMapa": if (id) openMapa(+id); break;
@@ -1422,11 +1496,12 @@
         else if (k === "tipo") p.tipo = e.target.value; else if (k === "mod") p.modalidade = e.target.value; else if (k === "data") p.data = e.target.value; else if (k === "hora") p.hora = e.target.value || null; }
       return;
     }
+    if (guardarDoc(e.target)) return;
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b)) return; const a = b.dataset.a;
     if (a === "upArq") { const fs = [...(b.files || [])]; if (fs.length) { ui.up.files = ui.up.files.concat(fs).slice(0, 30); } render(); return; }
     if (a === "upDisc") { ui.up.disc = +b.value; ui.up.modo = "arquivo"; ui.up.temaId = null; render(); return; }
     if (a === "upTema") { if (b.value === "arquivo" || b.value === "novo") { ui.up.modo = b.value; ui.up.temaId = null; } else { ui.up.modo = "existente"; ui.up.temaId = +b.value; } render(); if (ui.up.modo === "novo") document.getElementById("upTemaNome")?.focus(); return; }
-    if (a === "calArq") { const f = b.files?.[0]; if (f) { ui.cal = { file: f, busy: false, msg: null, provas: null }; render(); } return; }
+    if (a === "calArq") { const f = b.files?.[0]; if (f) { ui.cal = { file: f, busy: false, msg: null, provas: null, doc: null }; render(); } return; }
     if (a === "relPick") { const q = qPool()[ui.qIdx]; if (q) { qSt(q).rel[+b.dataset.i] = b.value; render(); } return; }
     if (a === "lamTema") { ui.lamTema = b.value; ui.lamCur = null; render(); return; }
     if (a === "lamWrong") { ui.lamOnlyWrong = b.checked; ui.lamCur = null; render(); return; }
@@ -1435,7 +1510,16 @@
     else if (a === "genDisc") { ui.genDisc = +b.value; render(); }
     else if (a === "grade") { const v = num(b.value); if (b.value.trim() && v == null) { toast("Use só números (ex.: 15,5)."); return; } salvarNota(+b.dataset.id, b.dataset.k, v); }
   }
+  // revisão do documento: guarda cada mudança (o painel redesenha e não pode perder o que o aluno mudou)
+  function guardarDoc(el) {
+    const d = ui.cal.doc; if (!d || !el?.dataset?.sec || !el.closest("#docRev")) return false;
+    const it = d[el.dataset.sec]?.[+el.dataset.i]; if (!it) return false;
+    const k = el.dataset.k;
+    it[k] = el.type === "checkbox" ? el.checked : k === "disciplina_id" ? (el.value ? +el.value : null) : el.value;
+    return true;
+  }
   function onInput(e) {
+    if (guardarDoc(e.target)) return;
     if (e.target && e.target.id === "disTxt" && ui.qst && ui.qst.id == e.target.dataset.qid) ui.qst.txt = e.target.value;
     if (e.target && e.target.id === "upTemaNome") ui.up.temaNome = e.target.value;
   }

@@ -26,6 +26,9 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `assets/painel.js` | As abas do painel (Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica, Laminário) e a tela Configurações |
 | `assets/leitor.js` | Leitura de arquivos no navegador (texto do PDF com as colunas, nome do tema, calendário) |
 | `supabase/07_uploads.sql` | Enviar arquivos sem o Drive e o limite de importações do calendário |
+| `supabase/08_tarefas.sql` | Tarefas da IA em segundo plano, turma só com letras, e-mail do perfil, arquivos do Drive ocultos, documentos importados |
+| `assets/fila.js` | Fila do navegador (ler e enviar arquivos e livros; continua neste aparelho) |
+| `assets/tarefas.js` | Botão e painel Tarefas (o que está rodando e o que ficou pronto) |
 
 ## Como colocar no ar (uma vez)
 
@@ -159,3 +162,21 @@ O que fazer (uma vez, nesta ordem):
 Antes, um tema que veio do Drive voltava na próxima leitura da pasta (o arquivo continua lá). Agora, apagar um tema ou um arquivo do Drive deixa o arquivo **oculto**: a leitura da pasta não cria o tema de novo nem lê o texto dele. O aluno vê e restaura em **Configurações → Meu Google Drive → Ocultos**. Todas as exclusões do site conferem no banco que apagou mesmo; se o banco não deixar, aparece um aviso (nada some só da tela).
 
 O que fazer: o `08_tarefas.sql` (parte 10) já traz isso. **Republique a `drive-varrer`** (Edge Functions → drive-varrer → Code → cole `supabase/functions/drive-varrer/index.ts` → Deploy).
+
+### 12. Importar documento (Etapa 6)
+O antigo "Importar calendário" virou **Importar documento** (aba Calendário, Configurações e passo 3 da configuração). O aluno manda **qualquer documento da faculdade** (PDF de várias páginas ou foto/print): calendário acadêmico do ano, cronograma de provas por turma, horário de aulas, regulamento, avisos. A IA diz que tipo de documento é, faz um resumo e separa o que serve para o painel:
+- **Provas** → Calendário de provas e Agenda (numa grade por turma, só a linha do semestre e da turma do aluno; se a linha não existir, avisa).
+- **Eventos** → Calendário acadêmico (feriados, matrícula, recesso, semanas de provas, exames finais, prazos; períodos de vários dias). Num **calendário geral**, todas as datas entram, sem procurar turma.
+- **Horários** → Aulas. **Matérias** que faltam → oferece adicionar com o professor. **Notas** (regras, instruções, prazos) → guardadas em **Configurações → Documentos importados**, com o resumo.
+- **Nada é salvo antes de o aluno conferir** (cada item tem caixinha e campos para corrigir). A mesma data com o mesmo nome não entra duas vezes no calendário.
+- **Material de estudo** (slides, aula, apostila) não é importado aqui: o site manda para **Enviar arquivos** e não conta no limite.
+- PDF com páginas escaneadas (foto): essas páginas vão como imagem (até 10); o texto das outras vai como texto, mantendo as colunas. Documentos muito grandes: até cerca de 120 mil letras, lidos em 3 partes.
+- Cada importação que traz algo para o painel conta 1 no limite do mês (`limite_calendarios_mes`, 10 por padrão).
+
+O que fazer: já vem no `08_tarefas.sql` e na função `ia` (partes 10 e 11). Nada a mais.
+
+### Resumo da Etapa 6 (na ordem)
+1. SQL Editor → rode `supabase/08_tarefas.sql` (depois do 07).
+2. Edge Functions → republique **`ia`** (Verify JWT **desligado**) e **`drive-varrer`**.
+3. Authentication → Sign In / Providers → Email: ligue **Secure email change** e **Secure password change**.
+4. Authentication → Emails → SMTP Settings: SMTP próprio (Resend, parte 10) e os textos de `docs/emails-ptbr.md` nos modelos Reauthentication e Change Email Address.

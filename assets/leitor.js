@@ -136,6 +136,58 @@
     } finally { try { doc.destroy(); } catch (_) { } }
   }
 
+  /**
+   * Qualquer documento da faculdade (PDF de várias páginas ou foto/print) -> {texto, imagens:[Blob], paginas, paginasImagem}.
+   * Páginas de PDF sem texto (escaneadas, que são foto) viram imagem JPEG para a IA ler (até 10).
+   */
+  async function prepararDocumento(file, carregarPdfjs, prog, limites = {}) {
+    const MAX_PAG = limites.paginas || 40, MAX_IMG = limites.imagens || 10;
+    const nome = String(file?.name || "");
+    if (!file) throw new Error("Escolha o arquivo.");
+    if (file.size > 40 * 1024 * 1024) throw new Error("Arquivo grande demais (mais de 40 MB).");
+    if (/^image\//.test(file.type) || /\.(jpe?g|png|webp|heic)$/i.test(nome)) {
+      prog && prog("Preparando a foto…");
+      try { return { texto: "", imagens: [await imagemBlob(await createImageBitmap(file))], paginas: 1, paginasImagem: 1 }; }
+      catch (_) { throw new Error("Não consegui abrir essa imagem. Use JPG ou PNG."); }
+    }
+    if (!(file.type === "application/pdf" || /\.pdf$/i.test(nome))) throw new Error("Use um PDF ou uma foto/print (JPG ou PNG). Para Word e PowerPoint de aula, use Enviar arquivos.");
+    const lib = await carregarPdfjs();
+    let doc;
+    try { doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false }).promise; }
+    catch (e) { throw new Error(/password/i.test(e?.name + e?.message) ? "Esse PDF tem senha. Tire a senha e tente de novo." : "Não consegui abrir esse PDF."); }
+    try {
+      const partes = [], imagens = []; let semTexto = 0;
+      const n = Math.min(doc.numPages, MAX_PAG);
+      for (let i = 1; i <= n; i++) {
+        prog && prog(`Lendo a página ${i} de ${n}…`);
+        const pg = await doc.getPage(i);
+        const t = layoutTexto(itensPdfjs(await pg.getTextContent()));
+        if (t.replace(/\s+/g, "").length < 60) { // página que é imagem: vai como foto
+          semTexto++;
+          if (imagens.length < MAX_IMG) {
+            prog && prog(`Página ${i} é imagem: preparando a foto dela…`);
+            const vp1 = pg.getViewport({ scale: 1 }), vp = pg.getViewport({ scale: Math.min(2.5, 1500 / Math.max(vp1.width, vp1.height)) });
+            const c = document.createElement("canvas"); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+            const g2 = c.getContext("2d"); g2.fillStyle = "#fff"; g2.fillRect(0, 0, c.width, c.height);
+            await pg.render({ canvasContext: g2, viewport: vp }).promise;
+            imagens.push(await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.8)));
+            partes.push(`(página ${i}: imagem ${imagens.length})`);
+          }
+        } else partes.push(t);
+        pg.cleanup();
+      }
+      const texto = partes.join("\n\n--- página ---\n\n").replace(/\u0000/g, " ");
+      if (!imagens.length && texto.replace(/\s+/g, "").length < 30) throw new Error("Não achei texto nesse PDF.");
+      return { texto: texto.replace(/\s+/g, "").length >= 30 ? texto : "", imagens: imagens.filter(Boolean), paginas: doc.numPages, paginasImagem: semTexto, cortado: doc.numPages > MAX_PAG || semTexto > MAX_IMG };
+    } finally { try { doc.destroy(); } catch (_) { } }
+  }
+  async function imagemBlob(img, lado = 1600) {
+    const k = Math.min(1, lado / Math.max(img.width, img.height));
+    const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+    const g2 = c.getContext("2d"); g2.fillStyle = "#fff"; g2.fillRect(0, 0, c.width, c.height); g2.drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.85));
+  }
+
   // nomes das matérias: "Anatomía Patológica II" casa com "ANATOMIA PATOLOGICA"
   const ROMANOS = { i: "1", ii: "2", iii: "3", iv: "4", v: "5", vi: "6" };
   const palavrasMat = (s) => semAcento(s).replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).map((w) => ROMANOS[w] || w)
@@ -186,7 +238,7 @@
     return [...m.values()];
   }
 
-  const API = { layoutTexto, itensPdfjs, tipoDoArquivo, nomeDoTema, prepararCalendario, casarMateria, revisaoHTML, lerRevisao, MIMES };
+  const API = { layoutTexto, itensPdfjs, tipoDoArquivo, nomeDoTema, prepararCalendario, prepararDocumento, casarMateria, revisaoHTML, lerRevisao, MIMES };
   g.Leitor = API;
   if (typeof module !== "undefined" && module.exports) module.exports = API;
 })(typeof window !== "undefined" ? window : globalThis);
