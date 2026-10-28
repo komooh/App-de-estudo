@@ -169,5 +169,50 @@ const corpoImg = JSON.parse(await pedidos[0].clone().text());
 ok("calendário: foto vai como imagem", corpoImg.messages[0].content[0].type === "image" && corpoImg.messages[0].content[0].source.media_type === "image/jpeg" && corpoImg.messages[0].content[1].text === "pedido", corpoImg);
 globalThis.fetch = realF;
 
+// ---------- JSON à prova de falhas (respostas reais que quebraram) ----------
+ok("JSON: cerca ```json no meio do texto", JSON.stringify(ia.extrairJSON('Claro.\n```json\n{"provas":[]}\n```\nAbraço {x}')) === '{"provas":[]}');
+ok("JSON: chaves soltas antes do JSON", JSON.stringify(ia.extrairJSON('Use o formato {materia}. Resposta: {"provas":[{"a":"}"}]} fim')) === '{"provas":[{"a":"}"}]}');
+ok("JSON: texto em prosa = null", ia.extrairJSON("Não encontrei a linha do QUINTO SEMESTRE F no documento.") === null);
+ok("JSON: cortado = null", ia.extrairJSON('{"provas":[{"materia":"A","tipo":"P1"},{"materia":"B"') === null);
+const cort = '{"provas":[{"materia":"A","tipo":"P1","data":"2026-11-02"}, {"materia":"B {x}","tipo":"P2","data":"2026-11-03"},{"materia":"C","ti';
+ok("JSON cortado: aproveita os objetos completos", JSON.stringify(ia.objetosDaLista(cort, "provas").map((o) => o.materia)) === '["A","B {x}"]');
+ok("JSON cortado: sem a lista = []", ia.objetosDaLista("nada", "provas").length === 0);
+ok("não achou a linha (pt/es/en)", ia.naoAchouLinha("Não encontrei a linha do 5º semestre turma F.") && ia.naoAchouLinha("No encontré la fila") && ia.naoAchouLinha("Row not found") && !ia.naoAchouLinha("Seguem as provas da turma F"));
+ok("aviso amigável", ia.avisoSemLinha(5, "f") === "Não achei a linha do 5º semestre turma F neste calendário. Confira seu semestre e turma em Configurações." && ia.avisoSemLinha(null, null).includes("Configurações"));
+
+const realJ = globalThis.fetch; const pj: Record<string, unknown>[] = []; let filaJ: (() => Response)[] = [];
+globalThis.fetch = (async (i: Request | URL | string, init?: RequestInit) => { pj.push(JSON.parse(await new Request(i, init).text())); return filaJ.shift()!(); }) as typeof fetch;
+const g = { entrada: 0, saida: 0 }, fimJ = () => Date.now() + 100_000;
+// prosa → reparo
+filaJ = [resposta("Aqui está o mapa: ramos A e B."), resposta('{"ramos":[{"t":"A"}]}')];
+let rj = await ia.pedirJSON("pedido", 5000, "teste", g, fimJ());
+ok("pedirJSON: prosa pede de novo em JSON (com o histórico)", rj.out !== null && pj.length === 2 && (pj[1].messages as unknown[]).length === 3 && String(pj[0].system).includes("SOMENTE"), pj[1]);
+ok("pedirJSON: soma os tokens das duas chamadas", g.entrada === 2400 && g.saida === 680, g);
+// cortado → mais espaço
+pj.length = 0; filaJ = [resposta('{"provas":[{"a":1},{"b"', "max_tokens"), resposta('{"provas":[{"a":1},{"b":2}]}')];
+rj = await ia.pedirJSON("pedido", 8000, "teste", g, fimJ());
+ok("pedirJSON: cortado tenta com 16000", pj.length === 2 && pj[0].max_tokens === 8000 && pj[1].max_tokens === 16000 && (rj.out?.provas as unknown[]).length === 2, pj.map((x) => x.max_tokens));
+// "não achei" → sem reparo
+pj.length = 0; filaJ = [resposta("Não encontrei a linha da turma F.")];
+rj = await ia.pedirJSON("pedido", 8000, "teste", g, fimJ(), ia.naoAchouLinha);
+ok("pedirJSON: 'não achei' não pede de novo", pj.length === 1 && rj.out === null && ia.naoAchouLinha(rj.texto));
+// sem tempo: não tenta de novo
+pj.length = 0; filaJ = [resposta("prosa")];
+rj = await ia.pedirJSON("pedido", 8000, "teste", g, Date.now() + 20_000);
+ok("pedirJSON: sem tempo, não tenta de novo", pj.length === 1 && rj.out === null);
+globalThis.fetch = realJ;
+
+// ---------- segundo plano: EdgeRuntime.waitUntil ----------
+let esperou = false; const guardados: Promise<unknown>[] = [];
+// deno-lint-ignore no-explicit-any
+(globalThis as any).EdgeRuntime = { waitUntil: (p: Promise<unknown>) => { guardados.push(p); } };
+await ia.emSegundoPlano(new Promise((ok) => setTimeout(() => { esperou = true; ok(1); }, 30)));
+ok("waitUntil: responde sem esperar o trabalho", !esperou && guardados.length === 1);
+await guardados[0]; ok("waitUntil: o trabalho termina depois", esperou);
+// deno-lint-ignore no-explicit-any
+delete (globalThis as any).EdgeRuntime; esperou = false;
+await ia.emSegundoPlano(new Promise((ok) => setTimeout(() => { esperou = true; ok(1); }, 30)));
+ok("sem EdgeRuntime: espera terminar", esperou);
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : "\nTudo certo.");
 if (falhas) Deno.exit(1);
