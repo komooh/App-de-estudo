@@ -487,7 +487,7 @@ ${parte && parte.n > 1 ? `Este é o pedaço ${parte.i} de ${parte.n} do document
 - "outro".
 2) EXTRAIA tudo que servir ao aluno:
 - "eventos": datas do calendário (feriados, matrícula, início/fim de aulas, recesso, semanas de provas parciais e finais, prazos, atividades). Um calendário GERAL vale para todos: importe TODAS as datas dele como eventos, sem procurar turma. Período de vários dias: data_ini e data_fim.
-- "provas": só provas de matéria com data (P1/P2/Final). Numa grade por semestre/turma use SÓ a linha do aluno (semestre e turma exatos; nomes podem ocupar 2 ou 3 linhas: junte). Se a linha dele não existir no documento, deixe "provas" vazia e explique em "aviso" (mas devolva os outros itens). Num calendário geral, semanas de provas são eventos (categoria "prova"), não provas.
+- "provas": só provas de matéria com data (P1/P2/Final). Numa grade por semestre/turma use SÓ a linha do aluno (semestre e turma exatos; nomes podem ocupar 2 ou 3 linhas: junte; devolva TODAS as matérias da linha, uma prova por matéria, geralmente 6 a 8). Se a linha dele não existir no documento, deixe "provas" vazia e explique em "aviso" (mas devolva os outros itens). Num calendário geral, semanas de provas são eventos (categoria "prova"), não provas.
 - "horarios": aulas semanais (dia_semana 1=segunda ... 6=sábado; hora_ini e hora_fim HH:MM; sala se houver). Numa grade por turma, só a turma do aluno.
 - "materias": matérias citadas com professor (se houver), só quando o documento lista as matérias do aluno.
 - "notas": regras, instruções, critérios de avaliação, prazos e avisos que valem guardar como texto (título curto + texto em tópicos, em português do Brasil, até 600 letras cada).
@@ -973,7 +973,7 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
   if (!outs.length) console.error("documento: nenhuma parte veio em JSON");
   const junto = juntarDocumentos(outs);
   // com a lista da configuração, as matérias ainda não têm id: o site casa pelo nome
-  const d = limparDocumento(junto, listaSite ? listaSite.map((nome) => ({ id: -1, nome })) : materias, hoje);
+  const d = limparDocumento(junto, listaSite ? listaSite.map((nome, i) => ({ id: i + 1, nome })) : materias, hoje);
   if (listaSite) { d.provas = d.provas.map((p) => ({ ...p, disciplina_id: null })); d.horarios = d.horarios.map((h) => ({ ...h, disciplina_id: null })); d.materias = d.materias.map((m) => ({ ...m, disciplina_id: null })); }
   const avisos: string[] = [];
   if (d.tipo === "material_de_estudo") avisos.push("Isso parece material de estudo (slides, aula, apostila). Para usar nos resumos e questões, mande em Enviar arquivos.");

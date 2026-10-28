@@ -306,4 +306,12 @@ ok("sem EdgeRuntime: espera terminar", esperou);
 }
 
 console.log(falhas ? `\n${falhas} FALHA(S)` : "\nTudo certo.");
+// regressão: lista de nomes vinda do site (sem ids reais) não pode juntar todas as provas numa só
+{
+  const nomes5 = ["Anatomía Patológica", "Fisiopatología", "Farmacología", "Semiología", "Medicina de la Familia", "Gestión en Salud", "Optativa II"];
+  const grade = [["SEMIOLOGIA", "2026-11-02"], ["MEDICINA DE LA FAMILIA", "2026-11-03"], ["GESTION", "2026-11-04"], ["ANATOMIA PATOLOGICA", "2026-11-05"], ["FISIOPATOLOGIA", "2026-11-09"], ["OPTATIVA II", "2026-11-10"], ["FARMACOLOGIA", "2026-11-13"]]
+    .map(([materia, data]) => ({ materia, tipo: "P2", modalidade: "teorica", data, hora: null }));
+  const d = ia.limparDocumento({ tipo: "cronograma_provas", provas: grade }, nomes5.map((nome, i) => ({ id: i + 1, nome })), "2026-10-28");
+  ok("grade do 5º D: as 7 provas ficam", d.provas.length === 7 && d.provas.every((p) => p.disciplina_id), d.provas);
+}
 if (falhas) Deno.exit(1);
