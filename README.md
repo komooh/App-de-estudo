@@ -29,6 +29,8 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `supabase/08_tarefas.sql` | Tarefas da IA em segundo plano, turma só com letras, e-mail do perfil, arquivos do Drive ocultos, documentos importados |
 | `assets/fila.js` | Fila do navegador (ler e enviar arquivos e livros; continua neste aparelho) |
 | `assets/tarefas.js` | Botão e painel Tarefas (o que está rodando e o que ficou pronto) |
+| `supabase/09_termos.sql` | Aceite dos termos de uso: versão atual, aceite de cada aluno e registro dos aceites |
+| `termos.html`, `privacidade.html` | Termos de uso e política de privacidade (modelo; revisar com advogado) |
 
 ## Como colocar no ar (uma vez)
 
@@ -180,3 +182,21 @@ O que fazer: já vem no `08_tarefas.sql` e na função `ia` (partes 10 e 11). Na
 2. Edge Functions → republique **`ia`** (Verify JWT **desligado**) e **`drive-varrer`**.
 3. Authentication → Sign In / Providers → Email: ligue **Secure email change** e **Secure password change**.
 4. Authentication → Emails → SMTP Settings: SMTP próprio (Resend, parte 10) e os textos de `docs/emails-ptbr.md` nos modelos Reauthentication e Change Email Address.
+
+## Termos de uso (Etapa 7)
+Na primeira entrada (e sempre que a versão dos termos mudar), todo mundo, inclusive o administrador, vê uma tela de aceite **antes** da configuração e do painel, com 5 itens para marcar (termos e privacidade, conteúdo de IA, dados guardados, direito sobre os arquivos, 18 anos ou mais). "Recusar e sair" só sai da conta. Quem veio do "Esqueci a senha" cria a senha primeiro e depois vê a tela. Na Administração, a coluna **Termos** mostra ✓ e a data, ou "pendente".
+
+O que fazer (uma vez):
+1. **Banco:** SQL Editor → cole todo o `supabase/09_termos.sql` → **Run** (depois do 08). Pode rodar de novo.
+2. Mais nada: o site atualiza sozinho com o `git push`. (Antes do passo 1, o site funciona como antes, sem a tela.)
+
+**Mudou os termos?** Edite `termos.html` e/ou `privacidade.html` (troque a "Versão" e a data no topo) e rode no SQL Editor:
+```sql
+update public.termos_vigente set versao = versao + 1;
+```
+Na próxima entrada, todos aceitam de novo. Cada aceite fica registrado em `termos_aceites` (quem, versão e quando; sem IP). Ninguém muda esse registro nem os campos de aceite do perfil pelo site.
+
+**Preencher antes de vender:**
+- Lei e foro: em `termos.html` (item 13) e `privacidade.html` (item 12), troque `[PAÍS]` e `[CIDADE/PAÍS]`.
+- Crédito de inspiração no rodapé: em `assets/config.js`, `CREDITO_INSPIRACAO: { nome: "Nome", instagram: "usuario" }` (só letras, números, ponto e _; sem o @). Vazio, a linha não aparece. As linhas `CRIADOR` e `DESENVOLVIDO_COM` também somem se ficarem `""`.
+- **Peça para um advogado (Brasil e Paraguai) revisar `termos.html` e `privacidade.html` antes de vender o acesso.** Os textos são um modelo escrito para bater com o que o site faz de verdade, não uma revisão jurídica.

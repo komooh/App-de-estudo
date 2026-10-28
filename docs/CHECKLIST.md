@@ -37,12 +37,16 @@ Duas listas que guiam o projeto: o que um site profissional precisa ter por baix
 | 11 | Sem contadores falsos | Ok |
 | 12 | Domínio próprio | Pendente (ver peça 2) |
 | 13 | Favicon | Feito (`favicon.svg`) |
-| 14 | Sem selo "feito com IA" | Ok. O aviso de que os resumos são gerados por IA continua, porque é sobre o conteúdo, não sobre o site |
-| 15 | Política de privacidade | Rascunho feito (`privacidade.html`); falta o e-mail de contato |
-| 16 | Termos e condições | Rascunho feito (`termos.html`); falta o e-mail de contato |
+| 14 | Sem selo "feito com IA" | Ok: sem selo. O aviso de que os resumos são gerados por IA continua (é sobre o conteúdo). No rodapé há só uma linha de crédito em texto, a pedido do dono: "Desenvolvido com Claude, da Anthropic" (sem logo; some se `DESENVOLVIDO_COM` ficar vazio) |
+| 15 | Política de privacidade | Modelo completo (`privacidade.html`, com resumo em espanhol), igual ao que o site coleta de verdade. Falta: preencher lei/foro e revisão de advogado |
+| 16 | Termos e condições | Modelo completo (`termos.html`, com resumo em espanhol) e aceite obrigatório com versão (`09_termos.sql`). Falta: preencher lei/foro e revisão de advogado |
 
 ## Etapa 4: o que foi testado
 - Banco: 01 a 06 rodados duas vezes seguidas num Postgres de teste; cada aluno só vê e muda o que é dele; aluno não grava resumos/questões/mapas, não muda limites, não grava texto em material de outro, não liga horário/tema/prova a matéria de outro e não envia lâmina na pasta de outro.
 - Funções `ia` e `drive-arquivo`: testes com a IA e o Google falsos (sem gastar), incluindo limite do mês, falha da IA (o uso é devolvido), questões repetidas descartadas e IA sem chave.
 - Telas: todas as abas no computador e no celular (390 px), sem rolagem lateral, sem erros, com textos do aluno e da IA escapados (teste com código malicioso nos nomes e no resumo).
 
+
+## Etapa 7: o que foi testado
+- Banco: 01 a 09 rodados duas vezes seguidas num Postgres de teste. Cada aluno só vê os próprios aceites (admin vê todos); `aceitar_termos` só grava para o próprio aluno e só a versão atual; ninguém (nem o admin) muda `termos_versao`/`termos_aceitos_em` direto; o registro de aceites não aceita insert/update/delete pelo site e nem update pelo SQL Editor; apagar a conta apaga os aceites; contas vencidas e bloqueadas podem aceitar, mas continuam sem acesso aos dados.
+- Telas: tela de aceite para aluno novo (antes da configuração), botão só liga com os 5 itens, teclado e rótulos, versão nova pede de novo, versão mudando no meio pede para recarregar, "Recusar" sai, "Esqueci a senha" vem antes da tela, admin também aceita, coluna Termos, sem o 09 o site segue como antes, créditos do rodapé com e sem inspiração (handle inválido não vira link), 390 px sem rolagem lateral, sem erros no console.
