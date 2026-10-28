@@ -1050,6 +1050,12 @@
       <div class="agt-main"><b>${esc(taskLabel(k))}</b><span class="muted">${esc(dname(k.discId))} · ${fmtH(k.h)}</span></div>
       ${k.type === "final" ? `<button class="btn" data-a="agProva" data-id="${k.prova.id}">Temas</button>` : `<button class="btn solid" data-a="openRes" data-id="${tid}">Resumo</button>`}</div>`;
   }
+  /** Provas com data mas sem temas: a agenda não planeja, mas elas aparecem aqui (e no Calendário). */
+  function semTemasHtml() {
+    const n = new Date(), l = S.provas.filter((p) => p.data && OFICIAL(p.tipo) && examDT(p) > n && !provaTopics(p).length).sort((a, b) => examDT(a) - examDT(b));
+    if (!l.length) return "";
+    return janela("Provas sem temas", `<div class="win-body"><p class="muted" style="margin:0 0 10px;font-size:13.5px">Estas provas já têm data, mas a matéria ainda não tem temas. Quando você enviar os arquivos ou ligar o Drive, elas entram no plano.</p><div class="evlist">${l.map((p) => `<div class="evitem"><span class="mono">${esc(fmtDM(parse(p.data)))} · ${esc(provaNome(p))}</span> <b>${esc(dname(p.disciplina_id))}</b></div>`).join("")}</div></div>`);
+  }
   function vAgenda() {
     const plan = buildPlan(), now = new Date(), c = cfgAg();
     const cards = plan.exams.map((p) => { const tops = provaTopics(p), dn = tops.filter(topicDone).length, inf = plan.info[p.id], need = tops.reduce((s, t) => s + remH(t), 0), dt = examDT(p);
@@ -1076,6 +1082,7 @@
         ${d.tasks.map(taskRow).join("") || `<p class="muted" style="margin:6px 0 0;font-size:13.5px">${isT ? "Nada planejado para hoje." : ""}</p>`}</div>`; }).join("");
     return hero("Agenda", "de estudos", "var(--teal)")
       + janela("Próximas provas", `<div class="win-body">${cards ? `<div class="aggrid">${cards}</div>` : `<div class="empty">Nenhuma prova com data e temas cadastrados. Coloque as datas em ${lnkCfg("calendario")} e os temas em ${lnkCfg("conteudos")}.</div>`}</div>`)
+      + semTemasHtml()
       + missHtml
       + janela("Plano de estudo", `<div class="win-body"><p class="muted" style="margin:0 0 12px;font-size:13.5px">A agenda distribui os temas que faltam entre hoje e cada prova, começando pela mais próxima, com revisão rápida 2 dias depois de cada tema e revisão final na véspera. Ela se refaz sozinha quando você marca um tema como estudado.</p>${dayHtml || `<div class="empty">Sem tarefas planejadas.</div>`}</div>`)
       + `<p class="cfg-dica">Horas de estudo por dia e hora de dormir: ${lnkCfg("agenda")}. O jeito dos seus resumos: <button class="lnk" data-a="editMemoria">Configurações → Memória do resumo</button>.</p>`;
