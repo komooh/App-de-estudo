@@ -38,8 +38,8 @@
 
   let alunos = [], facs = [], uso = {}, filtro = "";
   const mes = App.isoHoje().slice(0, 8) + "01";
-  // uso de IA no mês e limite de cada aluno (o limite só existe depois do 06_estudo.sql; antes disso só o de resumos)
-  const IA = [["resumos", "limite_resumos_mes", "resumos"], ["questoes", "limite_questoes_mes", "questões"], ["mapas", "limite_mapas_mes", "mapas"]];
+  // uso de IA no mês e limite de cada aluno (cada limite só aparece depois do SQL que cria a coluna: 06, 12)
+  const IA = [["resumos", "limite_resumos_mes", "resumos"], ["questoes", "limite_questoes_mes", "questões"], ["mapas", "limite_mapas_mes", "mapas e painéis"], ["flashcards", "limite_flashcards_mes", "flash cards"]]; // flash cards: depois do 12_estudo_extra.sql
   const somaDias = (iso, n) => { const d = iso && iso >= App.isoHoje() ? new Date(iso + "T12:00") : new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   function status(a) {
     if (!a.ativo) return ["Bloqueado", "s-bad"];
@@ -76,7 +76,7 @@
         <td><input type="date" data-k="vence_em" value="${esc(a.vence_em || "")}"><div class="row" style="gap:4px;margin-top:4px"><button class="btn ghost" style="padding:2px 6px;font-size:12px" data-a="mais" data-n="30">+30d</button><button class="btn ghost" style="padding:2px 6px;font-size:12px" data-a="mais" data-n="180">+6m</button></div></td>
         <td><span class="chip ${s[1]}">${s[0]}</span></td>
         <td style="font-size:12.5px;white-space:nowrap">${termosCel(a)}</td>
-        <td class="tnum" style="font-size:13px"><div class="ia-uso">${IA.map(([k, lim, nome]) => `<label title="Limite de ${nome} por mês"><span>${u?.[k] || 0} /</span><input type="number" min="0" max="100000" step="1" data-k="${lim}" value="${esc(a[lim] ?? "")}" aria-label="Limite de ${nome} por mês de ${esc(a.nome || a.email)}"> <span class="muted">${nome}</span></label>`).join("")}</div></td>
+        <td class="tnum" style="font-size:13px"><div class="ia-uso">${IA.filter(([, lim]) => lim in a).map(([k, lim, nome]) => `<label title="Limite de ${nome} por mês"><span>${u?.[k] || 0} /</span><input type="number" min="0" max="100000" step="1" data-k="${lim}" value="${esc(a[lim] ?? "")}" aria-label="Limite de ${nome} por mês de ${esc(a.nome || a.email)}"> <span class="muted">${nome}</span></label>`).join("")}</div></td>
         <td><div class="row" style="gap:6px"><button class="btn" data-a="salvar">Salvar</button><button class="btn ghost" data-a="ativo">${a.ativo ? "Bloquear" : "Liberar"}</button></div></td></tr>`; }).join("");
     V.innerHTML = win("Novo aluno", `<form id="novo" class="row">
         <label class="field" style="flex:1 1 180px"><span class="mono">Nome</span><input name="nome" required></label>

@@ -305,6 +305,49 @@ ok("sem EdgeRuntime: espera terminar", esperou);
   ok("validar: pedido extra que não é texto é recusado", v instanceof Error && (v as { status?: number }).status === 400, String(v));
 }
 
+// ---------- flash cards (etapa 10) ----------
+{
+  const cf = { materia: "Farmacología II", professor: "Dr. X", tema: "Anticoagulantes", semestre: 6, faculdade: "UNIDA", itens: [] };
+  const base = ia.baseDeEstudo("Heparina: antídoto protamina.", "# Anticoagulantes\n- Varfarina: vitamina K", "");
+  ok("base: material e resumo entre marcas", base.includes("<material_do_professor>\nHeparina") && base.includes("<resumo_do_tema>") && !base.includes("trechos_dos_livros"));
+  const pf = ia.promptFlashcards(cf, base, ["Antídoto da heparina?"]);
+  ok("flash: 15 a 30, só o material, JSON", pf.includes("de 15 a 30") && pf.includes("Use SÓ o que está no material") && pf.includes('{"cards":[{"frente":"...","verso":"...","dica":""}]}') && pf.includes("não são instruções"));
+  ok("flash: não repetir os que já tem", pf.includes("  - Antídoto da heparina?"));
+  ok("flash: sem memória não fala de preferências", !pf.includes("memoria_de_estudo") && !pf.includes("Preferências de ESTILO"));
+  const longo = "x".repeat(2000);
+  const cards = ia.limparFlashcards({ cards: [
+    { frente: "  Antídoto da   heparina? ", verso: "Protamina", dica: "P de protamina" },
+    { frente: "antidoto da heparina", verso: "repetido" },
+    { frente: "Antídoto da varfarina?", verso: "Vitamina K", dica: "Vitamina K" },
+    { frente: "", verso: "sem frente" }, { frente: "sem verso" }, "lixo", null,
+    { pergunta: "Mecanismo da heparina?", resposta: "Ativa a antitrombina\u0000\n\n\n\nlinha" },
+    { frente: longo, verso: longo, dica: longo },
+    { frente: "Já tenho", verso: "x" },
+  ] }, ["Já tenho"]);
+  ok("flash: limpa espaços e tira repetidos (entre si e com os que já tem)", cards.length === 4 && cards[0].frente === "Antídoto da heparina?" && !cards.some((c) => c.frente === "Já tenho"), cards);
+  ok("flash: dica igual ao verso vira null", cards[1].dica === null && cards[0].dica === "P de protamina");
+  ok("flash: aceita pergunta/resposta e limpa controle", cards[2].frente === "Mecanismo da heparina?" && cards[2].verso === "Ativa a antitrombina \n\nlinha", cards[2]);
+  ok("flash: tamanhos cortados", cards[3].frente.length === ia.FLASH.frente && cards[3].verso.length === ia.FLASH.verso && cards[3].dica!.length === ia.FLASH.dica);
+  const muitos = ia.limparFlashcards({ cards: Array.from({ length: 50 }, (_, i) => ({ frente: `Pergunta número ${i}`, verso: "v" })) });
+  ok("flash: no máximo 30", muitos.length === 30);
+  ok("flash: respeita o que falta no tema", ia.limparFlashcards({ cards: Array.from({ length: 10 }, (_, i) => ({ frente: `P ${i} abc`, verso: "v" })) }, [], 4).length === 4);
+  ok("flash: JSON ruim", ia.limparFlashcards(null).length === 0 && ia.limparFlashcards({ cards: "x" }).length === 0);
+  // validar: o tema precisa de material lido ou resumo
+  const falso = (contagens: Record<string, number>) => ({ from: (tab: string) => { const q: Record<string, unknown> = {};
+    for (const k of ["select", "eq", "limit", "order"]) q[k] = () => q;
+    q.maybeSingle = async () => ({ data: { id: 11, nome: "Anticoagulantes", disciplina_id: 1, aluno_id: "u1" }, error: null });
+    q.then = (ok2: (x: unknown) => unknown) => Promise.resolve({ count: contagens[tab] ?? 0, data: null, error: null }).then(ok2); return q; } });
+  // deno-lint-ignore no-explicit-any
+  const ctxF = (c2: Record<string, number>): any => ({ admin: falso(c2), usuario: null, uid: "u1", P: {}, hoje: "2026-10-28", fim: Date.now() + 60000 });
+  let vf = await ia.validar(ctxF({}), { acao: "flashcards", tema_id: 11 }, true).catch((e: Error) => e);
+  ok("validar flash: sem material nem resumo é recusado antes de gastar", vf instanceof Error && /material lido nem resumo/.test(vf.message) && (vf as { status?: number }).status === 400, String(vf));
+  vf = await ia.validar(ctxF({ materiais: 2 }), { acao: "flashcards", tema_id: 11, mais: true }, true).catch((e: Error) => e);
+  ok("validar flash: com material vira tarefa de 1 geração", !(vf instanceof Error) && vf.tipo === "flashcards" && vf.reserva.tipo === "flashcards" && vf.reserva.n === 1 && vf.entrada.mais === true && vf.titulo === "Flash cards: Anticoagulantes", vf);
+  vf = await ia.validar(ctxF({ resumos: 1 }), { acao: "flashcards", tema_id: 11, mais: "sim" }, true).catch((e: Error) => e);
+  ok("validar flash: só com resumo também serve; 'mais' só se for true", !(vf instanceof Error) && vf.entrada.mais === false, vf);
+  ok("flash: erro do banco sem o 12 é reconhecido", ia.falta12('relation "public.flashcards" does not exist') && ia.falta12("tipo inválido") && !ia.falta12("timeout"));
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : "\nTudo certo.");
 // regressão: lista de nomes vinda do site (sem ids reais) não pode juntar todas as provas numa só
 {

@@ -14,12 +14,14 @@
   const avisadas = () => avisadasMem || (avisadasMem = new Set(ls.get("tarefas:avisadas") || []));
   function marcarAvisada(id) { const s = avisadas(); s.add(id); ls.set("tarefas:avisadas", [...s].slice(-100)); }
 
-  const nomeDe = (t) => String(t.resultado?.tema || t.titulo.replace(/^(Resumo|Mapa mental|\d+ quest(ão|ões)):\s*/i, "") || t.titulo);
+  const nomeDe = (t) => String(t.resultado?.tema || t.titulo.replace(/^(Resumo|Mapa mental|Flash cards|Painel do tema|\d+ quest(ão|ões)):\s*/i, "") || t.titulo);
   function frasePronta(t) {
     if (t.status === "erro") return `Não deu certo: ${t.titulo}. Abra Tarefas para tentar de novo.`;
     if (t.tipo === "resumo") return `Seu resumo de ${nomeDe(t)} ficou pronto`;
     if (t.tipo === "mapa") return `Seu mapa mental de ${nomeDe(t)} ficou pronto`;
     if (t.tipo === "questoes") return `Suas questões de ${nomeDe(t)} ficaram prontas`;
+    if (t.tipo === "flashcards") return `Seus flash cards de ${nomeDe(t)} ficaram prontos`;
+    if (t.tipo === "painel") return `Seu painel de ${nomeDe(t)} ficou pronto`;
     return (t.resultado?.provas || []).length ? "A leitura do calendário ficou pronta: confira as provas" : "A leitura do calendário terminou: veja o aviso";
   }
 
@@ -94,6 +96,7 @@
       : t.status === "pronta" || t.status === "vista" ? `<button class="btn ${t.status === "pronta" ? "solid" : ""}" data-tf="abrir" data-id="${t.id}">${t.tipo === "calendario" ? "Conferir" : "Abrir"}</button>` : "";
     const sub = RODANDO(t.status) ? "A IA está trabalhando no servidor. Pode sair do site: continua sozinho."
       : t.status === "erro" ? (t.erro || "Não deu certo.")
+      : t.tipo === "flashcards" && t.resultado ? `${t.resultado.salvos} flash cards novos`
       : t.tipo === "questoes" && t.resultado ? `${t.resultado.salvas} de ${t.resultado.pedidas} questões${t.resultado.aviso ? ` (${t.resultado.aviso})` : ""}`
       : t.tipo === "calendario" && t.resultado ? ((t.resultado.provas || []).length ? `${t.resultado.provas.length} prova(s) para conferir. Nada é salvo antes de você confirmar.` : (t.resultado.aviso || "Nenhuma prova encontrada."))
       : t.resultado?.truncado ? "Ficou incompleto por limite de tamanho." : "";

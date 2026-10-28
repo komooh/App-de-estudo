@@ -61,6 +61,8 @@
   const TELAS = [...TABS.map(([k]) => k), "config"]; // "config" = Configurações (botão no alto, não é aba)
   const ui = { tab: "agenda", up: { disc: null, modo: "arquivo", temaId: null, temaNome: "", files: [] }, cal: { file: null, busy: false, msg: null, provas: null }, disc: null, qMode: "prat", qDisc: "", qIdx: 0, qAns: null, calY: today().getFullYear(), calM: today().getMonth(), calView: "mes", calDate: iso(today()), vMode: "ev", calcDisc: null, genBusy: false, genMsg: "" };
   const RES = {}, RESLOAD = {}, MAPA = {}, MAPLOAD = {}, LAMURL = {};
+  const FC = {}, FCDISC = {};              // flash cards: por tema (lista) e matérias já carregadas
+  const MODOS_FICHA = { res: "Resumo", mapa: "Mapa mental", flash: "Flash cards" };
   const ativo = () => !!document.getElementById("painel");
 
   const discById = (id) => S.disc.find((d) => d.id == id);
@@ -91,7 +93,7 @@
     const ids = (disc || []).map((d) => d.id);
     const vazio = Promise.resolve({ data: [] });
     const porDisc = (t, cols) => ids.length ? sb.from(t).select(cols).in("disciplina_id", ids) : vazio;
-    const [temas, provas, notas, mats, res, mapas, pref, fac, hor, cal, ev, ligas, horas, uso, facs, docs] = await Promise.all([
+    const [temas, provas, notas, mats, res, mapas, pref, fac, hor, cal, ev, ligas, horas, uso, facs, docs, fcs] = await Promise.all([
       porDisc("temas", "*"), porDisc("provas", "*"), porDisc("notas", "disciplina_id,campo,valor"),
       sb.from("materiais").select("id,nome,status,tema_id,disciplina_id,mime,fonte_id").eq("ignorado", false),
       sb.from("resumos").select("tema_id"), sb.from("mapas").select("tema_id"),
@@ -103,6 +105,7 @@
       sb.from("uso_ia").select("*").eq("mes", mesAtual()).maybeSingle(),
       sb.from("faculdades").select("id,nome").eq("ativa", true).order("nome"),
       sb.from("documentos").select("*").order("criado_em", { ascending: false }).limit(100),
+      sb.from("flashcards").select("tema_id"),
     ]);
     const falta06 = [pref, hor, cal, ev, mapas].some((r) => r.error && erroBanco(r.error));
     const notasMap = {};
@@ -114,7 +117,9 @@
       pref: pref.data || {}, regra: fac.data?.regra_notas || {}, faculdade: fac.data?.nome || "",
       horarios: hor.data || [], cal: cal.data || [], eventos: ev.data || [], ligas: ligas.data || [], horas: horas.data || [],
       uso: uso.data || {}, questoes: null, laminas: null, faculdades: facs.data || [], docs: docs.data || [],
+      fcIds: new Set((fcs.data || []).map((r) => r.tema_id)), falta12: !!(fcs.error && erroBanco(fcs.error)),
     };
+    Object.keys(FC).forEach((k) => delete FC[k]); Object.keys(FCDISC).forEach((k) => delete FCDISC[k]);
   }
   async function carregarQuestoes() {
     const ids = S.disc.map((d) => d.id);
@@ -163,7 +168,7 @@
         <div class="bar" style="margin-top:10px;height:7px"><i style="width:${p}%;background:var(--terra)"></i></div>
         <div class="tgrid">${ts.length ? ts.map((t) => `<div class="topic">${t.prova ? `<span class="chip ${/prát|prat/i.test(t.prova) ? "pv-pr" : "pv-te"}" style="align-self:flex-start">${esc(t.prova)}</span>` : ""}
           <div class="topic-h"><h3>${esc(t.nome)}</h3></div>
-          <div class="tbtns"><button class="btn" data-a="openRes" data-id="${t.id}">Resumo${S.resIds.has(t.id) ? " ✓" : ""}</button><button class="btn" data-a="openMapa" data-id="${t.id}">Mapa mental</button></div>
+          <div class="tbtns"><button class="btn" data-a="openRes" data-id="${t.id}">Resumo${S.resIds.has(t.id) ? " ✓" : ""}</button><button class="btn" data-a="openMapa" data-id="${t.id}">Mapa mental</button><button class="btn" data-a="openFlash" data-id="${t.id}">Flash cards${S.fcIds.has(t.id) ? " ✓" : ""}</button></div>
           ${Array.isArray(t.itens) && t.itens.length ? `<div class="lams">${t.itens.map((i) => `<span>${esc(i)}</span>`).join("")}</div>` : ""}${matInfo(t)}
           ${[["aula", "Aula assistida"], ["resumo_ok", "Resumo / revisão"], ["questoes_ok", "Questões feitas"]].map(([k, l]) => `<label class="check ${t[k] ? "on" : ""}"><input type="checkbox" data-a="tick" data-id="${t.id}" data-k="${k}" ${t[k] ? "checked" : ""}><span>${l}</span></label>`).join("")}
         </div>`).join("") : `<div class="empty" style="grid-column:1/-1">Nenhum conteúdo ainda. Cadastre os temas que caem nas provas em ${lnkCfg("conteudos", ` data-d="${d.id}"`)}, envie os arquivos do professor em <button class="lnk" data-a="upAbrir" data-id="${d.id}">Configurações → Enviar arquivos</button> ou ligue sua pasta do Google Drive em ${lnkCfg("drive")}: cada arquivo vira um tema.</div>`}</div>
@@ -590,7 +595,7 @@
       <div class="qtemas-lista">${grupos.map((g) => `<label class="check qtema ${off.has(g.k) ? "" : "on-q"}"><input type="checkbox" data-a="temaSel" data-ns="${ns}" data-k="${esc(g.k)}" ${off.has(g.k) ? "" : "checked"}><span>${esc(g.nome)} <span class="muted tnum">(${g.n})</span></span></label>`).join("")}</div></fieldset>`;
   }
   /** Os grupos que aparecem agora na lista de temas (para "Nenhuma"). */
-  function gruposAtuais(ns) { return gruposDe(qBase(), qChave, (q) => grupoNome(q.tema_id, q.tema), ui.qDisc); }
+  function gruposAtuais(ns) { return ns === "f" ? gruposDe(cardsDisc(ui.fcDisc), fcChave, (c) => grupoNome(c.tema_id, ""), ui.fcDisc) : gruposDe(qBase(), qChave, (q) => grupoNome(q.tema_id, q.tema), ui.qDisc); }
   function qBase() { let q = S.questoes || []; if (ui.qDisc) q = q.filter((x) => x.disciplina_id == ui.qDisc); if (ui.qMode === "rev") q = q.filter((x) => x.ultima === false || x.id === ui._keep); return q; }
   function qPool() {
     const q = qBase(); if (!ui.qDisc) return q;
@@ -655,6 +660,8 @@
           <h3 style="font-size:17px;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere">${esc(q.enunciado)}</h3>${qBody(q)}
           <div class="row" style="margin-top:14px;justify-content:space-between"><button class="btn ghost" data-a="delQ" data-id="${q.id}">Excluir questão</button><button class="btn solid" data-a="nextQ">Próxima</button></div>`;
       }
+    } else if (ui.qMode === "flash") {
+      main = vQuestFlash();
     } else if (ui.qMode === "perf") {
       const st = temaStats(), tot = (S.questoes || []).reduce((s, q) => s + q.acertos + q.erros, 0);
       const worst = st.slice().sort((a, b) => b.e - a.e)[0];
@@ -673,7 +680,7 @@
         <p class="muted" style="font-size:13px;margin-top:8px">As questões são feitas pelo Claude a partir do material do professor do tema (quando houver). ${esc(usoTxt("questoes", "limite_questoes_mes", "questões"))}.</p>
         ${ui.genMsg ? `<p style="margin-top:12px" aria-live="polite">${esc(ui.genMsg)}</p>` : ""}`;
     }
-    const nav = [["prat", "Praticar"], ["perf", "Desempenho"], ["rev", "Revisar erros"], ["gen", "Gerar com IA"]].map(([k, l]) => `<button data-a="qMode" data-m="${k}" aria-current="${ui.qMode === k}">${l}</button>`).join("");
+    const nav = [["prat", "Praticar questões"], ["flash", "Flash cards"], ["perf", "Desempenho"], ["rev", "Revisar erros"], ["gen", "Gerar com IA"]].map(([k, l]) => `<button data-a="qMode" data-m="${k}" aria-current="${ui.qMode === k}">${l}</button>`).join("");
     return hero("Banco de", "questões", "var(--green)") + `<section class="win"><div class="qwin"><aside class="qside"><b>Questões</b>${nav}</aside><div class="qmain">${main}</div></div></section>`;
   }
   function msgQuestoes(r) {
@@ -1306,6 +1313,7 @@
       if (t.status !== "pronta") { if (t.tipo === "questoes" && ui.genTarefa === t.id) { ui.genMsg = t.erro || "Não deu certo."; ui.genTarefa = null; } if ((t.tipo === "documento" || t.tipo === "calendario") && ui.cal.tarefa === t.id) ui.cal = { file: null, busy: false, provas: null, msg: { bad: true, t: t.erro || "Não consegui ler o documento." } }; continue; }
       if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; S.resIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode !== "mapa") { loadRes(r.tema_id); Tarefas.vista([t.id]); } }
       if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; S.mapaIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode === "mapa") { ui.mmCol = {}; loadMapa(r.tema_id); Tarefas.vista([t.id]); } }
+      if (t.tipo === "flashcards" && r.tema_id) { delete FC[r.tema_id]; if (r.disciplina_id) delete FCDISC[r.disciplina_id]; S.fcIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode === "flash") { loadFlash(r.tema_id); Tarefas.vista([t.id]); } else if (ui.tab === "quest" && ui.qMode === "flash" && ui.fcDisc == r.disciplina_id) loadFlashDisc(r.disciplina_id); }
       if (t.tipo === "questoes") { questoes = true; if (ui.genTarefa === t.id) { ui.genTarefa = null; ui.qDisc = r.disciplina_id; ui.genMsg = msgQuestoes(r); } }
       if ((t.tipo === "documento" || t.tipo === "calendario") && ui.cal.tarefa === t.id && ui.tab === "config") { aplicarCalendario(t); Tarefas.vista([t.id]); }
     }
@@ -1317,6 +1325,7 @@
     const r = t.resultado || {};
     if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; openRes(r.tema_id); }
     else if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; openMapa(r.tema_id); }
+    else if (t.tipo === "flashcards" && r.tema_id) { delete FC[r.tema_id]; openFlash(r.tema_id); }
     else if (t.tipo === "questoes") { fecharSheet(); if (S.questoes) await carregarQuestoes().catch(() => { }); ui.tab = "quest"; ui.qMode = "prat"; ui.qDisc = r.disciplina_id || ""; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); window.scrollTo(0, 0); }
     else if (t.tipo === "documento" || t.tipo === "calendario") { fecharSheet(); aplicarCalendario(t); irCfg("enviar"); document.getElementById("docRev")?.scrollIntoView({ block: "start" }); }
   }
@@ -1329,6 +1338,7 @@
     const t = temaById(ui.resumo); if (!t) { ui.resumo = null; el.hidden = true; el.innerHTML = ""; document.body.style.overflow = ""; return; }
     const d = discById(t.disciplina_id) || { nome: "", id: t.disciplina_id };
     const r = RES[t.id], busy = ui.resBusy === t.id, sub = Array.isArray(t.itens) ? t.itens : [];
+    const extra = ui.sheetMode === "flash" ? fichaFlash(t) : null;
     const isMap = ui.sheetMode === "mapa", mp = MAPA[t.id], mBusy = ui.mapBusy === t.id || emAndamento("mapa", t.id);
     const bgRes = emAndamento("resumo", t.id);
     const AVISO_BG = `<div class="fb bg-aviso" aria-live="polite"><b>A IA está trabalhando no servidor.</b> Pode fechar esta janela e usar o resto do site (ou até sair): quando ficar pronto, aparece um aviso. Acompanhe em <button class="lnk" data-a="verTarefas" data-abre-tarefas>Tarefas</button>.</div>`;
@@ -1351,13 +1361,13 @@
     const focoAberto = el.querySelector("#focoBox")?.open;
     el.hidden = false; document.body.style.overflow = "hidden";
     const modoTxt = r?.modo === "livros" ? " · corrigido pelos livros" : r?.modo === "professor" ? " · do jeito do professor" : "";
-    el.innerHTML = `<div class="sheet-bg" data-a="closeRes"></div><section class="sheet-card" role="dialog" aria-modal="true" aria-label="${isMap ? "Mapa mental" : "Resumo"}: ${esc(t.nome)}" style="--c:${slotColor(d.id)}">
+    el.innerHTML = `<div class="sheet-bg" data-a="closeRes"></div><section class="sheet-card" role="dialog" aria-modal="true" aria-label="${esc(MODOS_FICHA[ui.sheetMode] || "Resumo")}: ${esc(t.nome)}" style="--c:${slotColor(d.id)}">
       <header class="sheet-h"><div style="min-width:0"><span class="mono">${esc(d.nome)}${t.prova ? " · " + esc(t.prova) : ""}</span><h2 style="font-size:20px;margin-top:2px;overflow-wrap:anywhere">${esc(t.nome)}</h2></div><button class="x" data-a="closeRes" aria-label="Fechar" style="font-size:24px">×</button></header>
       <div class="sheet-body">
-        <div class="sheet-seg" role="group" aria-label="Modo de estudo"><button data-a="sheetMode" data-v="res" aria-pressed="${!isMap}">Resumo</button><button data-a="sheetMode" data-v="mapa" aria-pressed="${isMap}">Mapa mental</button></div>
+        <div class="sheet-seg" role="group" aria-label="Modo de estudo">${Object.entries(MODOS_FICHA).map(([k, l]) => `<button data-a="sheetMode" data-v="${k}" aria-pressed="${(ui.sheetMode || "res") === k}">${l}</button>`).join("")}</div>
         ${sub.length ? `<div class="lams" style="margin-bottom:10px">${sub.map((x) => `<span>${esc(x)}</span>`).join("")}</div>` : ""}
         ${ms.length ? `<p class="tref" style="margin:0 0 12px">Material do professor: ${ms.map((m) => esc(m.nome) + (m.status === "sem_texto" ? " (sem texto)" : m.status === "grande_demais" ? " (grande demais)" : m.status === "erro" ? " (erro)" : "")).join(" · ")}</p>` : `<p class="tref" style="margin:0 0 12px">Este tema não tem material do professor (do Drive ou enviado por você): o resumo usa os livros-base.</p>`}
-        ${isMap ? `${ui.mapErr ? `<div class="fb bad" style="margin-bottom:12px">${esc(ui.mapErr)}</div>` : ""}${mapBody}
+        ${extra ? extra.corpo : isMap ? `${ui.mapErr ? `<div class="fb bad" style="margin-bottom:12px">${esc(ui.mapErr)}</div>` : ""}${mapBody}
           ${mp && mp.ramos && !mBusy ? `<div class="exp-row"><span class="mono" style="font-size:11px">Baixar este mapa</span><div class="row" style="gap:8px"><button class="btn" data-a="expMapa" data-id="${t.id}" ${ui.expBusy ? "disabled" : ""}>${ui.expBusy === "png" ? "Gerando imagem…" : "Imagem (PNG)"}</button></div></div>` : ""}`
         : `${ui.resErr ? `<div class="fb bad" style="margin-bottom:12px">${esc(ui.resErr)}</div>` : ""}
           ${(ui.resAvisos || []).length && !busy ? `<div class="fb bad" style="margin-bottom:12px">${ui.resAvisos.map(esc).join("<br>")}</div>` : ""}
@@ -1377,7 +1387,7 @@
           <p class="muted" style="font-size:12.5px;margin-top:12px">${esc(usoTxt("resumos", "limite_resumos_mes", "resumos"))}. Resumos são gerados por IA e podem conter erros: confira no material.</p>`}
       </div>
       <footer class="sheet-f">
-        ${isMap ? (mBusy ? `<button class="btn" disabled>Gerando…</button>` : `<button class="btn" data-a="genMapa" data-id="${t.id}">${mp ? "Gerar mapa de novo" : "Gerar mapa mental"}</button>`)
+        ${extra ? extra.rodape : isMap ? (mBusy ? `<button class="btn" disabled>Gerando…</button>` : `<button class="btn" data-a="genMapa" data-id="${t.id}">${mp ? "Gerar mapa de novo" : "Gerar mapa mental"}</button>`)
           : busy || bgRes ? `<button class="btn" disabled>Gerando…</button>` : escolha ? "" : `<button class="btn" data-a="genRes" data-id="${t.id}">${r ? "Refazer resumo" : "Gerar resumo"}</button>`}
         <button class="btn" data-a="resQuest" data-id="${d.id}">Questões</button>
         <button class="btn solid" data-a="resDone" data-id="${t.id}">${topicDone(t) ? "Estudado ✓" : "Marcar como estudado"}</button>
@@ -1388,6 +1398,144 @@
   function openRes(id) { if (!temaById(id)) return; ui.resumo = +id; ui.sheetMode = "res"; ui.resErr = ""; ui.resAvisos = []; renderSheet(); if (!RES[id]) loadRes(+id); }
   function openMapa(id) { if (!temaById(id)) return; if (ui.resumo !== +id) ui.mmCol = {}; ui.resumo = +id; ui.sheetMode = "mapa"; ui.mapErr = ""; renderSheet(); if (!MAPA[id]) loadMapa(+id); }
   function fecharSheet() { ui.resumo = null; ui.escolha = null; renderSheet(); }
+
+  /* ================= FLASH CARDS (por tema na ficha; por matéria na aba Questões) ================= */
+  // Revisão espaçada simples (caixas de Leitner): Errei volta para a caixa 1 (revisar hoje), Difícil fica na caixa
+  // (revisar amanhã), Acertei sobe uma caixa e a próxima revisão fica mais longe. Só caixa e proxima vão para o banco.
+  const FC_DIAS = [0, 1, 3, 7, 14, 30];
+  const FALTA12 = "Falta rodar o 12_estudo_extra.sql no Supabase.";
+  ui.fc = { chave: null, ordem: [], sig: "", i: 0, virado: false, dica: false, feitos: {} };
+  const somaDias = (n) => { const d = today(); d.setDate(d.getDate() + n); return iso(d); };
+  const usoFlash = () => `${S.uso.flashcards || 0} de ${H.P.limite_flashcards_mes ?? 10} gerações de flash cards usadas este mês`;
+  async function loadFlash(temaId) {
+    if (FC[temaId] && FC[temaId] !== "carregando") return; FC[temaId] = "carregando";
+    const { data, error } = await sb.from("flashcards").select("*").eq("tema_id", temaId).order("id");
+    if (error) { delete FC[temaId]; if (erroBanco(error)) S.falta12 = true; else toast("Não consegui carregar os flash cards: " + error.message); }
+    else { FC[temaId] = data || []; if (FC[temaId].length) S.fcIds.add(temaId); else S.fcIds.delete(temaId); }
+    fcRepintar();
+  }
+  async function loadFlashDisc(disc) {
+    if (FCDISC[disc]) return; FCDISC[disc] = "carregando";
+    const { data, error } = await sb.from("flashcards").select("*").eq("disciplina_id", disc).order("id");
+    if (error) { delete FCDISC[disc]; if (erroBanco(error)) S.falta12 = true; else toast("Não consegui carregar os flash cards: " + error.message); }
+    else { const por = {}; (data || []).forEach((c) => (por[c.tema_id] = por[c.tema_id] || []).push(c)); temasDe(disc).forEach((t) => { FC[t.id] = por[t.id] || []; }); FCDISC[disc] = "ok"; }
+    fcRepintar();
+  }
+  const cardsTema = (temaId) => Array.isArray(FC[temaId]) ? FC[temaId] : [];
+  const fcChave = (c) => grupoChave(grupoNome(c.tema_id, ""));
+  const cardsDisc = (disc) => temasDe(disc).flatMap((t) => cardsTema(t.id));
+  function cardsFiltrados(disc) { const off = temasOff("f", disc), l = cardsDisc(disc); return off.size ? l.filter((c) => !off.has(fcChave(c))) : l; }
+  const fcRepintar = () => { if (ui.resumo) renderSheet(); else if (ui.tab === "quest") render(); };
+  // o baralho do momento: na ficha, os cards do tema; na aba Questões, os da matéria (temas marcados)
+  function deckAtual() {
+    if (ui.resumo && ui.sheetMode === "flash") return { chave: "t" + ui.resumo, cards: cardsTema(ui.resumo) };
+    if (!ui.resumo && ui.tab === "quest" && ui.qMode === "flash" && ui.fcDisc) return { chave: "d" + ui.fcDisc, cards: cardsFiltrados(ui.fcDisc) };
+    return null;
+  }
+  const ordemPadrao = (cards) => cards.slice().sort((a, b) => a.caixa - b.caixa || String(a.proxima || "").localeCompare(String(b.proxima || "")) || a.id - b.id).map((c) => c.id);
+  function fcSync(deck) {
+    const sig = deck.cards.map((c) => c.id).sort((a, b) => a - b).join(",");
+    if (ui.fc.chave === deck.chave && ui.fc.sig === sig) return;
+    const mesmo = ui.fc.chave === deck.chave, ids = new Set(deck.cards.map((c) => c.id));
+    ui.fc = mesmo ? { ...ui.fc, sig, ordem: [...ui.fc.ordem.filter((x) => ids.has(x)), ...ordemPadrao(deck.cards.filter((c) => !ui.fc.ordem.includes(c.id)))] }
+      : { chave: deck.chave, sig, ordem: ordemPadrao(deck.cards), i: 0, virado: false, dica: false, feitos: {} };
+    if (ui.fc.i > ui.fc.ordem.length) ui.fc.i = ui.fc.ordem.length;
+  }
+  function fcReiniciar() { ui.fc = { chave: null, ordem: [], sig: "", i: 0, virado: false, dica: false, feitos: {} }; }
+  const fcCard = (deck) => deck.cards.find((c) => c.id === ui.fc.ordem[ui.fc.i]);
+  /** O visor: um card por vez, virar (clique, toque ou Espaço), Errei / Difícil / Acertei, setas para navegar. */
+  function vFlash(deck) {
+    fcSync(deck);
+    const n = ui.fc.ordem.length, f = ui.fc;
+    const cx = [0, 0, 0]; deck.cards.forEach((c) => { cx[c.caixa <= 0 ? 0 : c.caixa <= 2 ? 1 : 2]++; });
+    const hoje = iso(today()), vencem = deck.cards.filter((c) => !c.proxima || c.proxima <= hoje).length;
+    const caixas = `<span class="fc-caixas"><span title="Ainda não estudados">Novos ${cx[0]}</span> · <span title="Caixas 1 e 2">Aprendendo ${cx[1]}</span> · <span title="Caixa 3 ou mais">Sabendo ${cx[2]}</span> · <b>Para hoje ${vencem}</b></span>`;
+    if (f.i >= n) {
+      const v = Object.values(f.feitos), ac = v.filter((x) => x === 2).length, di = v.filter((x) => x === 1).length, er = v.filter((x) => x === 0).length;
+      return `<div class="fc" data-fc><div class="fc-top">${caixas}</div><div class="fc-fim" aria-live="polite"><h3>Fim da rodada</h3><p class="tnum">Acertei ${ac} · Difícil ${di} · Errei ${er}</p>
+        <div class="row" style="justify-content:center"><button class="btn solid" data-a="fcDeNovo">De novo</button>${di + er ? `<button class="btn" data-a="fcDeNovo" data-v="erros">Só os difíceis e os que errei (${di + er})</button>` : ""}<button class="btn" data-a="fcEmbaralhar">Embaralhar e recomeçar</button></div></div></div>`;
+    }
+    const c = fcCard(deck); if (!c) return "";
+    const tema = deck.chave[0] === "d" ? temaById(c.tema_id)?.nome : "";
+    return `<div class="fc" data-fc>
+      <div class="fc-top"><span class="mono tnum" aria-live="polite">Card ${f.i + 1} de ${n} · caixa ${c.caixa}</span>${caixas}</div>
+      <button type="button" class="fc-card ${f.virado ? "virado" : ""}" data-a="fcVirar" aria-pressed="${f.virado}" aria-label="${f.virado ? "Resposta" : "Pergunta"}. Toque ou aperte Espaço para virar">
+        <span class="fc-in"><span class="fc-face fc-frente" ${f.virado ? 'aria-hidden="true"' : ""}><span class="mono">Pergunta${tema ? " · " + esc(tema) : ""}</span><span class="fc-txt">${esc(c.frente)}</span><span class="fc-hint">Toque para ver a resposta</span></span>
+        <span class="fc-face fc-verso" ${f.virado ? "" : 'aria-hidden="true"'}><span class="mono">Resposta</span><span class="fc-txt">${esc(c.verso)}</span></span></span></button>
+      ${c.dica ? `<div class="fc-dica">${f.dica ? `<span><b>Dica:</b> ${esc(c.dica)}</span>` : `<button type="button" class="lnk" data-a="fcDica">Ver dica</button>`}</div>` : ""}
+      <div class="fc-acoes">${f.virado ? `<button class="btn fc-errei" data-a="fcMarcar" data-v="0">Errei</button><button class="btn" data-a="fcMarcar" data-v="1">Difícil</button><button class="btn solid" data-a="fcMarcar" data-v="2">Acertei</button>`
+        : `<button class="btn solid" data-a="fcVirar">Mostrar resposta</button>`}</div>
+      <div class="fc-nav"><button class="btn ghost" data-a="fcIr" data-v="-1" ${f.i ? "" : "disabled"} aria-label="Card anterior">← Anterior</button><button class="btn ghost" data-a="fcEmbaralhar">Embaralhar</button><button class="btn ghost" data-a="fcIr" data-v="1" aria-label="Próximo card">Próximo →</button></div>
+      <p class="muted fc-atalhos">Atalhos no teclado: Espaço vira, ← e → passam, 1 Errei, 2 Difícil, 3 Acertei.</p></div>`;
+  }
+  /** Repinta só o visor (sem redesenhar a ficha toda) e devolve o foco ao card. */
+  function fcPintar(foco) {
+    const el = document.querySelector("[data-fc]"), deck = deckAtual(); if (!el || !deck) return fcRepintar();
+    el.outerHTML = vFlash(deck);
+    if (foco !== false) (document.querySelector(".fc-card") || document.querySelector(".fc-fim .btn"))?.focus({ preventScroll: true });
+  }
+  function fcVirar() { if (!deckAtual()) return; ui.fc.virado = !ui.fc.virado; fcPintar(); }
+  function fcIr(d) { const n = ui.fc.ordem.length; ui.fc.i = Math.max(0, Math.min(n, ui.fc.i + d)); ui.fc.virado = false; ui.fc.dica = false; fcPintar(); }
+  function fcEmbaralhar() { const o = ui.fc.ordem.slice(); for (let i = o.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; } Object.assign(ui.fc, { ordem: o, i: 0, virado: false, dica: false, feitos: {} }); fcPintar(); toast("Cards embaralhados"); }
+  function fcDeNovo(soErros) {
+    const o = soErros ? ui.fc.ordem.filter((id) => ui.fc.feitos[id] === 0 || ui.fc.feitos[id] === 1) : ui.fc.ordem;
+    Object.assign(ui.fc, { ordem: o.length ? o : ui.fc.ordem, i: 0, virado: false, dica: false, feitos: {} }); fcPintar();
+  }
+  async function fcMarcar(v) {
+    const deck = deckAtual(); if (!deck || !ui.fc.virado) return; const c = fcCard(deck); if (!c) return;
+    const caixa = v === 0 ? 1 : v === 1 ? Math.max(1, c.caixa) : Math.min(5, c.caixa + 1);
+    const proxima = somaDias(v === 0 ? 0 : v === 1 ? 1 : FC_DIAS[caixa]);
+    const antes = { caixa: c.caixa, proxima: c.proxima };
+    Object.assign(c, { caixa, proxima }); ui.fc.feitos[c.id] = v; ui.fc.i++; ui.fc.virado = false; ui.fc.dica = false; fcPintar();
+    const { error } = await sb.from("flashcards").update({ caixa, proxima }).eq("id", c.id);
+    if (error) { Object.assign(c, antes); toast("Não consegui guardar a resposta: " + error.message); }
+  }
+  function openFlash(id) { if (!temaById(id)) return; if (ui.resumo !== +id) ui.fcConfDel = null; ui.resumo = +id; ui.sheetMode = "flash"; ui.fcErr = ""; renderSheet(); if (!Array.isArray(FC[id])) loadFlash(+id); }
+  async function fcGerar(id, mais) {
+    const t = temaById(id); if (!t || ui.fcBusy || emAndamento("flashcards", id)) return;
+    if (S.falta12) { ui.fcErr = FALTA12; return renderSheet(); }
+    ui.fcBusy = id; ui.fcErr = ""; renderSheet();
+    try { await pedirIA({ acao: "flashcards", tema_id: id, ...(mais ? { mais: true } : {}) }, id, `Ler o material e fazer flash cards: ${t.nome}`); }
+    catch (e) { ui.fcErr = e.message || "Não consegui pedir os flash cards agora. Tente de novo em instantes."; }
+    finally { ui.fcBusy = false; renderSheet(); }
+  }
+  async function fcApagarTema(id) {
+    ui.fcConfDel = null;
+    const { data, error } = await sb.from("flashcards").delete().eq("tema_id", id).select("id");
+    if (error) { toast("Não consegui apagar: " + error.message); return renderSheet(); }
+    if (!(data || []).length && cardsTema(id).length) { toast("Não consegui apagar: o servidor não deixou (confira se seu acesso está em dia)."); return renderSheet(); }
+    FC[id] = []; S.fcIds.delete(id); fcReiniciar(); renderSheet(); toast("Flash cards apagados");
+  }
+  /** Ficha do tema no modo Flash cards: {corpo, rodape} */
+  function fichaFlash(t) {
+    const cards = FC[t.id], busy = ui.fcBusy === t.id || emAndamento("flashcards", t.id);
+    const aviso = `<div class="fb bg-aviso" aria-live="polite"><b>A IA está fazendo os flash cards no servidor.</b> Pode fechar esta janela e usar o resto do site: quando ficar pronto, aparece um aviso. Acompanhe em <button class="lnk" data-a="verTarefas" data-abre-tarefas>Tarefas</button>.</div>`;
+    let corpo = ui.fcErr ? `<div class="fb bad" style="margin-bottom:12px">${esc(ui.fcErr)}</div>` : "";
+    if (S.falta12) corpo += `<div class="fb bad">${FALTA12}</div>`;
+    else if (!Array.isArray(cards)) corpo += `<p class="muted">Carregando…</p>`;
+    else if (!cards.length) corpo += busy ? aviso : `<div class="empty">Ainda não há flash cards deste tema. Eles são feitos a partir do seu material e do resumo, só quando você pede.<br><button class="btn solid" data-a="fcGerar" data-id="${t.id}" style="margin-top:10px">Gerar flash cards</button></div>`;
+    else corpo += (busy ? aviso : "") + vFlash({ chave: "t" + t.id, cards })
+      + `<div class="exp-row"><span class="mono" style="font-size:11px">${cards.length} flash card${cards.length === 1 ? "" : "s"} neste tema</span><div class="row" style="gap:8px">
+        ${busy ? "" : `<button class="btn" data-a="fcGerar" data-id="${t.id}" data-mais="1">Gerar mais</button>`}
+        ${ui.fcConfDel === t.id ? `<span class="row" style="gap:6px;align-items:center"><span style="color:var(--bad);font-size:13.5px">Apagar os ${cards.length} flash cards deste tema?</span><button class="btn" data-a="fcDel" data-id="${t.id}" style="color:var(--bad);border-color:var(--bad)">Apagar</button><button class="btn ghost" data-a="fcNaoDel">Não</button></span>`
+          : `<button class="btn ghost" data-a="fcAskDel" data-id="${t.id}">Apagar flash cards</button>`}</div></div>`;
+    corpo += `<p class="muted" style="font-size:12.5px;margin-top:12px">${esc(usoFlash())}. Flash cards são feitos por IA e podem conter erros: confira no material.</p>`;
+    const rodape = busy ? `<button class="btn" disabled>Gerando…</button>` : Array.isArray(cards) && !cards.length && !S.falta12 ? `<button class="btn" data-a="fcGerar" data-id="${t.id}">Gerar flash cards</button>` : "";
+    return { corpo, rodape };
+  }
+  /** Aba Questões → Flash cards: revisar por matéria, com as mesmas caixinhas de temas */
+  function vQuestFlash() {
+    if (S.falta12) return `<div class="fb bad">${FALTA12}</div>`;
+    if (!discById(ui.fcDisc)) ui.fcDisc = (S.disc.find((d) => temasDe(d.id).some((t) => S.fcIds.has(t.id))) || S.disc[0])?.id || "";
+    if (!ui.fcDisc) return `<div class="empty">Adicione uma matéria primeiro. ${SEM_MATERIA}</div>`;
+    const sel = `<select class="inp" data-a="fcDisc" style="max-width:260px" aria-label="Matéria dos flash cards">${S.disc.map((d) => `<option value="${d.id}" ${ui.fcDisc == d.id ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select>`;
+    if (FCDISC[ui.fcDisc] !== "ok") { loadFlashDisc(ui.fcDisc); return `${sel}<p class="muted" style="margin-top:14px">Carregando…</p>`; }
+    const todos = cardsDisc(ui.fcDisc);
+    if (!todos.length) return `${sel}<div class="empty" style="margin-top:14px">Nenhum flash card nesta matéria ainda. Para fazer: aba Disciplinas → um tema → <b>Flash cards</b> → Gerar flash cards.</div>`;
+    const temas = vTemasSel("f", ui.fcDisc, gruposDe(todos, fcChave, (c) => grupoNome(c.tema_id, ""), ui.fcDisc), ["flash card selecionado", "flash cards selecionados"]);
+    const deck = deckAtual();
+    return `${sel}${temas}<div style="margin-top:14px">${deck && deck.cards.length ? vFlash(deck) : `<div class="empty">Nenhum tema marcado. Marque pelo menos um tema acima.</div>`}</div>`;
+  }
 
   /* ----- mapa mental (SVG) ----- */
   function mmLines(s, max) { const w = String(s).split(/\s+/), out = []; let cur = ""; for (const x of w) { if (!cur) cur = x; else if ((cur + " " + x).length <= max) cur += " " + x; else { out.push(cur); cur = x; } } if (cur) out.push(cur); return out.slice(0, 5); }
@@ -1620,7 +1768,18 @@
       case "openRes": if (id) openRes(+id); break;
       case "closeRes": fecharSheet(); break;
       case "openMapa": if (id) openMapa(+id); break;
-      case "sheetMode": if (b.dataset.v === "mapa") openMapa(ui.resumo); else { ui.sheetMode = "res"; renderSheet(); if (!RES[ui.resumo]) loadRes(ui.resumo); } break;
+      case "sheetMode": if (b.dataset.v === "mapa") openMapa(ui.resumo); else if (b.dataset.v === "flash") openFlash(ui.resumo); else { ui.sheetMode = "res"; renderSheet(); if (!RES[ui.resumo]) loadRes(ui.resumo); } break;
+      case "openFlash": if (id) openFlash(+id); break;
+      case "fcGerar": fcGerar(+id, b.dataset.mais === "1"); break;
+      case "fcAskDel": ui.fcConfDel = +id; renderSheet(); break;
+      case "fcNaoDel": ui.fcConfDel = null; renderSheet(); break;
+      case "fcDel": fcApagarTema(+id); break;
+      case "fcVirar": fcVirar(); break;
+      case "fcMarcar": fcMarcar(+b.dataset.v); break;
+      case "fcIr": fcIr(+b.dataset.v); break;
+      case "fcEmbaralhar": fcEmbaralhar(); break;
+      case "fcDeNovo": fcDeNovo(b.dataset.v === "erros"); break;
+      case "fcDica": ui.fc.dica = !ui.fc.dica; fcPintar(); break;
       case "genMapa": genMapa(+id); break;
       case "expMapa": if (!ui.expBusy) expMapa(+id); break;
       case "mmToggle": { ui.mmCol = ui.mmCol || {}; const p = b.dataset.p; ui.mmCol[p] = !ui.mmCol[p]; renderSheet(); break; }
@@ -1656,7 +1815,7 @@
         if (a === "temaSel") { if (b.checked) off.delete(b.dataset.k); else off.add(b.dataset.k); }
         else { off.clear(); if (b.dataset.v === "0") gruposAtuais(ns).forEach((g) => off.add(g.k)); }
         salvarOff(ns, disc, off);
-        ui.qIdx = 0; ui.qAns = null; ui.qst = null; ui._keep = null;
+        if (ns === "q") { ui.qIdx = 0; ui.qAns = null; ui.qst = null; ui._keep = null; } else fcReiniciar();
         render(); document.querySelector(a === "temaSel" ? `[data-a=temaSel][data-ns="${ns}"][data-k="${CSS.escape(b.dataset.k)}"]` : `[data-a=temasTodos][data-ns="${ns}"]:not([disabled])`)?.focus(); break; }
       case "answer": { const q = qPool()[ui.qIdx]; if (!q) break; const i = +b.dataset.i; ui.qAns = i; ui.qAnsId = q.id; qRecord(q, i === q.correta); break; }
       case "vfPick": { const q = qPool()[ui.qIdx]; if (!q) break; const st = qSt(q); if (st.done) break; st.vf[+b.dataset.i] = b.dataset.v === "1"; render(); break; }
@@ -1724,6 +1883,7 @@
     if (a === "relPick") { const q = qPool()[ui.qIdx]; if (q) { qSt(q).rel[+b.dataset.i] = b.value; render(); } return; }
     if (a === "lamTema") { ui.lamTema = b.value; ui.lamCur = null; render(); return; }
     if (a === "lamWrong") { ui.lamOnlyWrong = b.checked; ui.lamCur = null; render(); return; }
+    if (a === "fcDisc") { ui.fcDisc = +b.value; fcReiniciar(); render(); return; }
     if (a === "qDisc") { ui.qDisc = b.value; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); }
     else if (a === "calcDisc") { ui.calcDisc = +b.value; render(); }
     else if (a === "cfgDisc") { ui.cfgDisc = +b.value; ui.confDel = null; ui.confMat = null; render(); }
@@ -1800,6 +1960,16 @@
   function onKey(e) {
     if (!ativo()) return;
     if (e.key === "Escape" && ui.resumo) { fecharSheet(); return; }
+    // flash cards: Espaço vira, setas passam, 1/2/3 respondem (fora de campos de texto; num botão, o Espaço é o clique dele)
+    if (document.querySelector("[data-fc]") && deckAtual() && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const tg = e.target, campo = tg && /^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName), botao = tg && /^(BUTTON|A|SUMMARY)$/.test(tg.tagName);
+      if (!campo) {
+        if (e.key === " " && !botao) { e.preventDefault(); fcVirar(); return; }
+        if (e.key === "ArrowRight") { e.preventDefault(); fcIr(1); return; }
+        if (e.key === "ArrowLeft") { e.preventDefault(); fcIr(-1); return; }
+        if (ui.fc.virado && /^[123]$/.test(e.key)) { e.preventDefault(); fcMarcar(+e.key - 1); return; }
+      }
+    }
     const n = e.target.closest && e.target.closest(".mmn");
     if (n && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); ui.mmCol = ui.mmCol || {}; ui.mmCol[n.dataset.p] = !ui.mmCol[n.dataset.p]; renderSheet(); document.querySelector(`.mmn[data-p="${n.dataset.p}"]`)?.focus(); }
   }

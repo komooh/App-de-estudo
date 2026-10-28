@@ -474,3 +474,35 @@ table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-to
 .qtemas .qtema{white-space:normal;font-size:13.5px;min-width:0;overflow-wrap:anywhere;align-items:flex-start}
 .qtemas .qtema input{margin-top:2px;flex:none}
 .qtemas-dica{margin:10px 0 0;font-size:13px}
+/* Ficha do tema com 4 modos: os botões quebram linha no celular */
+.sheet-seg{flex-wrap:wrap;max-width:100%}
+@media (max-width:520px){.sheet-seg button{padding:6px 10px;font-size:13px}}
+/* Flash cards: um card por vez; vira em 3D (e sem 3D, troca a face) */
+.fc{display:flex;flex-direction:column;gap:10px;min-width:0}
+.fc-top{display:flex;justify-content:space-between;align-items:center;gap:6px 12px;flex-wrap:wrap}
+.fc-caixas{font-size:12.5px;color:var(--muted)}.fc-caixas b{color:var(--ink);font-weight:600}
+.fc-card{display:block;width:100%;padding:0;border:0;background:none;text-align:left;perspective:1200px;cursor:pointer;border-radius:14px}
+.fc-in{display:grid;transition:transform .45s ease;transform-style:preserve-3d;min-height:190px}
+.fc-face{grid-area:1/1;display:flex;flex-direction:column;gap:10px;padding:18px;border:1px solid var(--line);border-radius:14px;background:var(--card2);
+  -webkit-backface-visibility:hidden;backface-visibility:hidden;min-width:0}
+.fc-verso{transform:rotateY(180deg);background:var(--card);border-color:var(--c,var(--green));border-width:2px}
+.fc-card.virado .fc-in{transform:rotateY(180deg)}
+.fc-txt{font-size:17px;line-height:1.45;white-space:pre-line;overflow-wrap:anywhere}
+.fc-frente .fc-txt{font-weight:600}
+.fc-hint{margin-top:auto;font-size:12.5px;color:var(--muted)}
+.fc-dica{font-size:14px}
+.fc-acoes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.fc-acoes .btn{padding:10px 8px}
+.fc-acoes .btn:only-child{grid-column:1/-1}
+.fc-errei{color:var(--bad);border-color:var(--bad)}
+.fc-nav{display:flex;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.fc-atalhos{margin:0;font-size:12.5px}
+@media (hover:none){.fc-atalhos{display:none}}
+.fc-fim{text-align:center;padding:22px;border:1px dashed var(--line);border-radius:14px}
+.fc-fim p{margin:6px 0 14px}
+@supports not ((backface-visibility:hidden) or (-webkit-backface-visibility:hidden)){
+  .fc-in,.fc-card.virado .fc-in,.fc-verso{transform:none}
+  .fc-verso{visibility:hidden}.fc-card.virado .fc-verso{visibility:visible}.fc-card.virado .fc-frente{visibility:hidden}}
+@media (prefers-reduced-motion:reduce){
+  .fc-in{transition:none}.fc-in,.fc-card.virado .fc-in,.fc-verso{transform:none}
+  .fc-verso{visibility:hidden}.fc-card.virado .fc-verso{visibility:visible}.fc-card.virado .fc-frente{visibility:hidden}}
