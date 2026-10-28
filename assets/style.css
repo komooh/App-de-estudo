@@ -435,3 +435,24 @@ details.mats .drv-lista li{align-items:flex-start}
 #memInp,#resExtra{resize:vertical;min-height:70px}
 .res-extra{margin-top:18px;padding-top:12px;border-top:1px solid var(--line)}
 .res-extra details.cfg{margin-top:8px}
+/* Configurações: cada cadastro num cartão que abre e fecha; as abas do painel só mostram */
+.cfg-indice{margin-top:14px}
+.cfg-indice p{margin:0 0 8px;font-size:13.5px}
+.cfg-chips{display:flex;flex-wrap:wrap;gap:6px}
+details.cfgcard>summary{list-style:none;cursor:pointer;user-select:none}
+details.cfgcard>summary::-webkit-details-marker{display:none}
+details.cfgcard>summary::after{content:"";margin-left:auto;width:8px;height:8px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(45deg) translateY(-2px);transition:transform .15s}
+details.cfgcard:not([open])>summary{border-bottom:0}
+details.cfgcard:not([open])>summary::after{transform:rotate(-45deg)}
+details.cfgcard>summary:hover .cfg-tit{color:var(--terra)}
+details.cfgcard>summary:focus-visible{outline:2px solid var(--terra);outline-offset:-2px}
+.cfg-tit{font-size:14px;font-weight:600;color:var(--ink)}
+details.cfgcard{scroll-margin-top:72px}
+.cfg-parte+.cfg-parte{border-top:1px solid var(--line)}
+.cfg-sub{font-size:15px;margin:16px 0 8px}
+.cfgcard .seg{flex-wrap:wrap}
+.cfg-dica{margin:14px 0 0;font-size:13px;color:var(--muted)}
+.caldia{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:10px;padding:10px;margin-top:6px}
+.caldia ul{margin:0;padding-left:18px;font-size:13.5px}
+.caldia .lnk{align-self:flex-start}
+@media (prefers-reduced-motion:reduce){details.cfgcard>summary::after{transition:none}}

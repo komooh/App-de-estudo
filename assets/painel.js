@@ -1,5 +1,6 @@
 // Painel de estudo: as abas Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica e Laminário,
-// e a tela Configurações (Google Drive, livros, enviar arquivos, importar documento e ajustes do semestre).
+// e a tela Configurações. Regra: as abas só mostram (e servem para estudar); tudo o que é cadastrar
+// (matérias, conteúdos, provas, feriados, aulas, vida acadêmica, lâminas, arquivos, ajustes) fica em Configurações.
 // O app.html chama Painel.iniciar(...) depois do login e da configuração.
 // Tudo o que é de cada aluno fica no Supabase (06_estudo.sql); a IA só roda no servidor (função "ia"),
 // e só quando o aluno pede. Todo texto do aluno ou da IA passa por esc() ou pelo DOMPurify.
@@ -58,7 +59,7 @@
   let H = null, S = null, V = null;
   const TABS = [["agenda", "Agenda"], ["disc", "Disciplinas"], ["quest", "Questões"], ["media", "Média"], ["aulas", "Aulas"], ["cal", "Calendário"], ["vida", "Vida acadêmica"], ["lam", "Laminário"]];
   const TELAS = [...TABS.map(([k]) => k), "config"]; // "config" = Configurações (botão no alto, não é aba)
-  const ui = { tab: "agenda", up: { disc: null, modo: "arquivo", temaId: null, temaNome: "", files: [] }, cal: { file: null, busy: false, msg: null, provas: null }, cfgOpen: true, disc: null, qMode: "prat", qDisc: "", qIdx: 0, qAns: null, calY: today().getFullYear(), calM: today().getMonth(), calView: "mes", calDate: iso(today()), vMode: "ev", calcDisc: null, genBusy: false, genMsg: "" };
+  const ui = { tab: "agenda", up: { disc: null, modo: "arquivo", temaId: null, temaNome: "", files: [] }, cal: { file: null, busy: false, msg: null, provas: null }, disc: null, qMode: "prat", qDisc: "", qIdx: 0, qAns: null, calY: today().getFullYear(), calM: today().getMonth(), calView: "mes", calDate: iso(today()), vMode: "ev", calcDisc: null, genBusy: false, genMsg: "" };
   const RES = {}, RESLOAD = {}, MAPA = {}, MAPLOAD = {}, LAMURL = {};
   const ativo = () => !!document.getElementById("painel");
 
@@ -161,29 +162,56 @@
         <div class="row" style="justify-content:space-between;align-items:center"><h2 style="color:var(--terra);font-size:18px">Plano de estudo: conteúdos das provas</h2><span class="mono tnum">${p}%</span></div>
         <div class="bar" style="margin-top:10px;height:7px"><i style="width:${p}%;background:var(--terra)"></i></div>
         <div class="tgrid">${ts.length ? ts.map((t) => `<div class="topic">${t.prova ? `<span class="chip ${/prát|prat/i.test(t.prova) ? "pv-pr" : "pv-te"}" style="align-self:flex-start">${esc(t.prova)}</span>` : ""}
-          <div class="topic-h"><h3>${esc(t.nome)}</h3>${ui.confDel == t.id ? `<span class="row" style="gap:4px;align-items:center;flex-wrap:nowrap"><button class="btn" data-a="delTopic" data-id="${t.id}" style="padding:2px 8px;font-size:12px;color:var(--bad);border-color:var(--bad)">Apagar</button><button class="btn ghost" data-a="cancelDel" style="padding:2px 6px;font-size:12px">Não</button></span>` : `<button class="x" title="Remover tema" aria-label="Remover ${esc(t.nome)}" data-a="askDel" data-id="${t.id}">×</button>`}</div>
-          ${ui.confDel == t.id && matsDe(t.id).some((m) => !enviado(m)) ? `<span class="tref">Os arquivos do Drive deste tema ficam ocultos e não voltam na próxima leitura (dá para restaurar em Configurações → Meu Google Drive).</span>` : ""}
+          <div class="topic-h"><h3>${esc(t.nome)}</h3></div>
           <div class="tbtns"><button class="btn" data-a="openRes" data-id="${t.id}">Resumo${S.resIds.has(t.id) ? " ✓" : ""}</button><button class="btn" data-a="openMapa" data-id="${t.id}">Mapa mental</button></div>
           ${Array.isArray(t.itens) && t.itens.length ? `<div class="lams">${t.itens.map((i) => `<span>${esc(i)}</span>`).join("")}</div>` : ""}${matInfo(t)}
           ${[["aula", "Aula assistida"], ["resumo_ok", "Resumo / revisão"], ["questoes_ok", "Questões feitas"]].map(([k, l]) => `<label class="check ${t[k] ? "on" : ""}"><input type="checkbox" data-a="tick" data-id="${t.id}" data-k="${k}" ${t[k] ? "checked" : ""}><span>${l}</span></label>`).join("")}
-        </div>`).join("") : `<div class="empty" style="grid-column:1/-1">Nenhum conteúdo ainda. Adicione os temas que caem nas provas, envie os arquivos do professor (botão "Enviar arquivos") ou ligue sua pasta do Google Drive em Configurações: cada arquivo vira um tema.</div>`}</div>
-        <form class="row" data-form="addTopic" style="margin-top:14px"><label class="field" style="flex:1 1 220px"><span class="mono">Novo conteúdo</span><input name="nome" id="topicName" maxlength="120" placeholder="Ex.: Valvopatias" required></label>
-          <label class="field" style="flex:0 1 150px"><span class="mono">Cai na</span><select name="prova">${CAI(d).map((x) => `<option value="${esc(x)}">${x ? esc(x) : "Qualquer prova"}</option>`).join("")}</select></label><button class="btn solid">Adicionar</button></form>
-        ${vMatsDisc(d)}
+        </div>`).join("") : `<div class="empty" style="grid-column:1/-1">Nenhum conteúdo ainda. Cadastre os temas que caem nas provas em ${lnkCfg("conteudos", ` data-d="${d.id}"`)}, envie os arquivos do professor em <button class="lnk" data-a="upAbrir" data-id="${d.id}">Configurações → Enviar arquivos</button> ou ligue sua pasta do Google Drive em ${lnkCfg("drive")}: cada arquivo vira um tema.</div>`}</div>
+        ${vMatsDisc(d, false)}
+        ${ts.length ? `<p class="cfg-dica">Para adicionar ou remover conteúdos e materiais, vá em ${lnkCfg("conteudos", ` data-d="${d.id}"`)}. Para mandar os arquivos do professor: <button class="lnk" data-a="upAbrir" data-id="${d.id}">Configurações → Enviar arquivos</button>.</p>` : ""}
       </div>`);
     }
-    return hero("Painel de", "disciplinas", "var(--terra)") + janela(`Medicina · ${semNome()}`, `<div class="win-body"><h2 style="text-align:center;color:var(--terra)">Minhas disciplinas</h2><div style="width:36px;height:2px;background:var(--terra);margin:8px auto 18px"></div>${cards ? `<div class="dgrid">${cards}</div>` : `<div class="empty">Nenhuma matéria neste semestre. ${SEM_MATERIA}</div>`}
-      ${S.disc.length ? `<div class="row" style="justify-content:center;margin-top:16px"><button class="btn" data-a="upAbrir" data-id="${d ? d.id : ""}">Enviar arquivos</button></div>` : ""}</div>`) + plan
-      + (d && ui.upOpen ? janela(`Enviar arquivos · ${d.nome}`, `<div class="win-body" id="upJanela">${vUpload()}<div class="row" style="margin-top:12px"><button class="btn ghost" data-a="upFechar">Fechar</button></div></div>`) : "");
+    return hero("Painel de", "disciplinas", "var(--terra)") + janela(`Medicina · ${semNome()}`, `<div class="win-body"><h2 style="text-align:center;color:var(--terra)">Minhas disciplinas</h2><div style="width:36px;height:2px;background:var(--terra);margin:8px auto 18px"></div>${cards ? `<div class="dgrid">${cards}</div>` : `<div class="empty">Nenhuma matéria neste semestre. ${SEM_MATERIA}</div>`}</div>`) + plan;
+  }
+  /* ---------- Configurações → Conteúdos e materiais: temas de cada matéria (adicionar e remover) e os arquivos ---------- */
+  function vCfgConteudos() {
+    if (!S.disc.length) return `<div class="win-body"><div class="empty">Adicione uma matéria primeiro, no cartão ${esc(CFG.materias)}.</div></div>`;
+    if (!discById(ui.cfgDisc)) ui.cfgDisc = discById(ui.disc) ? ui.disc : S.disc[0].id;
+    const d = discById(ui.cfgDisc), ts = temasDe(d.id);
+    return `<div class="win-body">
+      <label class="field" style="max-width:340px"><span class="mono">Matéria</span><select data-a="cfgDisc">${S.disc.map((x) => `<option value="${x.id}" ${x.id == d.id ? "selected" : ""}>${esc(x.nome)}</option>`).join("")}</select></label>
+      <h3 class="cfg-sub">Conteúdos (${ts.length})</h3>
+      ${ts.length ? `<div class="evlist">${ts.map((t) => `<div class="evitem" style="flex-wrap:wrap"><span style="flex:1 1 180px;min-width:0;overflow-wrap:anywhere"><b>${esc(t.nome)}</b>${t.prova ? ` <span class="muted">· cai na ${esc(t.prova)}</span>` : ""}</span>
+          ${ui.confDel == t.id ? `<span class="row" style="gap:4px;align-items:center;flex-wrap:nowrap"><button class="btn" data-a="delTopic" data-id="${t.id}" style="padding:2px 8px;font-size:12px;color:var(--bad);border-color:var(--bad)">Apagar</button><button class="btn ghost" data-a="cancelDel" style="padding:2px 6px;font-size:12px">Não</button></span>` : `<button class="x" title="Remover tema" aria-label="Remover ${esc(t.nome)}" data-a="askDel" data-id="${t.id}">×</button>`}
+          ${ui.confDel == t.id && matsDe(t.id).some((m) => !enviado(m)) ? `<span class="tref" style="flex-basis:100%">Os arquivos do Drive deste tema ficam ocultos e não voltam na próxima leitura (dá para restaurar em Meu Google Drive, aqui em Configurações).</span>` : ""}</div>`).join("")}</div>`
+        : `<div class="empty">Nenhum conteúdo em ${esc(d.nome)} ainda.</div>`}
+      <form class="row" data-form="addTopic" style="margin-top:14px"><label class="field" style="flex:1 1 220px"><span class="mono">Novo conteúdo</span><input name="nome" id="topicName" maxlength="120" placeholder="Ex.: Valvopatias" required></label>
+        <label class="field" style="flex:0 1 150px"><span class="mono">Cai na</span><select name="prova">${CAI(d).map((x) => `<option value="${esc(x)}">${x ? esc(x) : "Qualquer prova"}</option>`).join("")}</select></label><button class="btn solid">Adicionar</button></form>
+      ${vMatsDisc(d, true)}
+      <p class="muted" style="margin:12px 0 0;font-size:13px">Arquivos novos entram por Enviar arquivos ou pela pasta do Google Drive (os dois cartões estão nesta tela).</p></div>`;
   }
   const semNome = () => { const s = H.SEM().atual; return s?.numero ? `${s.numero}º semestre` : "semestre atual"; };
-  const SEM_MATERIA = `Adicione em <button class="lnk" data-a="goCfg">Configurações → Ajustes do semestre</button>.`;
+
+  /* ---------- Configurações: cada cadastro tem o seu cartão (as abas do painel só mostram) ---------- */
+  const CFG = { materias: "Matérias e semestres", conteudos: "Conteúdos e materiais", calendario: "Calendário e avaliações", aulas: "Aulas e horários",
+    vida: "Vida acadêmica", lam: "Laminário", enviar: "Enviar arquivos", importar: "Importar documento", docs: "Documentos importados",
+    drive: "Meu Google Drive", livros: "Meus livros", agenda: "Ajustes da agenda", memoria: "Memória do resumo" };
+  const cfgFechados = new Set((() => { try { return JSON.parse(ss.get("painel:cfgFechados") || "[]"); } catch (_) { return []; } })());
+  /** Cartão de Configurações: janela que abre e fecha (o aluno recolhe o que não usa; fica lembrado nesta aba do navegador) */
+  function cartao(k, corpo) {
+    return `<details class="win cfgcard" id="cfg-${k}" ${cfgFechados.has(k) ? "" : "open"}><summary class="win-bar"><span class="dots"><i></i><i></i><i></i></span><span class="cfg-tit">${esc(CFG[k])}</span></summary>${corpo}</details>`;
+  }
+  /** Link para um cartão de Configurações (data-d escolhe a matéria, data-dt a data) */
+  const lnkCfg = (k, extra = "") => `<button class="lnk" data-a="goCfg" data-s="${k}"${extra}>Configurações → ${esc(CFG[k])}</button>`;
+  const dicaCfg = (k, oQue, extra = "") => `<p class="cfg-dica">Para ${oQue}, vá em ${lnkCfg(k, extra)}.</p>`;
+  const SEM_MATERIA = `Adicione em ${lnkCfg("materias")}.`;
 
   /* ================= MATERIAIS DA MATÉRIA E ENVIO DE ARQUIVOS ================= */
   // O arquivo não sai do aparelho: o navegador lê o texto (mesma leitura dos arquivos do Drive, lerArquivo)
   // e grava só o texto pela função enviar_material (07_uploads.sql), que cria ou reaproveita o tema.
   const enviado = (m) => !m.fonte_id;
-  function vMatsDisc(d) {
+  /** Materiais da matéria: em Disciplinas só a lista; em Configurações → Conteúdos e materiais, com o botão de apagar/ocultar */
+  function vMatsDisc(d, editavel) {
     const ms = S.mats.filter((m) => m.disciplina_id == d.id).sort((a, b) => a.nome.localeCompare(b.nome));
     if (!ms.length) return "";
     const nomeTema = (m) => temaById(m.tema_id)?.nome || "";
@@ -191,7 +219,7 @@
       <ul class="drv-lista">${ms.map((m) => { const [cls, txt] = MAT_ST[m.status] || ["s-warn", m.status];
         return `<li><span class="drv-nome"><span>${esc(m.nome)}</span>${nomeTema(m) ? `<span class="tref" style="display:block">Tema: ${esc(nomeTema(m))}</span>` : ""}</span>
         <span class="row" style="gap:6px;align-items:center;flex-wrap:nowrap"><span class="chip ${enviado(m) ? "s-ok" : "s-warn"}" title="${enviado(m) ? "Enviado por você" : "Da pasta do Google Drive"}">${enviado(m) ? "enviado" : "drive"}</span><span class="chip ${cls}">${esc(txt)}</span>
-        ${ui.confMat === m.id ? `<button class="btn" data-a="delMat" data-id="${m.id}" style="padding:2px 8px;font-size:12px;color:var(--bad);border-color:var(--bad)">${enviado(m) ? "Apagar" : "Ocultar"}</button><button class="btn ghost" data-a="cancelDel" style="padding:2px 6px;font-size:12px">Não</button>`
+        ${!editavel ? "" : ui.confMat === m.id ? `<button class="btn" data-a="delMat" data-id="${m.id}" style="padding:2px 8px;font-size:12px;color:var(--bad);border-color:var(--bad)">${enviado(m) ? "Apagar" : "Ocultar"}</button><button class="btn ghost" data-a="cancelDel" style="padding:2px 6px;font-size:12px">Não</button>`
             : `<button class="x" data-a="askMat" data-id="${m.id}" aria-label="${enviado(m) ? "Apagar" : "Ocultar"} ${esc(m.nome)}">×</button>`}</span></li>`; }).join("")}</ul></details>`;
   }
   const MAT_ST = { ok: ["s-ok", "lido"], pendente: ["s-ok", "pronto"], sem_texto: ["s-warn", "sem texto"], grande_demais: ["s-warn", "grande demais"], erro: ["s-bad", "erro"] };
@@ -206,7 +234,7 @@
       ${pend ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Pode usar o resto do site enquanto os arquivos são lidos. ${it.every((x) => x.persistente || !(x.st === "fila" || x.st === "rodando")) ? "Se fechar o site, continua quando você abrir de novo neste aparelho." : "Deixe o site aberto até terminar."}</p>` : ""}`;
   }
   function pintarUpProg() { const el = document.getElementById("upProg"); if (el) el.innerHTML = vUpProg(); }
-  /** Painel "Enviar arquivos" (na matéria, em Disciplinas, e em Configurações) */
+  /** Cartão "Enviar arquivos" (em Configurações; o link da matéria em Disciplinas já escolhe a matéria) */
   function vUpload() {
     const u = ui.up;
     if (!S.disc.length) return `<div class="empty">Adicione uma matéria primeiro. ${SEM_MATERIA}</div>`;
@@ -358,7 +386,7 @@
       msg: estudo ? { bad: true, enviar: true, t: r.aviso || "Isso parece material de estudo. Para usar nos resumos e questões, mande em Enviar arquivos." }
         : n ? { t: `${TIPO_DOC[doc.tipo] || "Documento"}: achei ${n} ${n === 1 ? "item" : "itens"} para o painel. Nada foi salvo ainda: confira e clique em "Salvar no painel".${r.aviso ? " " + r.aviso : ""}` }
         : { bad: true, t: r.aviso || "Não achei nada para colocar no painel nesse documento." } };
-    atualizarUso().then(() => { if (ui.tab === "cal" || ui.tab === "config") render(); });
+    atualizarUso().then(() => { if (ui.tab === "config") render(); });
   }
   /** Grava o que o aluno marcou: provas, eventos, horários, matérias novas e o registro do documento (com as notas). */
   async function salvarCalendario() {
@@ -405,7 +433,7 @@
   /** Configurações: documentos importados (o resumo da IA e as notas guardadas) */
   function vDocumentos() {
     const L = S.docs || [];
-    if (!L.length) return `<p class="muted" style="margin:0">Nenhum documento importado ainda. Use "Importar documento" acima ou na aba Calendário.</p>`;
+    if (!L.length) return `<p class="muted" style="margin:0">Nenhum documento importado ainda. Use o cartão "Importar documento", aqui em Configurações.</p>`;
     return `<ul class="doc-lista">${L.map((d) => `<li class="doc-item"><details ${ui.confDoc === d.id ? "open" : ""}><summary><b>${esc(d.titulo || d.nome || "Documento")}</b> <span class="muted">· ${esc(TIPO_DOC[d.tipo] || "Documento")} · ${esc(new Date(d.criado_em).toLocaleDateString("pt-BR"))}${(d.notas || []).length ? ` · ${(d.notas || []).length} nota${d.notas.length === 1 ? "" : "s"}` : ""}</span></summary>
       ${d.nome && d.titulo ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Arquivo: ${esc(d.nome)}</p>` : ""}${d.resumo ? `<p style="margin:6px 0">${esc(d.resumo)}</p>` : ""}
       ${(d.notas || []).map((n) => `<div class="doc-nota-v"><b>${esc(n.titulo)}</b><div class="resumo" style="font-size:14px">${md(n.texto)}</div></div>`).join("")}
@@ -413,13 +441,24 @@
   }
 
   /* ================= CONFIGURAÇÕES ================= */
+  // Ordem: a base (matérias), os cadastros de cada aba, os arquivos, Drive e livros (montados à parte, em #pfixos)
+  // e, no fim (#pcfg), os ajustes da agenda e a memória do resumo.
+  const CFG_ORDEM = ["materias", "conteudos", "calendario", "aulas", "vida", "lam", "enviar", "importar", "docs", "drive", "livros", "agenda", "memoria"];
   function vConfig() {
     return hero("Suas", "configurações", "var(--ink)")
-      + janela("Enviar arquivos", `<div class="win-body">${vUpload()}</div>`)
-      + janela("Importar documento", `<div class="win-body">${vImportCal()}</div>`)
-      + janela("Documentos importados", `<div class="win-body">${vDocumentos()}</div>`)
-      + janela("Semestres", `<div class="win-body">${vSemestres()}</div>`)
-      + janela("Memória do resumo", `<div class="win-body" id="memoriaBox">${vMemoria()}</div>`);
+      + `<nav class="cfg-indice" aria-label="Partes das configurações"><p class="muted">Tudo o que você cadastra fica aqui. As abas do painel só mostram.</p><div class="cfg-chips">${CFG_ORDEM.map((k) => `<button class="mem-chip" data-a="goCfg" data-s="${k}">${esc(CFG[k])}</button>`).join("")}</div></nav>`
+      + cartao("materias", `<div class="win-body">${vSemestres()}</div>${vCfgMaterias()}`)
+      + cartao("conteudos", vCfgConteudos())
+      + cartao("calendario", vCfgCalendario())
+      + cartao("aulas", vCfgAulas())
+      + cartao("vida", vCfgVida())
+      + cartao("lam", vCfgLam())
+      + cartao("enviar", `<div class="win-body" id="upJanela">${vUpload()}</div>`)
+      + cartao("importar", `<div class="win-body">${vImportCal()}</div>`)
+      + cartao("docs", `<div class="win-body">${vDocumentos()}</div>`);
+  }
+  function vConfigFim() {
+    return cartao("agenda", vCfgAgenda()) + cartao("memoria", `<div class="win-body" id="memoriaBox">${vMemoria()}</div>`);
   }
   /* ---------- Memória do resumo: como o aluno quer os resumos (texto livre) + o modelo completo (avançado) ---------- */
   const MEM_MAX = 1500, EXTRA_MAX = 500;
@@ -622,8 +661,8 @@
     const L = S.laminas || [];
     const temas = [...new Set(L.map((c) => c.tema || ""))].filter(Boolean).sort();
     const vistos = L.filter((x) => x.acertos || x.erros).length, ac = L.filter((x) => x.ultima).length;
-    const gerenciar = vLamGerenciar(temas);
-    if (!L.length) return `<h2 style="font-size:19px">Laminário</h2><p class="muted" style="margin:6px 0 12px">Envie as fotos das lâminas ou dos slides que caem na prova prática, com a resposta. Depois treine aqui: a imagem aparece, você diz o órgão e a doença em voz alta e confere.</p><div class="empty">Nenhuma lâmina ainda.</div>${gerenciar}`;
+    const gerenciar = dicaCfg("lam", `adicionar ou apagar lâminas (${L.length} de 300)`);
+    if (!L.length) return `<h2 style="font-size:19px">Laminário</h2><p class="muted" style="margin:6px 0 12px">Envie as fotos das lâminas ou dos slides que caem na prova prática, com a resposta. Depois treine aqui: a imagem aparece, você diz o órgão e a doença em voz alta e confere.</p><div class="empty">Nenhuma lâmina ainda. Guarde as suas em ${lnkCfg("lam")}.</div>`;
     const pool = lamPool(); if (!ui.lamCur || !pool.some((c) => c.id === ui.lamCur)) lamNext();
     const c = L.find((x) => x.id === ui.lamCur);
     const head = `<div class="row" style="justify-content:space-between;align-items:center">
@@ -643,9 +682,11 @@
     if (!S.laminas) { carregarQuestoes().then(() => { if (ui.tab === "lam") render(); }).catch((e) => toast("Não consegui carregar o laminário: " + e.message)); return topo + `<div class="empty">Carregando…</div>`; }
     return topo + `<section class="win"><div class="win-body">${vLam()}</div></section>`;
   }
-  function vLamGerenciar(temas) {
-    const L = S.laminas || [], f = ui.lamForm || {};
-    return `<details class="cfg" id="lamGer" ${ui.lamGer ? "open" : ""}><summary>Adicionar e gerenciar lâminas (${L.length} de 300)</summary>
+  /** Configurações → Laminário: guardar lâmina (imagem + resposta) e a lista para apagar */
+  function vCfgLam() {
+    if (!S.laminas) { carregarQuestoes().then(() => { if (ui.tab === "config") render(); }).catch((e) => toast("Não consegui carregar o laminário: " + e.message)); return `<div class="win-body"><p class="muted" style="margin:0">Carregando…</p></div>`; }
+    const L = S.laminas, f = ui.lamForm || {}, temas = [...new Set(L.map((c) => c.tema || ""))].filter(Boolean).sort();
+    return `<div class="win-body"><p class="muted" style="margin:0;font-size:13.5px">${L.length} de 300 lâminas. Treine na aba Laminário.</p>
       <form data-form="addLam" class="stack" style="margin-top:10px">
         <label class="field"><span class="mono">Imagem (foto da lâmina ou do slide)</span><input type="file" name="arq" id="lamArq" accept="image/*" required></label>
         <div class="row"><label class="field" style="flex:1 1 180px"><span class="mono">Resposta (diagnóstico)</span><input name="resposta" maxlength="300" required placeholder="Ex.: Cirrose hepática" value="${esc(f.resposta || "")}"></label>
@@ -657,7 +698,7 @@
         <div class="row"><button class="btn solid" ${ui.lamBusy ? "disabled" : ""}>${ui.lamBusy ? "Enviando…" : "Guardar lâmina"}</button><span class="muted" style="font-size:13px">A imagem é reduzida no seu aparelho antes de enviar e fica só na sua conta.</span></div>
       </form>
       ${L.length ? `<ul class="lam-lista">${L.map((c) => `<li>${LAMURL[c.caminho] ? `<img src="${esc(LAMURL[c.caminho].url)}" alt="" width="56" height="42" loading="lazy">` : `<span class="lam-ph"></span>`}<div style="flex:1;min-width:0"><b class="lam-res">${esc(c.resposta)}</b><div class="muted" style="font-size:12.5px">${esc([c.tema, c.orgao, c.disciplina_id ? dname(c.disciplina_id) : ""].filter(Boolean).join(" · "))}</div></div>${ui.confLam === c.id ? `<button class="btn" data-a="delLam" data-id="${c.id}" style="color:var(--bad);border-color:var(--bad)">Apagar</button><button class="btn ghost" data-a="cancelDel">Não</button>` : `<button class="x" data-a="askLam" data-id="${c.id}" aria-label="Apagar lâmina ${esc(c.resposta)}">×</button>`}</li>`).join("")}</ul>` : ""}
-    </details>`;
+    </div>`;
   }
   async function reduzirImagem(file) {
     const img = await createImageBitmap(file);
@@ -691,7 +732,7 @@
         orgao: String(fd.orgao || "").trim() || null, vista: String(fd.vista || "").trim() || null, dica: String(fd.dica || "").trim() || null, disciplina_id: fd.disc ? +fd.disc : null }).select("*").single();
       if (error) throw error;
       S.laminas.push(data); LAMURL[caminho] = { url: URL.createObjectURL(blob), ate: Date.now() + 50 * 60 * 1000 };
-      ui.lamForm = { tema: fd.tema, orgao: fd.orgao, vista: fd.vista, disc: fd.disc }; ui.lamGer = true;
+      ui.lamForm = { tema: fd.tema, orgao: fd.orgao, vista: fd.vista, disc: fd.disc };
       toast("Lâmina guardada");
     } catch (e) {
       if (caminho) await sb.storage.from("laminas").remove([caminho]).catch(() => { });
@@ -722,7 +763,7 @@
   }
   function vMedia() {
     if (!ui.calcDisc || !discById(ui.calcDisc)) ui.calcDisc = S.disc[0]?.id;
-    const d = discById(ui.calcDisc); if (!d) return hero("Calculadora", "de pontos", "var(--ink)") + `<div class="empty">${SEM_MATERIA}</div>`;
+    const d = discById(ui.calcDisc); if (!d) return hero("Calculadora", "de pontos", "var(--ink)") + `<div class="empty">Nenhuma matéria ainda. ${SEM_MATERIA}</div>`;
     const m = cfgPts(), c = calcFor(d), MF = d.tem_pratica ? m.finPr : m.fin;
     let big = "—", cap = "Preencha uma nota para calcular.", line = "", pct = 0;
     if (c.final != null) { big = fmt(c.final); cap = "Seus pontos no semestre"; line = c.final >= m.min ? `Aprovado: passou dos ${fmt(m.min)} pontos.` : `Ficou abaixo dos ${fmt(m.min)} pontos.`; pct = Math.min(100, c.final / m.min * 100); }
@@ -773,16 +814,8 @@
   function vAulas() {
     const hz = S.horarios;
     const head = hero("Horário", "de aulas", "var(--plum)");
-    const form = janela("Editar horário", `<div class="win-body"><form class="row" data-form="addAula">
-        <label class="field" style="flex:0 1 130px"><span class="mono">Dia</span><select name="dia">${DIAS.map((n, i) => `<option value="${i + 1}">${n}</option>`).join("")}</select></label>
-        <label class="field" style="flex:0 1 110px"><span class="mono">Início</span><input name="inicio" type="time" value="07:00" required></label>
-        <label class="field" style="flex:0 1 110px"><span class="mono">Fim</span><input name="fim" type="time" value="08:00" required></label>
-        <label class="field" style="flex:1 1 180px"><span class="mono">Matéria</span><select name="disc">${S.disc.map((d) => `<option value="${d.id}">${esc(d.nome)}</option>`).join("")}<option value="">Outra (escreva ao lado)</option></select></label>
-        <label class="field" style="flex:1 1 140px"><span class="mono">Outra / sala (opcional)</span><input name="nome" maxlength="120" placeholder="Ex.: Inglés"></label>
-        <label class="field" style="flex:1 1 140px"><span class="mono">Professor (opcional)</span><input name="prof" maxlength="120"></label>
-        <button class="btn solid">Adicionar aula</button></form>
-        ${hz.length ? `<div class="evlist">${[1, 2, 3, 4, 5, 6].flatMap((d) => doDia(d)).map((s) => `<div class="evitem"><span class="when tnum" style="width:120px">${DIAS[s.dia - 1].slice(0, 3)} ${hhmm(s.inicio)}–${hhmm(s.fim)}</span><span style="flex:1;min-width:0"><b>${esc(slotName(s))}</b>${slotProf(s) ? ` <span class="muted">· ${esc(slotProf(s))}</span>` : ""}</span><button class="x" data-a="delAula" data-id="${s.id}" aria-label="Remover aula">×</button></div>`).join("")}</div>` : ""}</div>`);
-    if (!hz.length) return head + `<div class="empty">Nenhum horário cadastrado ainda. Adicione suas aulas abaixo.</div>` + form;
+    const dica = dicaCfg("aulas", "adicionar ou remover aulas");
+    if (!hz.length) return head + `<div class="empty">Nenhum horário cadastrado ainda. Adicione suas aulas em ${lnkCfg("aulas")}.</div>`;
     const now = new Date(), wd = now.getDay(), mins = now.getHours() * 60 + now.getMinutes();
     const isNow = (s) => s.dia === wd && mins >= hm(s.inicio) && mins < hm(s.fim);
     const h0 = Math.floor(Math.min(...hz.map((s) => hm(s.inicio))) / 60), h1 = Math.ceil(Math.max(...hz.map((s) => hm(s.fim))) / 60);
@@ -802,7 +835,21 @@
     else for (let k = 1; k <= 7; k++) { const d = (wd + k) % 7; if (d && doDia(d).length) { dshow = d; label = k === 1 ? `Amanhã, ${DIAS[d - 1].toLowerCase()}` : `Próxima aula: ${DIAS[d - 1].toLowerCase()}`; break; } }
     const tl = dshow ? doDia(dshow).map((s) => `<div class="tcard" style="--c:${slotColor(s.disciplina_id)}"><span class="mono tnum">${hhmm(s.inicio)}–${hhmm(s.fim)}${isNow(s) ? " · agora" : ""}</span><b>${esc(slotName(s))}</b><span class="muted" style="font-size:13px">${esc(slotProf(s))}</span></div>`).join("") : "";
     return head + janela(label || "Aulas", `<div class="win-body"><h2>${esc(label || "Aulas")}</h2><div class="todaylist">${tl || `<div class="empty">Sem aulas.</div>`}</div></div>`)
-      + janela(`Grade semanal · ${semNome()}`, `<div class="win-body ttwrap"><div class="tt" style="grid-template-columns:58px repeat(${ndias},minmax(112px,1fr));grid-template-rows:auto repeat(${nh},minmax(52px,auto))">${g}</div></div>`) + form;
+      + janela(`Grade semanal · ${semNome()}`, `<div class="win-body ttwrap"><div class="tt" style="grid-template-columns:58px repeat(${ndias},minmax(112px,1fr));grid-template-rows:auto repeat(${nh},minmax(52px,auto))">${g}</div></div>`) + dica;
+  }
+
+  /** Configurações → Aulas e horários: adicionar aula e a lista para remover */
+  function vCfgAulas() {
+    const hz = S.horarios;
+    return `<div class="win-body"><form class="row" data-form="addAula">
+        <label class="field" style="flex:0 1 130px"><span class="mono">Dia</span><select name="dia">${DIAS.map((n, i) => `<option value="${i + 1}">${n}</option>`).join("")}</select></label>
+        <label class="field" style="flex:0 1 110px"><span class="mono">Início</span><input name="inicio" type="time" value="07:00" required></label>
+        <label class="field" style="flex:0 1 110px"><span class="mono">Fim</span><input name="fim" type="time" value="08:00" required></label>
+        <label class="field" style="flex:1 1 180px"><span class="mono">Matéria</span><select name="disc">${S.disc.map((d) => `<option value="${d.id}">${esc(d.nome)}</option>`).join("")}<option value="">Outra (escreva ao lado)</option></select></label>
+        <label class="field" style="flex:1 1 140px"><span class="mono">Outra / sala (opcional)</span><input name="nome" maxlength="120" placeholder="Ex.: Inglés"></label>
+        <label class="field" style="flex:1 1 140px"><span class="mono">Professor (opcional)</span><input name="prof" maxlength="120"></label>
+        <button class="btn solid">Adicionar aula</button></form>
+        ${hz.length ? `<div class="evlist">${[1, 2, 3, 4, 5, 6].flatMap((d) => doDia(d)).map((s) => `<div class="evitem"><span class="when tnum" style="width:120px">${DIAS[s.dia - 1].slice(0, 3)} ${hhmm(s.inicio)}–${hhmm(s.fim)}</span><span style="flex:1;min-width:0"><b>${esc(slotName(s))}</b>${slotProf(s) ? ` <span class="muted">· ${esc(slotProf(s))}</span>` : ""}</span><button class="x" data-a="delAula" data-id="${s.id}" aria-label="Remover aula">×</button></div>`).join("")}</div>` : `<p class="muted" style="margin:10px 0 0;font-size:13.5px">Nenhuma aula cadastrada ainda.</p>`}</div>`;
   }
 
   /* ================= CALENDÁRIO ================= */
@@ -812,28 +859,56 @@
   const isFer = (ds) => perOn(ds).some((p) => p.tipo === "feriado");
   function fmtRange(p) { const a = parse(p.inicio), b = parse(p.fim || p.inicio), d = (x) => `${String(x.getDate()).padStart(2, "0")}/${String(x.getMonth() + 1).padStart(2, "0")}`; return p.fim && p.fim !== p.inicio ? `${d(a)} a ${d(b)}` : d(a); }
   const provasOn = (ds) => S.provas.filter((p) => p.data === ds);
-  function vAcad() {
+  // Calendário acadêmico: a aba só mostra; cadastrar e remover fica em Configurações → Calendário e avaliações
+  function acadLinhas(edit) {
     const ps = S.cal.slice().sort((a, b) => a.inicio.localeCompare(b.inicio));
     const td = iso(today()), fut = ps.filter((p) => (p.fim || p.inicio) >= td), past = ps.length - fut.length;
     const shown = ui.acadAll ? ps : fut;
     const rows = shown.map((p) => { const pass = (p.fim || p.inicio) < td, now = p.inicio <= td && td <= (p.fim || p.inicio), n = daysTo(p.inicio);
-      return `<div class="evitem" style="${pass ? "opacity:.5" : ""}"><span class="when tnum" style="width:96px">${fmtRange(p)}</span><i class="sw" style="flex:none;background:${p.tipo === "feriado" ? "var(--line)" : PTIPO[p.tipo]?.[1]}"></i><span style="flex:1;min-width:0;overflow-wrap:anywhere">${esc(p.nome)}</span><span class="mono">${now ? "agora" : pass ? "" : n === 1 ? "amanhã" : "em " + n + " d"}</span><button class="x" data-a="delPer" data-id="${p.id}" aria-label="Remover ${esc(p.nome)}">×</button></div>`; }).join("");
-    return janela("Calendário acadêmico", `<div class="win-body"><div class="row" style="justify-content:space-between;align-items:center"><h2 style="font-size:19px">Calendário acadêmico</h2>${past ? `<button class="btn ghost" data-a="acadAll">${ui.acadAll ? "Só os próximos" : `Mostrar também os ${past} que já passaram`}</button>` : ""}</div>
-      <div class="evlist">${rows || `<div class="empty">Nada pela frente. Coloque feriados, semanas de parciais, semana prática e exames finais da sua faculdade.</div>`}</div>
-      <form class="row" data-form="addPer" style="margin-top:14px"><label class="field" style="flex:1 1 180px"><span class="mono">Nome</span><input name="nome" maxlength="120" required placeholder="Ex.: Semana de parciais"></label>
+      return `<div class="evitem" style="${pass ? "opacity:.5" : ""}"><span class="when tnum" style="width:96px">${fmtRange(p)}</span><i class="sw" style="flex:none;background:${p.tipo === "feriado" ? "var(--line)" : PTIPO[p.tipo]?.[1]}"></i><span style="flex:1;min-width:0;overflow-wrap:anywhere">${esc(p.nome)}</span><span class="mono">${now ? "agora" : pass ? "" : n === 1 ? "amanhã" : "em " + n + " d"}</span>${edit ? `<button class="x" data-a="delPer" data-id="${p.id}" aria-label="Remover ${esc(p.nome)}">×</button>` : ""}</div>`; }).join("");
+    const btn = past ? `<button class="btn ghost" data-a="acadAll">${ui.acadAll ? "Só os próximos" : `Mostrar também os ${past} que já passaram`}</button>` : "";
+    return { rows, btn };
+  }
+  function vAcad() {
+    const { rows, btn } = acadLinhas(false);
+    return janela("Calendário acadêmico", `<div class="win-body"><div class="row" style="justify-content:space-between;align-items:center"><h2 style="font-size:19px">Calendário acadêmico</h2>${btn}</div>
+      <div class="evlist">${rows || `<div class="empty">Nada pela frente. Cadastre feriados, semanas de parciais, semana prática e exames finais da sua faculdade em ${lnkCfg("calendario")}.</div>`}</div>
+      ${rows ? dicaCfg("calendario", "adicionar ou remover feriados e períodos") : ""}</div>`);
+  }
+  const provaPts = (p) => { const m = cfgPts(); return p.pontos != null ? +p.pontos : !OFICIAL(p.tipo) ? null : p.modalidade === "pratica" ? (p.tipo === "Final" ? m.prF : m.prP) : p.tipo === "P1" ? m.p1 : p.tipo === "P2" ? m.p2 : discById(p.disciplina_id)?.tem_pratica ? m.finPr : m.fin; };
+  function provasLista(edit) {
+    return S.provas.filter((p) => p.data).sort((a, b) => a.data.localeCompare(b.data)).map((p) => { const dt = parse(p.data), past = daysTo(p.data) < 0, v = provaPts(p);
+      return `<div class="evitem" style="${past ? "opacity:.55" : ""}"><span class="when tnum">${String(dt.getDate()).padStart(2, "0")} ${MES3[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>${esc(dname(p.disciplina_id))}</b> · ${esc(provaNome(p))} <span class="muted">(${esc(provaTipoLbl(p))}${p.hora ? ", " + hhmm(p.hora) : ""}${v != null ? `, vale ${fmt(v)}` : ""})</span></span>${edit ? `<button class="x" data-a="delProva" data-id="${p.id}" aria-label="Remover avaliação">×</button>` : ""}</div>`; }).join("");
+  }
+  /** Configurações → Calendário e avaliações: cadastrar avaliação e feriado/evento, com as listas para remover */
+  function vCfgCalendario() {
+    const { rows, btn } = acadLinhas(true), list = provasLista(true);
+    return `<div class="win-body cfg-parte"><h3 class="cfg-sub" style="margin-top:0">Cadastrar avaliação</h3>${S.disc.length ? `<form class="row" data-form="addProva">
+        <label class="field" style="flex:1 1 180px"><span class="mono">Disciplina</span><select name="disc">${S.disc.map((d) => `<option value="${d.id}">${esc(d.nome)}</option>`).join("")}</select></label>
+        <label class="field" style="flex:0 1 130px"><span class="mono">Tipo</span><select name="tipo">${["P1", "P2", "Final", "Seminário", "Entrega", "Outra"].map((t) => `<option>${t}</option>`).join("")}</select></label>
+        <label class="field" style="flex:0 1 130px"><span class="mono">Teórica/prática</span><select name="mod"><option value="teorica">Teórica</option><option value="pratica">Prática</option></select></label>
+        <label class="field" style="flex:1 1 120px"><span class="mono">Nome (opcional)</span><input name="titulo" maxlength="80" placeholder="Ex.: Seminário de sepse"></label>
+        <label class="field" style="flex:0 1 150px"><span class="mono">Data</span><input name="data" type="date" id="provaData" value="${ui.calDate}" required></label>
+        <label class="field" style="flex:0 1 100px"><span class="mono">Hora</span><input name="hora" type="time" value="07:00"></label>
+        <label class="field" style="flex:0 1 90px"><span class="mono">Vale (pts)</span><input name="pontos" inputmode="decimal" placeholder="auto"></label>
+        <button class="btn solid">Adicionar</button></form>` : `<div class="empty">Adicione uma matéria primeiro, no cartão ${esc(CFG.materias)}.</div>`}
+      ${list ? `<div class="evlist">${list}</div>` : `<p class="muted" style="margin:10px 0 0;font-size:13.5px">Nenhuma avaliação com data ainda.</p>`}</div>
+      <div class="win-body cfg-parte"><div class="row" style="justify-content:space-between;align-items:center"><h3 class="cfg-sub" style="margin:0">Adicionar feriado ou evento</h3>${btn}</div>
+      <form class="row" data-form="addPer" style="margin-top:10px"><label class="field" style="flex:1 1 180px"><span class="mono">Nome</span><input name="nome" maxlength="120" required placeholder="Ex.: Semana de parciais"></label>
         <label class="field" style="flex:0 1 160px"><span class="mono">Tipo</span><select name="tipo">${Object.entries(PTIPO).map(([k, [l]]) => `<option value="${k}">${l}</option>`).join("")}</select></label>
         <label class="field" style="flex:0 1 150px"><span class="mono">Início</span><input name="inicio" type="date" required value="${ui.calDate}"></label>
-        <label class="field" style="flex:0 1 150px"><span class="mono">Fim (opcional)</span><input name="fim" type="date"></label><button class="btn solid">Adicionar</button></form></div>`);
+        <label class="field" style="flex:0 1 150px"><span class="mono">Fim (opcional)</span><input name="fim" type="date"></label><button class="btn solid">Adicionar</button></form>
+      ${rows ? `<div class="evlist">${rows}</div>` : `<p class="muted" style="margin:10px 0 0;font-size:13.5px">Nada pela frente no calendário acadêmico.</p>`}
+      <p class="muted" style="margin:12px 0 0;font-size:13px">Tem o PDF ou a foto do calendário da faculdade? Use ${`<button class="lnk" data-a="goCfg" data-s="importar">Importar documento</button>`}: a IA lê e você confere antes de salvar.</p></div>`;
   }
   function vCal() {
     const up = S.provas.filter((p) => p.data && daysTo(p.data) >= 0).sort((a, b) => a.data.localeCompare(b.data) || String(a.hora || "").localeCompare(String(b.hora || "")));
     const in14 = up.filter((p) => daysTo(p.data) <= 14).length;
-    const m = cfgPts();
-    const pts = (p) => p.pontos != null ? +p.pontos : !OFICIAL(p.tipo) ? null : p.modalidade === "pratica" ? (p.tipo === "Final" ? m.prF : m.prP) : p.tipo === "P1" ? m.p1 : p.tipo === "P2" ? m.p2 : discById(p.disciplina_id)?.tem_pratica ? m.finPr : m.fin;
+    const pts = provaPts;
     const cards = up.slice(0, 3).map((p, i) => { const n = daysTo(p.data), dt = parse(p.data), v = pts(p);
       return `<div class="ncard ${i === 0 && OFICIAL(p.tipo) ? "hot" : ""}"><span class="mono">${esc(provaTipoLbl(p))}${v != null ? ` · vale ${fmt(v)}` : ""}</span><div style="font-weight:700;margin-top:4px;overflow-wrap:anywhere">${esc(dname(p.disciplina_id))} ${esc(provaNome(p))}</div><div class="d tnum">${n === 0 ? "Hoje" : n === 1 ? "Amanhã" : n + " dias"}</div><span class="mono">${SEMD[dt.getDay()]}, ${String(dt.getDate()).padStart(2, "0")}/${String(dt.getMonth() + 1).padStart(2, "0")}${p.hora ? " · " + hhmm(p.hora) : ""}</span></div>`; }).join("");
     const greet = in14 >= 3 ? "Semana pesada vindo aí" : in14 ? "Próximas avaliações" : "Agenda tranquila por enquanto";
-    let tip = "Sem avaliações marcadas. Cadastre suas datas abaixo.";
+    let tip = `Sem avaliações marcadas. Cadastre suas datas em ${lnkCfg("calendario")}.`;
     if (up[0]) { const n = daysTo(up[0].data), h = n <= 3 ? "2h" : n <= 7 ? "1h" : "30 min"; tip = `Comece a revisão de <b>${esc(dname(up[0].disciplina_id))}</b> hoje, ${h} por dia.`; }
     const cls = (ds) => { const ps = provasOn(ds); if (!ps.length) return ""; return ps.some((p) => OFICIAL(p.tipo) && p.modalidade !== "pratica") ? "prova" : "outro"; };
     const td = iso(today());
@@ -852,22 +927,15 @@
       calBody = `<div class="calhead"><div class="row" style="align-items:center"><button class="btn" data-a="yNav" data-v="-1" aria-label="Ano anterior">‹</button><h2 style="font-size:19px;min-width:80px;text-align:center" class="tnum">${ui.calY}</h2><button class="btn" data-a="yNav" data-v="1" aria-label="Próximo ano">›</button></div>
         <div class="seg" style="margin:0"><button data-a="calView" data-v="mes" aria-pressed="false">Mês</button><button data-a="calView" data-v="ano" aria-pressed="true">Ano</button></div></div><div class="year">${months}</div>`;
     }
-    const list = S.provas.filter((p) => p.data).sort((a, b) => a.data.localeCompare(b.data)).map((p) => { const dt = parse(p.data), past = daysTo(p.data) < 0, v = pts(p);
-      return `<div class="evitem" style="${past ? "opacity:.55" : ""}"><span class="when tnum">${String(dt.getDate()).padStart(2, "0")} ${MES3[dt.getMonth()]} ${String(dt.getFullYear()).slice(2)}</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>${esc(dname(p.disciplina_id))}</b> · ${esc(provaNome(p))} <span class="muted">(${esc(provaTipoLbl(p))}${p.hora ? ", " + hhmm(p.hora) : ""}${v != null ? `, vale ${fmt(v)}` : ""})</span></span><button class="x" data-a="delProva" data-id="${p.id}" aria-label="Remover avaliação">×</button></div>`; }).join("");
+    const list = provasLista(false);
+    // dia escolhido no calendário: o que tem nele e o atalho para cadastrar nessa data
+    const dsel = ui.calDate, dselD = parse(dsel), noDia = [...provasOn(dsel).map((p) => `${dname(p.disciplina_id)} · ${provaNome(p)}${p.hora ? " às " + hhmm(p.hora) : ""}`), ...perOn(dsel).map((p) => p.nome)];
+    const diaHtml = `<div class="caldia" aria-live="polite"><span class="mono">Dia ${String(dselD.getDate()).padStart(2, "0")}/${String(dselD.getMonth() + 1).padStart(2, "0")}</span>${noDia.length ? `<ul>${noDia.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<span class="muted" style="font-size:13px">Nada marcado.</span>`}<button class="lnk" data-a="goCfg" data-s="calendario" style="font-size:13px">Cadastrar nesta data</button></div>`;
     return hero("Calendário", "de provas", "var(--wine)") + janela("Próximas avaliações", `<div class="win-body"><div class="row" style="justify-content:space-between;align-items:center"><h2>Olá! ${greet}</h2><span class="chip" style="background:var(--wine-s);color:var(--wine)">${in14} avaliaç${in14 === 1 ? "ão" : "ões"} em 14 dias</span></div>${cards ? `<div class="next">${cards}</div>` : `<div class="empty" style="margin-top:14px">Nenhuma avaliação futura.</div>`}</div>`)
       + janela(ui.calView === "mes" ? `${MESES[ui.calM]} ${ui.calY}` : `Calendário ${ui.calY}`, `<div class="win-body calwrap"><div style="min-width:0">${calBody}</div>
-        <div class="legend"><span class="mono">Legenda</span><span><i class="sw" style="background:var(--wine)"></i>Prova</span><span><i class="sw" style="background:var(--wine-s)"></i>Prática, seminário, entrega</span><span><i class="sw" style="border:1.5px solid var(--ink)"></i>Hoje</span><span><i class="sw" style="height:4px;background:var(--wine)"></i>Período de parciais</span><span><i class="sw" style="height:4px;background:var(--gold)"></i>Semana prática</span><span><i class="sw" style="height:4px;background:var(--navy)"></i>Exames finais</span><span><i class="sw fersw"></i>Feriado</span><div class="tip">${tip}</div></div></div>`)
-      + janela("Importar documento", `<div class="win-body">${vImportCal()}</div>`)
-      + vAcad()
-      + janela("Cadastrar avaliação", `<div class="win-body">${S.disc.length ? `<form class="row" data-form="addProva">
-        <label class="field" style="flex:1 1 180px"><span class="mono">Disciplina</span><select name="disc">${S.disc.map((d) => `<option value="${d.id}">${esc(d.nome)}</option>`).join("")}</select></label>
-        <label class="field" style="flex:0 1 130px"><span class="mono">Tipo</span><select name="tipo">${["P1", "P2", "Final", "Seminário", "Entrega", "Outra"].map((t) => `<option>${t}</option>`).join("")}</select></label>
-        <label class="field" style="flex:0 1 130px"><span class="mono">Teórica/prática</span><select name="mod"><option value="teorica">Teórica</option><option value="pratica">Prática</option></select></label>
-        <label class="field" style="flex:1 1 120px"><span class="mono">Nome (opcional)</span><input name="titulo" maxlength="80" placeholder="Ex.: Seminário de sepse"></label>
-        <label class="field" style="flex:0 1 150px"><span class="mono">Data</span><input name="data" type="date" id="provaData" value="${ui.calDate}" required></label>
-        <label class="field" style="flex:0 1 100px"><span class="mono">Hora</span><input name="hora" type="time" value="07:00"></label>
-        <label class="field" style="flex:0 1 90px"><span class="mono">Vale (pts)</span><input name="pontos" inputmode="decimal" placeholder="auto"></label>
-        <button class="btn solid">Adicionar</button></form>` : `<div class="empty">Adicione uma matéria primeiro. ${SEM_MATERIA}</div>`}<div class="evlist">${list}</div></div>`);
+        <div class="legend"><span class="mono">Legenda</span><span><i class="sw" style="background:var(--wine)"></i>Prova</span><span><i class="sw" style="background:var(--wine-s)"></i>Prática, seminário, entrega</span><span><i class="sw" style="border:1.5px solid var(--ink)"></i>Hoje</span><span><i class="sw" style="height:4px;background:var(--wine)"></i>Período de parciais</span><span><i class="sw" style="height:4px;background:var(--gold)"></i>Semana prática</span><span><i class="sw" style="height:4px;background:var(--navy)"></i>Exames finais</span><span><i class="sw fersw"></i>Feriado</span>${diaHtml}<div class="tip">${tip}</div></div></div>`)
+      + janela("Todas as avaliações", `<div class="win-body">${list ? `<div class="evlist">${list}</div>${dicaCfg("calendario", "cadastrar, mudar ou remover avaliações")}` : `<div class="empty">Nenhuma avaliação com data. Cadastre em ${lnkCfg("calendario")} ou importe o calendário da faculdade em ${lnkCfg("importar")}.</div>`}</div>`)
+      + vAcad();
   }
 
   /* ================= VIDA ACADÊMICA ================= */
@@ -875,30 +943,49 @@
   const CATS = ["Eventos e congressos", "Ligas acadêmicas", "Pesquisa e extensão", "Monitoria", "Outros"];
   const editBtn = (tipo, id) => `<button class="btn ghost" style="padding:3px 8px;font-size:12.5px" data-a="vEdit" data-t="${tipo}" data-id="${id}">Editar</button>`;
   const formBtns = (ed) => ed ? `<button class="btn solid">Salvar</button><button type="button" class="btn ghost" data-a="vCancel">Cancelar</button>` : "";
+  // A aba mostra (e deixa trocar o status do evento e marcar o certificado); cadastrar, editar e remover fica em Configurações
   function vVida() {
-    let main = ""; const ed = ui.vEdit || {};
+    let main = "";
     if (ui.vMode === "ev") {
-      const e0 = ed.t === "ev" ? S.eventos.find((x) => x.id == ed.id) : null;
       const ev = S.eventos.slice().sort((a, b) => a.data.localeCompare(b.data));
-      main = `<h2>Próximos eventos</h2>${ev.length ? ev.map((e) => { const dt = parse(e.data), past = daysTo(e.data) < 0; return `<div class="event" style="${past ? "opacity:.6" : ""}"><div class="dateblk"><b class="tnum">${String(dt.getDate()).padStart(2, "0")}</b><span>${MES3[dt.getMonth()]}</span></div><div class="t"><b>${esc(e.nome)}</b><span class="muted" style="font-size:13px">${esc(e.detalhe || "")}</span></div><button class="chip stbtn ${EVST[e.status][1]}" data-a="evSt" data-id="${e.id}" title="Clique para mudar o status">${EVST[e.status][0]}</button>${editBtn("ev", e.id)}<button class="x" data-a="delEv" data-id="${e.id}" aria-label="Remover evento">×</button></div>`; }).join("") : `<div class="empty" style="margin-top:12px">Nenhum evento cadastrado.</div>`}
-        <form class="row" data-form="addEv" style="margin-top:16px"><label class="field" style="flex:1 1 200px"><span class="mono">Evento</span><input name="nome" maxlength="160" required placeholder="Ex.: Jornada de Clínica Médica" value="${esc(e0?.nome || "")}"></label><label class="field" style="flex:1 1 160px"><span class="mono">Detalhe</span><input name="sub" maxlength="200" placeholder="Local, horário…" value="${esc(e0?.detalhe || "")}"></label><label class="field" style="flex:0 1 160px"><span class="mono">Data</span><input name="data" type="date" required value="${esc(e0?.data || iso(today()))}"></label>${e0 ? formBtns(true) : `<button class="btn solid">Adicionar</button>`}</form>
-        <p class="muted" style="font-size:13px;margin-top:10px">Toque no status para alternar entre pendente, inscrito, confirmado e concluído.</p>`;
+      main = `<h2>Próximos eventos</h2>${ev.length ? ev.map((e) => { const dt = parse(e.data), past = daysTo(e.data) < 0; return `<div class="event" style="${past ? "opacity:.6" : ""}"><div class="dateblk"><b class="tnum">${String(dt.getDate()).padStart(2, "0")}</b><span>${MES3[dt.getMonth()]}</span></div><div class="t"><b>${esc(e.nome)}</b><span class="muted" style="font-size:13px">${esc(e.detalhe || "")}</span></div><button class="chip stbtn ${EVST[e.status][1]}" data-a="evSt" data-id="${e.id}" title="Clique para mudar o status">${EVST[e.status][0]}</button></div>`; }).join("")
+        + `<p class="muted" style="font-size:13px;margin-top:10px">Toque no status para alternar entre pendente, inscrito, confirmado e concluído.</p>` : `<div class="empty" style="margin-top:12px">Nenhum evento cadastrado. Cadastre em ${lnkCfg("vida", ' data-m="ev"')}.</div>`}`;
     } else if (ui.vMode === "ligas") {
-      const l0 = ed.t === "liga" ? S.ligas.find((x) => x.id == ed.id) : null;
-      main = `<h2>Ligas acadêmicas</h2>${S.ligas.length ? S.ligas.map((l) => `<div class="event"><div class="dateblk"><b style="font-size:13px">${esc(l.nome.slice(0, 5))}</b></div><div class="t"><b>${esc(l.nome)}</b><span class="muted" style="font-size:13px">${esc(l.papel || "")}</span></div>${editBtn("liga", l.id)}<button class="x" data-a="delLiga" data-id="${l.id}" aria-label="Remover liga">×</button></div>`).join("") : `<div class="empty" style="margin-top:12px">Nenhuma liga cadastrada.</div>`}
-        <form class="row" data-form="addLiga" style="margin-top:16px"><label class="field" style="flex:1 1 160px"><span class="mono">Sigla ou nome</span><input name="nome" maxlength="120" required value="${esc(l0?.nome || "")}"></label><label class="field" style="flex:1 1 200px"><span class="mono">Seu papel</span><input name="papel" maxlength="160" placeholder="Membro, diretoria…" value="${esc(l0?.papel || "")}"></label>${l0 ? formBtns(true) : `<button class="btn solid">Adicionar</button>`}</form>`;
+      main = `<h2>Ligas acadêmicas</h2>${S.ligas.length ? S.ligas.map((l) => `<div class="event"><div class="dateblk"><b style="font-size:13px">${esc(l.nome.slice(0, 5))}</b></div><div class="t"><b>${esc(l.nome)}</b><span class="muted" style="font-size:13px">${esc(l.papel || "")}</span></div></div>`).join("") : `<div class="empty" style="margin-top:12px">Nenhuma liga cadastrada. Cadastre em ${lnkCfg("vida", ' data-m="ligas"')}.</div>`}`;
     } else {
-      const h0 = ed.t === "hora" ? S.horas.find((x) => x.id == ed.id) : null;
       const tot = S.horas.reduce((s, h) => s + (+h.horas || 0), 0), meta = +(S.pref.horas_meta ?? 200) || 1;
       const byCat = CATS.map((c) => [c, S.horas.filter((h) => h.categoria === c).reduce((s, h) => s + (+h.horas || 0), 0)]).filter((x) => x[1] > 0);
       const maxc = Math.max(1, ...byCat.map((x) => x[1])), cert = S.horas.filter((h) => h.certificado).length, falta = S.horas.length - cert;
       main = `<div class="hours"><div><span class="mono">Total acumulado</span><div class="big tnum">${fmt(tot)}h</div><span class="muted">de ${fmt(meta)}h exigidas</span><div class="bar" style="margin-top:10px;height:7px"><i style="width:${Math.min(100, tot / meta * 100)}%;background:var(--navy)"></i></div></div>
-        <div>${byCat.length ? byCat.map(([c, h]) => `<div class="hrow"><span>${esc(c)}</span><b class="tnum">${fmt(h)}h</b><div class="bar"><i style="width:${h / maxc * 100}%;background:var(--navy)"></i></div></div>`).join("") : `<div class="empty">Nenhuma hora registrada.</div>`}<span class="mono">${cert} certificado${cert === 1 ? "" : "s"} salvo${cert === 1 ? "" : "s"} · ${falta} aguardando</span></div></div>
-        <div class="evlist" style="margin-top:18px">${S.horas.map((h) => `<div class="evitem"><span class="when tnum">${fmt(+h.horas)}h</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>${esc(h.descricao)}</b> <span class="muted">· ${esc(h.categoria)}</span></span><label class="check" style="font-size:12.5px"><input type="checkbox" data-a="cert" data-id="${h.id}" ${h.certificado ? "checked" : ""}>certificado</label>${editBtn("hora", h.id)}<button class="x" data-a="delHora" data-id="${h.id}" aria-label="Remover registro">×</button></div>`).join("")}</div>
-        <form class="row" data-form="addHora" style="margin-top:14px"><label class="field" style="flex:1 1 200px"><span class="mono">Atividade</span><input name="desc" maxlength="200" required placeholder="Ex.: Congresso de Trauma" value="${esc(h0?.descricao || "")}"></label><label class="field" style="flex:1 1 170px"><span class="mono">Categoria</span><select name="cat">${CATS.map((c) => `<option ${h0?.categoria === c ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field" style="flex:0 1 90px"><span class="mono">Horas</span><input name="h" type="number" min="0" max="2000" step="0.5" required value="${h0 ? esc(+h0.horas) : ""}"></label>${h0 ? formBtns(true) : `<button class="btn solid">Registrar</button>`}</form>`;
+        <div>${byCat.length ? byCat.map(([c, h]) => `<div class="hrow"><span>${esc(c)}</span><b class="tnum">${fmt(h)}h</b><div class="bar"><i style="width:${h / maxc * 100}%;background:var(--navy)"></i></div></div>`).join("") : `<div class="empty">Nenhuma hora registrada. Registre em ${lnkCfg("vida", ' data-m="horas"')}.</div>`}<span class="mono">${cert} certificado${cert === 1 ? "" : "s"} salvo${cert === 1 ? "" : "s"} · ${falta} aguardando</span></div></div>
+        <div class="evlist" style="margin-top:18px">${S.horas.map((h) => `<div class="evitem"><span class="when tnum">${fmt(+h.horas)}h</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>${esc(h.descricao)}</b> <span class="muted">· ${esc(h.categoria)}</span></span><label class="check" style="font-size:12.5px"><input type="checkbox" data-a="cert" data-id="${h.id}" ${h.certificado ? "checked" : ""}>certificado</label></div>`).join("")}</div>`;
     }
+    main += dicaCfg("vida", "adicionar, editar ou remover", ` data-m="${ui.vMode}"`);
     const nav = [["ev", "Eventos"], ["ligas", "Ligas"], ["horas", "Horas e certificados"]].map(([k, l]) => `<button data-a="vMode" data-m="${k}" aria-current="${ui.vMode === k}">${l}</button>`).join("");
     return hero("Hub de eventos", "e horas complementares", "var(--navy)") + `<section class="win"><div class="vwin"><aside class="vside"><b>Vida acadêmica</b>${nav}</aside><div class="vmain">${main}</div></div></section>`;
+  }
+  /** Configurações → Vida acadêmica: eventos, ligas e horas complementares (adicionar, editar e remover) */
+  function vCfgVida() {
+    const ed = ui.vEdit || {}, m = ui.cvMode || "ev";
+    let main = "";
+    if (m === "ev") {
+      const e0 = ed.t === "ev" ? S.eventos.find((x) => x.id == ed.id) : null;
+      const ev = S.eventos.slice().sort((a, b) => a.data.localeCompare(b.data));
+      main = `<form class="row" data-form="addEv"><label class="field" style="flex:1 1 200px"><span class="mono">Evento</span><input name="nome" maxlength="160" required placeholder="Ex.: Jornada de Clínica Médica" value="${esc(e0?.nome || "")}"></label><label class="field" style="flex:1 1 160px"><span class="mono">Detalhe</span><input name="sub" maxlength="200" placeholder="Local, horário…" value="${esc(e0?.detalhe || "")}"></label><label class="field" style="flex:0 1 160px"><span class="mono">Data</span><input name="data" type="date" required value="${esc(e0?.data || iso(today()))}"></label>${e0 ? formBtns(true) : `<button class="btn solid">Adicionar</button>`}</form>
+        ${ev.length ? `<div class="evlist">${ev.map((e) => `<div class="evitem"><span class="when tnum">${fmtRange({ inicio: e.data })}</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>${esc(e.nome)}</b>${e.detalhe ? ` <span class="muted">· ${esc(e.detalhe)}</span>` : ""}</span><span class="chip ${EVST[e.status][1]}">${EVST[e.status][0]}</span>${editBtn("ev", e.id)}<button class="x" data-a="delEv" data-id="${e.id}" aria-label="Remover evento ${esc(e.nome)}">×</button></div>`).join("")}</div>` : `<p class="muted" style="margin:10px 0 0;font-size:13.5px">Nenhum evento cadastrado.</p>`}`;
+    } else if (m === "ligas") {
+      const l0 = ed.t === "liga" ? S.ligas.find((x) => x.id == ed.id) : null;
+      main = `<form class="row" data-form="addLiga"><label class="field" style="flex:1 1 160px"><span class="mono">Sigla ou nome</span><input name="nome" maxlength="120" required value="${esc(l0?.nome || "")}"></label><label class="field" style="flex:1 1 200px"><span class="mono">Seu papel</span><input name="papel" maxlength="160" placeholder="Membro, diretoria…" value="${esc(l0?.papel || "")}"></label>${l0 ? formBtns(true) : `<button class="btn solid">Adicionar</button>`}</form>
+        ${S.ligas.length ? `<div class="evlist">${S.ligas.map((l) => `<div class="evitem"><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>${esc(l.nome)}</b>${l.papel ? ` <span class="muted">· ${esc(l.papel)}</span>` : ""}</span>${editBtn("liga", l.id)}<button class="x" data-a="delLiga" data-id="${l.id}" aria-label="Remover liga ${esc(l.nome)}">×</button></div>`).join("")}</div>` : `<p class="muted" style="margin:10px 0 0;font-size:13.5px">Nenhuma liga cadastrada.</p>`}`;
+    } else {
+      const h0 = ed.t === "hora" ? S.horas.find((x) => x.id == ed.id) : null;
+      main = `<form class="row" data-form="addHora"><label class="field" style="flex:1 1 200px"><span class="mono">Atividade</span><input name="desc" maxlength="200" required placeholder="Ex.: Congresso de Trauma" value="${esc(h0?.descricao || "")}"></label><label class="field" style="flex:1 1 170px"><span class="mono">Categoria</span><select name="cat">${CATS.map((c) => `<option ${h0?.categoria === c ? "selected" : ""}>${c}</option>`).join("")}</select></label><label class="field" style="flex:0 1 90px"><span class="mono">Horas</span><input name="h" type="number" min="0" max="2000" step="0.5" required value="${h0 ? esc(+h0.horas) : ""}"></label>${h0 ? formBtns(true) : `<button class="btn solid">Registrar</button>`}</form>
+        ${S.horas.length ? `<div class="evlist">${S.horas.map((h) => `<div class="evitem"><span class="when tnum">${fmt(+h.horas)}h</span><span style="flex:1;min-width:0;overflow-wrap:anywhere"><b>${esc(h.descricao)}</b> <span class="muted">· ${esc(h.categoria)}</span></span>${editBtn("hora", h.id)}<button class="x" data-a="delHora" data-id="${h.id}" aria-label="Remover registro ${esc(h.descricao)}">×</button></div>`).join("")}</div>` : `<p class="muted" style="margin:10px 0 0;font-size:13.5px">Nenhuma hora registrada.</p>`}
+        <div class="row" style="margin-top:16px;align-items:flex-end"><label class="field" style="flex:0 1 220px"><span class="mono">Horas complementares exigidas</span><input id="cfgHoras" type="number" min="0" max="5000" value="${esc(+(S.pref.horas_meta ?? 200))}"></label>
+          <button class="btn" data-a="saveCfg">Salvar meta</button></div>`;
+    }
+    const nav = [["ev", "Eventos"], ["ligas", "Ligas"], ["horas", "Horas e certificados"]].map(([k, l]) => `<button data-a="cvMode" data-m="${k}" aria-pressed="${m === k}">${l}</button>`).join("");
+    return `<div class="win-body"><div class="seg" role="group" aria-label="Parte da vida acadêmica" style="margin:0 0 14px">${nav}</div>${main}</div>`;
   }
 
   /* ================= AGENDA DE ESTUDOS ================= */
@@ -988,15 +1075,21 @@
         ${ex.map((p) => `<div class="agexam" style="--c:${slotColor(p.disciplina_id)}">Prova: ${esc(dname(p.disciplina_id))} · ${esc(provaNome(p))} às ${String(examDT(p).getHours()).padStart(2, "0")}h</div>`).join("")}
         ${d.tasks.map(taskRow).join("") || `<p class="muted" style="margin:6px 0 0;font-size:13.5px">${isT ? "Nada planejado para hoje." : ""}</p>`}</div>`; }).join("");
     return hero("Agenda", "de estudos", "var(--teal)")
-      + janela("Próximas provas", `<div class="win-body">${cards ? `<div class="aggrid">${cards}</div>` : `<div class="empty">Nenhuma prova com data e temas cadastrados. Coloque as datas no Calendário e os temas em Disciplinas.</div>`}</div>`)
+      + janela("Próximas provas", `<div class="win-body">${cards ? `<div class="aggrid">${cards}</div>` : `<div class="empty">Nenhuma prova com data e temas cadastrados. Coloque as datas em ${lnkCfg("calendario")} e os temas em ${lnkCfg("conteudos")}.</div>`}</div>`)
       + missHtml
       + janela("Plano de estudo", `<div class="win-body"><p class="muted" style="margin:0 0 12px;font-size:13.5px">A agenda distribui os temas que faltam entre hoje e cada prova, começando pela mais próxima, com revisão rápida 2 dias depois de cada tema e revisão final na véspera. Ela se refaz sozinha quando você marca um tema como estudado.</p>${dayHtml || `<div class="empty">Sem tarefas planejadas.</div>`}</div>`)
-      + janela("Ajustes da agenda", `<div class="win-body"><div class="row">
+      + `<p class="cfg-dica">Horas de estudo por dia e hora de dormir: ${lnkCfg("agenda")}. O jeito dos seus resumos: <button class="lnk" data-a="editMemoria">Configurações → Memória do resumo</button>.</p>`;
+  }
+
+  /** Configurações → Ajustes da agenda: horas por dia e hora de dormir */
+  function vCfgAgenda() {
+    const c = cfgAg();
+    return `<div class="win-body"><div class="row" style="align-items:flex-end">
         <label class="field" style="flex:0 1 150px"><span class="mono">Horas por dia (seg–sex)</span><input id="agDia" type="number" min="0" max="16" step="0.5" value="${c.dia}"></label>
         <label class="field" style="flex:0 1 150px"><span class="mono">Horas (sáb e dom)</span><input id="agFds" type="number" min="0" max="16" step="0.5" value="${c.fds}"></label>
         <label class="field" style="flex:0 1 150px"><span class="mono">Hora de dormir</span><input id="agDormir" type="number" min="18" max="27" step="0.5" value="${c.dormir}"></label>
         <button class="btn solid" data-a="saveAg">Salvar</button></div>
-        <p class="muted" style="margin:14px 0 0;font-size:13px">O jeito dos seus resumos fica em <button class="lnk" data-a="editMemoria">Configurações → Memória do resumo</button>.</p></div>`);
+        <p class="muted" style="margin:12px 0 0;font-size:13px">A aba Agenda refaz o plano com estes números.</p></div>`;
   }
 
   /* ================= MATERIAL DO PROFESSOR: lido no navegador quando falta ================= */
@@ -1144,7 +1237,7 @@
       if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; S.resIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode !== "mapa") { loadRes(r.tema_id); Tarefas.vista([t.id]); } }
       if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; S.mapaIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode === "mapa") { ui.mmCol = {}; loadMapa(r.tema_id); Tarefas.vista([t.id]); } }
       if (t.tipo === "questoes") { questoes = true; if (ui.genTarefa === t.id) { ui.genTarefa = null; ui.qDisc = r.disciplina_id; ui.genMsg = msgQuestoes(r); } }
-      if ((t.tipo === "documento" || t.tipo === "calendario") && ui.cal.tarefa === t.id && (ui.tab === "cal" || ui.tab === "config")) { aplicarCalendario(t); Tarefas.vista([t.id]); }
+      if ((t.tipo === "documento" || t.tipo === "calendario") && ui.cal.tarefa === t.id && ui.tab === "config") { aplicarCalendario(t); Tarefas.vista([t.id]); }
     }
     if (questoes && S.questoes) await carregarQuestoes().catch(() => { });
     atualizarUso().then(() => render());
@@ -1155,7 +1248,7 @@
     if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; openRes(r.tema_id); }
     else if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; openMapa(r.tema_id); }
     else if (t.tipo === "questoes") { fecharSheet(); if (S.questoes) await carregarQuestoes().catch(() => { }); ui.tab = "quest"; ui.qMode = "prat"; ui.qDisc = r.disciplina_id || ""; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); window.scrollTo(0, 0); }
-    else if (t.tipo === "documento" || t.tipo === "calendario") { fecharSheet(); ui.tab = "cal"; aplicarCalendario(t); render(); document.getElementById("docRev")?.scrollIntoView({ block: "start" }); }
+    else if (t.tipo === "documento" || t.tipo === "calendario") { fecharSheet(); aplicarCalendario(t); irCfg("importar"); document.getElementById("docRev")?.scrollIntoView({ block: "start" }); }
   }
   let sheetRAF = 0;
   function renderSheetSoon() { if (!sheetRAF) sheetRAF = requestAnimationFrame(() => { sheetRAF = 0; renderSheet(); }); }
@@ -1364,11 +1457,10 @@
     finally { ui.expBusy = null; renderSheet(); }
   }
 
-  /* ================= AJUSTES DO SEMESTRE ================= */
-  function vCfg() {
+  /* ================= CONFIGURAÇÕES → MATÉRIAS E SEMESTRES (as matérias e o período) ================= */
+  function vCfgMaterias() {
     const m = cfgPts();
-    return `<details class="cfg" id="cfg" ${ui.cfgOpen ? "open" : ""}><summary>Ajustes do semestre</summary>
-      ${janela("Minhas matérias", `<div class="win-body"><div class="stack">${S.disc.map((d) => `<form class="cfg-disc" data-form="editDisc" data-id="${d.id}">
+    return `<div class="win-body cfg-parte"><h3 class="cfg-sub" style="margin-top:0">Minhas matérias</h3><div class="stack">${S.disc.map((d) => `<form class="cfg-disc" data-form="editDisc" data-id="${d.id}">
           <label class="field"><span class="mono">Matéria</span><input name="nome" maxlength="120" required value="${esc(d.nome)}"></label>
           <label class="field"><span class="mono">Professor</span><input name="professor" maxlength="120" value="${esc(d.professor || "")}"></label>
           <label class="check"><input type="checkbox" name="pratica" ${d.tem_pratica ? "checked" : ""}>tem prática</label>
@@ -1376,13 +1468,10 @@
           ${ui.confDisc == d.id ? `<span class="disc-dica" style="color:var(--bad)">Apagar ${esc(d.nome)} com temas, provas, notas, questões e resumos?</span>` : ""}</form>`).join("") || `<div class="empty">Nenhuma matéria neste semestre.</div>`}</div>
         <form class="row" data-form="addDisc" style="margin-top:16px"><label class="field" style="flex:1 1 200px"><span class="mono">Nova matéria</span><input name="nome" maxlength="120" placeholder="Ex.: Medicina Tropical" required></label>
           <label class="field" style="flex:1 1 160px"><span class="mono">Professor (opcional)</span><input name="professor" maxlength="120"></label>
-          <label class="check" style="align-self:center"><input type="checkbox" name="pratica">tem prática</label><button class="btn solid">Adicionar matéria</button></form></div>`)}
-      ${janela("Período", `<div class="win-body"><div class="row">
-          <label class="field" style="flex:0 1 200px"><span class="mono">Horas complementares exigidas</span><input id="cfgHoras" type="number" min="0" max="5000" value="${esc(+(S.pref.horas_meta ?? 200))}"></label>
-          <button class="btn solid" data-a="saveCfg">Salvar ajustes</button></div>
-        <p class="muted" style="font-size:13.5px;margin:12px 0 0">Regra de notas${S.faculdade ? ` da ${esc(S.faculdade)}` : ""}: P1 ${fmt(m.p1)}, P2 ${fmt(m.p2)}, Final ${fmt(m.fin)} (ou ${fmt(m.finPr)} teórica + ${fmt(m.prF)} prática), processo até ${fmt(m.proc)}; passa com ${fmt(m.min)}. Se estiver diferente, avise o administrador.</p>
-        <div style="margin-top:16px">${ui.confirmReset ? `<div class="confirm"><span>Apagar notas, datas de provas, questões, eventos, horas e calendário deste semestre? Temas, resumos, mapas, lâminas e livros continuam. Isso não pode ser desfeito.</span><button class="btn" data-a="doReset" style="color:var(--bad);border-color:var(--bad)">Apagar tudo</button><button class="btn ghost" data-a="cancelReset">Cancelar</button></div>` : `<button class="btn ghost" data-a="askReset">Apagar os dados do semestre</button>`}</div></div>`)}
-    </details>`;
+          <label class="check" style="align-self:center"><input type="checkbox" name="pratica">tem prática</label><button class="btn solid">Adicionar matéria</button></form></div>
+      <div class="win-body cfg-parte"><h3 class="cfg-sub" style="margin-top:0">Período</h3>
+        <p class="muted" style="font-size:13.5px;margin:0">Regra de notas${S.faculdade ? ` da ${esc(S.faculdade)}` : ""}: P1 ${fmt(m.p1)}, P2 ${fmt(m.p2)}, Final ${fmt(m.fin)} (ou ${fmt(m.finPr)} teórica + ${fmt(m.prF)} prática), processo até ${fmt(m.proc)}; passa com ${fmt(m.min)}. Se estiver diferente, avise o administrador.</p>
+        <div style="margin-top:16px">${ui.confirmReset ? `<div class="confirm"><span>Apagar notas, datas de provas, questões, eventos, horas e calendário deste semestre? Temas, resumos, mapas, lâminas e livros continuam. Isso não pode ser desfeito.</span><button class="btn" data-a="doReset" style="color:var(--bad);border-color:var(--bad)">Apagar tudo</button><button class="btn ghost" data-a="cancelReset">Cancelar</button></div>` : `<button class="btn ghost" data-a="askReset">Apagar os dados do semestre</button>`}</div></div>`;
   }
 
   /* ================= RENDER ================= */
@@ -1393,10 +1482,10 @@
     const focusId = document.activeElement && document.activeElement.id;
     v.innerHTML = (S.falta06 ? `<div class="msg bad">Parte do painel ainda não foi ativada no banco: o administrador precisa rodar o arquivo 06_estudo.sql no Supabase.</div>` : "")
       + ({ agenda: vAgenda, disc: vDisc, quest: vQuest, media: vMedia, aulas: vAulas, cal: vCal, vida: vVida, lam: vLamTab, config: vConfig }[ui.tab] || vAgenda)();
-    // Configurações: Google Drive e livros (ficam montados) e os ajustes do semestre
+    // Configurações: Google Drive e livros (ficam montados), depois os ajustes da agenda e a memória do resumo
     document.getElementById("pfixos").hidden = ui.tab !== "config";
     if (ui.tab === "config") iniciarFixos();
-    document.getElementById("pcfg").innerHTML = ui.tab === "config" ? vCfg() : "";
+    document.getElementById("pcfg").innerHTML = ui.tab === "config" ? vConfigFim() : "";
     if (focusId) { const el = document.getElementById(focusId); if (el && el !== document.activeElement) { el.focus(); try { const l = el.value.length; el.setSelectionRange(l, l); } catch (_) { } } }
     renderSheet();
   }
@@ -1404,8 +1493,7 @@
   const FIXOS = [["drive", "Meu Google Drive", "drv"], ["livros", "Meus livros", "liv"]];
   const fixosIni = {};
   function fixosHTML() {
-    return FIXOS.map(([k, titulo, id]) => `<section class="win" id="win-${k}"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>${titulo}</div>
-        <div class="win-body"><div id="${id}"><p class="muted" style="margin:0">Carregando…</p></div></div></section>`).join("");
+    return FIXOS.map(([k, , id]) => cartao(k, `<div class="win-body"><div id="${id}"><p class="muted" style="margin:0">Carregando…</p></div></div>`)).join("");
   }
   function iniciarFixos() {
     FIXOS.forEach(([k]) => { if (fixosIni[k]) return; fixosIni[k] = true; if (k === "drive") H.driveTela(S.disc); else H.livrosTela(); });
@@ -1434,10 +1522,9 @@
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b) || b.tagName === "SELECT" || (b.tagName === "INPUT" && b.type !== "checkbox")) return;
     const a = b.dataset.a, id = b.dataset.id;
     switch (a) {
-      case "goCfg": abrirTela("config"); break;
+      case "goCfg": { const k = b.dataset.s; if (b.dataset.d && discById(b.dataset.d)) ui.cfgDisc = +b.dataset.d; if (b.dataset.m) ui.cvMode = b.dataset.m; irCfg(k); break; }
       case "goPerfil": H.perfilTela(); break;
-      case "upAbrir": ui.upOpen = true; if (discById(id)) ui.up.disc = +id; render(); document.getElementById("upJanela")?.scrollIntoView({ behavior: "smooth", block: "start" }); break;
-      case "upFechar": ui.upOpen = false; ui.up.files = []; render(); break;
+      case "upAbrir": if (discById(id) && ui.up.disc != id) { ui.up.disc = +id; ui.up.modo = "arquivo"; ui.up.temaId = null; } irCfg("enviar"); break;
       case "upEnviar": enviarArquivos(); break;
       case "upLimpar": ui.up.files = []; render(); break;
       case "upTirar": ui.up.files.splice(+b.dataset.i, 1); render(); break;
@@ -1446,13 +1533,13 @@
       case "calLer": lerCalendario(); break;
       case "calCancelar": ui.cal = { file: null, busy: false, msg: null, provas: null, doc: null }; render(); break;
       case "verTarefas": Tarefas.abrir(); break;
-      case "goEnviar": abrirTela("config"); setTimeout(() => document.getElementById("upArq")?.closest(".win")?.scrollIntoView({ block: "start" }), 50); break;
+      case "goEnviar": irCfg("enviar"); break;
       case "askDoc": ui.confDoc = +id; render(); break;
       case "delDoc": { ui.confDoc = null; if (await del("documentos", id)) { S.docs = (S.docs || []).filter((x) => x.id != id); toast("Registro apagado"); } render(); break; }
       case "calSalvar": salvarCalendario(); break;
       case "askDel": ui.confDel = +id; render(); break;
-      case "askDisc": ui.confDisc = +id; ui.cfgOpen = true; render(); break;
-      case "askLam": ui.confLam = +id; ui.lamGer = true; render(); break;
+      case "askDisc": ui.confDisc = +id; render(); break;
+      case "askLam": ui.confLam = +id; render(); break;
       case "cancelDel": ui.confDel = null; ui.confDisc = null; ui.confLam = null; ui.confMat = null; ui.confDoc = null; render(); break;
       case "openRes": if (id) openRes(+id); break;
       case "closeRes": fecharSheet(); break;
@@ -1481,7 +1568,7 @@
       case "memEx": { const el = document.getElementById("memInp"), ex = MEM_EXEMPLOS[+b.dataset.i]; if (!el || !ex) break;
         const novo = (el.value.trim() ? el.value.trim() + "\n" : "") + ex[1]; if (novo.length > MEM_MAX) { toast(`A memória pode ter até ${MEM_MAX} letras.`); break; }
         el.value = novo; ui.memDraft = novo; contarMem(); el.focus(); break; }
-      case "editMemoria": abrirTela("config"); setTimeout(() => { const m = document.getElementById("memoriaBox"); m?.closest(".win")?.scrollIntoView({ block: "start" }); document.getElementById("memInp")?.focus({ preventScroll: true }); }, 50); break;
+      case "editMemoria": irCfg("memoria", "#memInp"); break;
       case "pickDisc": ui.disc = +id; ui.confDel = null; render(); break;
       case "tick": { const t = temaById(id); if (t) tickTema(t, { [b.dataset.k]: b.checked }); break; }
       case "delTopic": { ui.confDel = null; if (await del("temas", id)) { S.temas = S.temas.filter((t) => t.id != id); S.mats = S.mats.filter((m) => !(m.tema_id == id && !enviado(m))); S.mats.forEach((m) => { if (m.tema_id == id) m.tema_id = null; }); render(); toast("Tema apagado"); } break; }
@@ -1506,12 +1593,13 @@
       case "acadAll": ui.acadAll = !ui.acadAll; render(); break;
       case "calView": ui.calView = b.dataset.v; render(); break;
       case "openMonth": ui.calM = +b.dataset.m; ui.calView = "mes"; render(); break;
-      case "pickDay": { ui.calDate = b.dataset.d; render(); const pd = document.getElementById("provaData"); if (pd) { pd.scrollIntoView({ behavior: "smooth", block: "center" }); pd.focus(); } break; }
+      case "pickDay": ui.calDate = b.dataset.d; render(); document.querySelector(`[data-a=pickDay][data-d="${ui.calDate}"]`)?.focus(); break;
       case "delProva": if (await del("provas", id)) { S.provas = S.provas.filter((p) => p.id != id); render(); } break;
       case "delPer": if (await del("calendario", id)) { S.cal = S.cal.filter((p) => p.id != id); render(); } break;
       case "delAula": if (await del("horarios", id)) { S.horarios = S.horarios.filter((p) => p.id != id); render(); } break;
       case "vMode": ui.vMode = b.dataset.m; ui.vEdit = null; render(); break;
-      case "vEdit": ui.vEdit = { t: b.dataset.t, id: +id }; render(); document.querySelector(".vmain form input")?.focus(); break;
+      case "vEdit": ui.vEdit = { t: b.dataset.t, id: +id }; render(); document.querySelector("#cfg-vida form input")?.focus(); break;
+      case "cvMode": ui.cvMode = b.dataset.m; ui.vEdit = null; render(); break;
       case "vCancel": ui.vEdit = null; render(); break;
       case "evSt": { const ev = S.eventos.find((x) => x.id == id), o = ["pend", "ins", "conf", "done"]; ev.status = o[(o.indexOf(ev.status) + 1) % 4]; render(); upd("vida_eventos", ev.id, { status: ev.status }); break; }
       case "delEv": if (await del("vida_eventos", id)) { S.eventos = S.eventos.filter((x) => x.id != id); render(); } break;
@@ -1519,7 +1607,7 @@
       case "cert": { const h = S.horas.find((x) => x.id == id); h.certificado = b.checked; render(); upd("horas_compl", h.id, { certificado: h.certificado }); break; }
       case "delHora": if (await del("horas_compl", id)) { S.horas = S.horas.filter((x) => x.id != id); render(); } break;
       case "saveCfg": { const v = num(document.getElementById("cfgHoras").value); if (v != null && await salvarPref({ horas_meta: Math.max(0, Math.min(5000, v)) })) { render(); toast("Ajustes salvos"); } break; }
-      case "askReset": ui.confirmReset = true; ui.cfgOpen = true; render(); break;
+      case "askReset": ui.confirmReset = true; render(); break;
       case "cancelReset": ui.confirmReset = false; render(); break;
       case "doReset": { ui.confirmReset = false; const ids = S.disc.map((d) => d.id);
         const rs = await Promise.all([...(ids.length ? [sb.from("notas").delete().in("disciplina_id", ids), sb.from("provas").delete().in("disciplina_id", ids), sb.from("questoes").delete().in("disciplina_id", ids)] : []),
@@ -1548,6 +1636,7 @@
     if (a === "lamWrong") { ui.lamOnlyWrong = b.checked; ui.lamCur = null; render(); return; }
     if (a === "qDisc") { ui.qDisc = b.value; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); }
     else if (a === "calcDisc") { ui.calcDisc = +b.value; render(); }
+    else if (a === "cfgDisc") { ui.cfgDisc = +b.value; ui.confDel = null; ui.confMat = null; render(); }
     else if (a === "genDisc") { ui.genDisc = +b.value; render(); }
     else if (a === "grade") { const v = num(b.value); if (b.value.trim() && v == null) { toast("Use só números (ex.: 15,5)."); return; } salvarNota(+b.dataset.id, b.dataset.k, v); }
   }
@@ -1567,7 +1656,11 @@
     if (e.target && e.target.id === "resExtra") { ui.resExtra = e.target.value; const c = document.getElementById("resExtraCont"); if (c) c.textContent = `${e.target.value.length}/${EXTRA_MAX}`; }
   }
   function contarMem() { const el = document.getElementById("memInp"), c = document.getElementById("memCont"); if (el && c) c.textContent = `${el.value.length}/${MEM_MAX}`; }
-  function onToggle(e) { if (e.target?.id === "cfg") ui.cfgOpen = e.target.open; if (e.target?.id === "modeloBox") ui.modeloOpen = e.target.open; if (e.target?.id === "extraBox") ui.extraOpen = e.target.open; if (e.target?.id === "lamGer") ui.lamGer = e.target.open; }
+  function onToggle(e) {
+    const t = e.target;
+    if (t?.classList?.contains("cfgcard")) { const k = t.id.slice(4); if (t.open) cfgFechados.delete(k); else cfgFechados.add(k); ss.set("painel:cfgFechados", JSON.stringify([...cfgFechados])); }
+    if (t?.id === "modeloBox") ui.modeloOpen = t.open; if (t?.id === "extraBox") ui.extraOpen = t.open;
+  }
   async function onSubmit(e) {
     if (!ativo()) return;
     const f = e.target.closest("form[data-form]"); if (!f || !noPainel(f)) return; e.preventDefault();
@@ -1578,7 +1671,7 @@
       if (k === "gen") return await gerarQuestoes(fd);
       if (k === "editSem" || k === "editSemAnt") return await salvarSemestre(f, k === "editSem");
       if (k === "addLam") return await addLamina(f);
-      if (k === "addTopic") { const d = discById(ui.disc); const nome = String(fd.nome || "").trim(); if (!d || !nome) return;
+      if (k === "addTopic") { const d = discById(ui.cfgDisc); const nome = String(fd.nome || "").trim(); if (!d || !nome) return;
         const t = await ins("temas", { disciplina_id: d.id, nome, prova: fd.prova || null, ordem: temasDe(d.id).length }); if (t) { S.temas.push(t); render(); document.getElementById("topicName")?.focus(); } }
       else if (k === "agDate" || k === "addProva") {
         const tipo = fd.tipo, modalidade = fd.mod === "pratica" ? "pratica" : "teorica", disc = +fd.disc;
@@ -1606,7 +1699,7 @@
       else if (k === "addDisc") {
         const nome = String(fd.nome || "").trim(); if (!nome) return;
         const r = await ins("disciplinas", { nome, professor: String(fd.professor || "").trim() || null, tem_pratica: !!fd.pratica, ordem: S.disc.length, ...(H.SEM().atual ? { semestre_id: H.SEM().atual.id } : {}) });
-        if (r) { S.disc.push(r); ui.cfgOpen = true; render(); toast("Matéria adicionada"); }
+        if (r) { S.disc.push(r); render(); toast("Matéria adicionada"); }
       }
       else if (k === "editDisc") {
         const d = discById(f.dataset.id); const linha = { nome: String(fd.nome || "").trim(), professor: String(fd.professor || "").trim() || null, tem_pratica: !!fd.pratica };
@@ -1635,6 +1728,15 @@
     render();
   }
 
+  /** Abre Configurações já no cartão pedido (abre o cartão se estiver recolhido) e põe o foco nele */
+  function irCfg(k, foco) {
+    if (k && CFG[k]) cfgFechados.delete(k);
+    abrirTela("config");
+    const el = k && document.getElementById("cfg-" + k); if (!el) return;
+    el.open = true; el.scrollIntoView({ block: "start" });
+    const alvo = (foco && document.querySelector(foco)) || el.querySelector("summary");
+    alvo?.focus({ preventScroll: true });
+  }
   function abrirTela(t) { if (!TELAS.includes(t)) return; fecharSheet(); ui.tab = t; if (t !== "config") ss.set("painel:tab", t); try { history.replaceState(null, "", "#" + t); } catch (_) { } render(); window.scrollTo(0, 0); }
   window.Painel = {
     ativo,
