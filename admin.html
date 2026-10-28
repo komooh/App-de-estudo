@@ -29,6 +29,7 @@
   const V = document.getElementById("view");
   document.getElementById("sair").onclick = App.sair;
   if (!(await App.sessao())) { location.replace("/"); return; }
+  App.guardarSessao(); // login vencido: aviso "Sua sessão terminou" (assets/comum.js)
   const eu = await App.meuPerfil().catch(() => null);
   if (!eu?.is_admin) { V.innerHTML = `<div class="msg bad">Esta página é só do administrador.</div>`; return; }
   // termos de uso: a versão atual (09_termos.sql). O admin também aceita antes (a tela de aceite fica no painel).
@@ -60,7 +61,7 @@
       sb.from("faculdades").select("id,nome"),
       sb.from("uso_ia").select("*").eq("mes", mes),
     ]);
-    if (a.error) { V.innerHTML = `<div class="msg bad">${esc(a.error.message)}</div>`; return; }
+    if (a.error) { if (App.erroDeSessao(a.error)) App.conferirSessao(true, "admin"); V.innerHTML = `<div class="msg bad">${esc(App.msgErro(a.error))}</div>`; return; }
     alunos = a.data; facs = f.data || []; uso = Object.fromEntries((u.data || []).map((x) => [x.aluno_id, x]));
     draw(); if (!CAT.iniciado) { CAT.iniciado = true; catTela(); }
   }
@@ -116,8 +117,8 @@
   V.addEventListener("submit", async (e) => {
     if (e.target.id !== "novo") return; e.preventDefault();
     const fd = Object.fromEntries(new FormData(e.target)); if (!fd.senha) delete fd.senha; const btn = e.target.querySelector("button"); btn.disabled = true; btn.textContent = "Criando…";
-    const { data, error } = await sb.functions.invoke("admin-criar-aluno", { body: { ...fd, redirectTo: location.origin + "/app.html" } });
-    let erro = data?.erro; if (!erro && error) { try { erro = (await error.context.json()).erro } catch (_) { erro = error.message } }
+    const { data, error, corpo } = await App.invocar("admin-criar-aluno", { ...fd, redirectTo: location.origin + "/app.html" });
+    let erro = data?.erro; if (!erro && error) erro = corpo?.erro || error.message;
     if (erro) return draw({ t: erro, bad: true });
     await carregar(); draw({ t: data?.convite ? `Convite enviado para ${fd.email}.` : `Conta criada. Passe para o aluno: e-mail ${fd.email} e senha ${fd.senha}` });
   });

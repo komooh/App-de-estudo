@@ -28,6 +28,7 @@
 <script src="/assets/fila.js"></script>
 <script src="/assets/tarefas.js"></script>
 <script src="/assets/importar.js"></script>
+<script src="/assets/conta.js"></script>
 <script src="/assets/painel.js"></script>
 <script>
 (async () => {
@@ -45,6 +46,10 @@
   // Espera o Supabase ler o link mágico da URL (se veio do e-mail)
   const s = await App.sessao();
   if (!s) { location.replace("/"); return; }
+  App.guardarSessao(); // se o login acabar (aba parada, saída em outra aba), aparece o aviso "Sua sessão terminou"
+  // rodapé "Excluir minha conta" (logado): app.html?cfg=conta abre Configurações → Minha conta
+  const cfgPedido = new URLSearchParams(location.search).get("cfg") || "";
+  if (cfgPedido) history.replaceState(null, "", location.pathname + location.hash);
   // volta da tela do Google ("Entrar com o Google"): #drive=conectado | negado | expirou | erro
   const driveVolta = (location.hash.match(/drive=([a-z_]+)/) || [])[1] || "";
   if (driveVolta) history.replaceState(null, "", location.pathname);
@@ -94,7 +99,9 @@
   }
   const nomeSem = (x) => x?.numero ? `${x.numero}º semestre` : "Semestre sem número";
   const dataBR = (d) => d ? new Date(d + "T12:00").toLocaleDateString("pt-BR") : "";
-  try { P = await App.meuPerfil(); } catch (e) { V.innerHTML = `<div class="msg bad">Não consegui carregar seu perfil: ${esc(e.message)}</div>`; return; }
+  try { P = await App.meuPerfil(); } catch (e) {
+    if (App.erroDeSessao(e)) App.conferirSessao(true, "perfil");
+    V.innerHTML = `<div class="msg bad">Não consegui carregar seu perfil: ${esc(App.msgErro(e))}</div>`; return; }
   pintarEu();
   if (emailVolta) toast(emailVolta === "ok" ? `E-mail trocado. Agora você entra com ${P.email}.` : emailVolta === "metade" ? "Confirmado neste e-mail. Falta clicar no link que foi para o outro e-mail." : "O link de confirmação do e-mail venceu ou já foi usado. Peça de novo no seu perfil.");
   document.getElementById("eu").onclick = () => perfilTela();
@@ -121,12 +128,15 @@
     if (!App.acessoOk(P)) {
       const venceu = P.ativo && P.vence_em;
       V.innerHTML = `<div class="hero"><h1>Acesso<span class="script">${venceu ? "vencido" : "pendente"}</span></h1></div>` + win("Seu acesso",
-        `<p style="margin:0">${venceu ? `Sua assinatura venceu em <b>${new Date(P.vence_em + "T12:00").toLocaleDateString("pt-BR")}</b>. Fale com o administrador para renovar; seus dados continuam guardados.` : "Sua conta ainda não foi liberada. Fale com o administrador da sua turma."}</p>`);
+        `<p style="margin:0">${venceu ? `Sua assinatura venceu em <b>${new Date(P.vence_em + "T12:00").toLocaleDateString("pt-BR")}</b>. Fale com o administrador para renovar; seus dados continuam guardados.` : "Sua conta ainda não foi liberada. Fale com o administrador da sua turma."}</p>
+        <p class="muted" style="margin:10px 0 0;font-size:13.5px">Quer apagar seus dados ou excluir a conta? <button class="lnk" id="irConta">Meu perfil → Minha conta</button></p>`);
+      document.getElementById("irConta").onclick = () => perfilTela(false, true);
+      if (cfgPedido === "conta" && !P.is_admin) return perfilTela(false, true);
       if (!P.is_admin) return;
     }
-    if (!P.onboarding_ok) return onboarding();
+    if (!P.onboarding_ok) return cfgPedido === "conta" ? perfilTela(false, true) : onboarding();
     document.getElementById("cfgBtn").hidden = false;
-    return home();
+    return home(cfgPedido ? "config" : undefined, cfgPedido);
   }
 
   /* ================= ACEITE DOS TERMOS (primeira entrada e quando a versão muda) ================= */
@@ -344,7 +354,7 @@
     c.getContext("2d").drawImage(img, (img.width - lado) / 2, (img.height - lado) / 2, lado, lado, 0, 0, T, T);
     return await new Promise((ok) => c.toBlob(ok, "image/jpeg", 0.86));
   }
-  function perfilTela(recuperando) {
+  function perfilTela(recuperando, irConta) {
     if (recuperando) sessionStorage.setItem("recuperando", "1");
     const voltar = () => { if (location.hash) history.replaceState(null, "", location.pathname); if (TERMOS.pendente || TERMOS.erro) return seguir(); if (!App.acessoOk(P) && !P.is_admin) return location.reload(); return P.onboarding_ok ? home() : onboarding(); };
     window.Painel?.fechar(); V.onclick = null; V.onchange = null;
@@ -362,11 +372,13 @@
           <label class="field"><span class="mono">Senha nova</span><input id="s1" type="password" minlength="8" autocomplete="new-password" required></label>
           <label class="field"><span class="mono">Repita a senha</span><input id="s2" type="password" minlength="8" autocomplete="new-password" required></label>
           <button class="btn solid">Salvar senha</button></form><div id="msgSenha"></div>`)
-        : win("Trocar senha", `<div id="senhaBox"></div>`) + win("E-mail de acesso", `<div id="emailBox"><p class="muted" style="margin:0">Carregando…</p></div>`))
+        : win("Trocar senha", `<div id="senhaBox"></div>`) + win("E-mail de acesso", `<div id="emailBox"><p class="muted" style="margin:0">Carregando…</p></div>`)
+          + (window.Conta ? `<div id="contaPerfil">${win("Minha conta", Conta.html(P))}</div>` : ""))
       + (recuperando ? "" : `<div class="row" style="margin-top:16px"><button class="btn ghost" id="voltar">Voltar ao painel</button>${P.onboarding_ok && (App.acessoOk(P) || P.is_admin) ? `<button class="btn" id="irCfg">Configurações</button>` : ""}</div>`);
     let novaFoto = null;
     const q = (id) => document.getElementById(id);
     if (q("semBox")) semestreBox();
+    if (irConta && q("contaPerfil")) { q("contaPerfil").scrollIntoView({ block: "start" }); q("contaPerfil").querySelector("button")?.focus({ preventScroll: true }); }
     if (q("voltar")) q("voltar").onclick = voltar;
     if (q("irCfg")) q("irCfg").onclick = () => { if (location.hash) history.replaceState(null, "", location.pathname); home("config"); };
     if (q("foto")) q("foto").onchange = async (e) => {
@@ -539,13 +551,13 @@
 
   // O painel com as abas (Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica) fica em assets/painel.js.
   // As janelas do Google Drive e dos livros continuam aqui e aparecem na aba Disciplinas.
-  async function home(tab) {
+  async function home(tab, cfg) {
     V.onclick = null; V.onchange = null;
     document.getElementById("cfgBtn").hidden = false;
     iniciarTarefas();
     await carregarSemestres();
     window.scrollTo(0, 0);
-    await Painel.iniciar({ V, P, SEM: () => SEM, chamar, driveTela, livrosTela, carregarPdfjs, carregarJSZip, perfilTela: () => perfilTela(), recarregarSemestres, tab });
+    await Painel.iniciar({ V, P, SEM: () => SEM, chamar, driveTela, livrosTela, carregarPdfjs, carregarJSZip, perfilTela: () => perfilTela(), recarregarSemestres, tab, cfg });
   }
   async function recarregarSemestres() { await carregarSemestres(); Object.assign(P, await App.meuPerfil()); pintarEu(); }
   // Tarefas (IA no servidor) e a fila do navegador (arquivos e livros): começam uma vez, depois do login
@@ -567,22 +579,25 @@
   // Duas formas: compartilhar a pasta com o e-mail de leitura do site, ou entrar com o Google.
   // O servidor (drive-varrer) lê a pasta e as subpastas, liga cada arquivo à matéria e cria os temas.
   // Resumos NÃO são gerados aqui: só quando o aluno pede.
-  async function chamar(nome, body) {
-    const { data, error } = await sb.functions.invoke(nome, { body });
-    let erro = data?.erro, generico = false;
-    if (!erro && error) { try { erro = (await error.context.json()).erro } catch (_) { } if (!erro) { erro = "O servidor não respondeu. Tente de novo."; generico = true; } }
-    if (erro) { const e = new Error(erro); e.generico = generico; throw e; }
-    return data;
-  }
+  // Funções do servidor: App.chamar (assets/comum.js) renova a sessão e tenta de novo se o login venceu
+  function chamar(nome, body) { return App.chamar(nome, body); }
   function quando(t) { return t ? new Date(t).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "nunca"; }
-  async function driveTela(disc) {
+  async function driveTela(disc, tentou) {
     const box = document.getElementById("drv"); if (!box) return;
     let [{ data: fontes, error: e1 }, { data: mats, error: e2 }] = await Promise.all([
       sb.from("drive_fontes").select("id,tipo,pasta_id,pasta_nome,status,erro,ultima_varredura").order("criado_em"),
       sb.from("materiais").select("id,nome,status,disciplina_id,caminho,erro,fonte_id,ignorado").not("fonte_id", "is", null).order("nome"),
     ]);
     if (!document.getElementById("drv")) return;
-    if (e1 || e2) { box.innerHTML = `<div class="msg bad" style="margin:0">Não consegui carregar a parte do Drive: ${esc((e1 || e2).message)}</div>`; return; }
+    if (e1 || e2) {
+      const err = e1 || e2;
+      // "permission denied for table drive_fontes" = o pedido foi sem login (sessão vencida): confere e tenta uma vez
+      if (App.erroDeSessao(err)) {
+        if (!tentou && await App.conferirSessao(true, "drive")) return driveTela(disc, true);
+        box.innerHTML = `<div class="msg bad" style="margin:0">${esc(App.MSG_FIM)}</div>`; return;
+      }
+      box.innerHTML = `<div class="msg bad" style="margin:0">Não consegui carregar a parte do Drive: ${esc(err.message)}</div>`; return;
+    }
     const ocultos = (mats || []).filter((m) => m.ignorado);
     mats = (mats || []).filter((m) => !m.ignorado);
     const F = { compartilhada: (fontes || []).find((f) => f.tipo === "compartilhada"), google: (fontes || []).find((f) => f.tipo === "google") };

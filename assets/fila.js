@@ -11,7 +11,7 @@
   const BANCO = "painel-fila", LOJA = "jobs";
   const jobs = [];            // {id, uid, tipo, titulo, dados, arquivo, st, msg, frac, persistente, criado}
   const handlers = {}, ouvintes = new Set();
-  let uid = null, idb = null, idbTentou = false, rodando = false, avisoRAF = 0;
+  let uid = null, idb = null, idbTentou = false, rodando = false, avisoRAF = 0, pausada = false;
 
   /* ---------- IndexedDB (tudo em try/catch: se falhar, a fila fica na memória) ---------- */
   function abrir() {
@@ -70,10 +70,11 @@
   function limparFeitos() { for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].st !== "fila" && jobs[i].st !== "rodando") jobs.splice(i, 1); avisar(); }
 
   async function rodar() {
-    if (rodando || !uid) return;
+    if (rodando || !uid || pausada) return;
     rodando = true;
     try {
       for (;;) {
+        if (pausada) break;
         const j = jobs.find((x) => x.st === "fila" && handlers[x.tipo]);
         if (!j) break;
         j.st = "rodando"; j.msg = "Começando…"; j.frac = 0; avisar();
@@ -82,6 +83,8 @@
           const fim = await handlers[j.tipo](j, prog);
           j.st = "ok"; j.msg = typeof fim === "string" ? fim : "Pronto."; j.frac = null;
         } catch (e) {
+          // a sessão (login) terminou no meio: o trabalho volta para a fila e fica guardado (continua quando entrar de novo)
+          if (pausada || (g.App && App.sessaoAcabou && App.sessaoAcabou())) { pausada = true; j.st = "fila"; j.msg = "Esperando você entrar de novo."; j.frac = null; avisar(); break; }
           j.st = e && e.st === "sem_texto" ? "sem_texto" : "erro"; j.msg = (e && e.message) || String(e); j.frac = null;
           if (e && e.pararTipo) jobs.filter((x) => x.st === "fila" && x.tipo === j.tipo).forEach((x) => { x.st = "erro"; x.msg = "Não enviado."; apagar(x.id); });
         }
@@ -103,9 +106,19 @@
     avisar(); rodar();
   }
   function registrar(tipo, fn) { handlers[tipo] = fn; rodar(); }
+  /** Para de pegar trabalhos novos (a sessão terminou): o que está na fila fica guardado no aparelho */
+  function pausar() { pausada = true; }
+  /** Minha conta → apagar tudo: tira da fila (e do aparelho) todos os trabalhos deste aluno */
+  async function esvaziar() {
+    pausada = true;
+    const salvos = (await todos()) || [];
+    for (const s of salvos) if (!uid || s.uid === uid) await apagar(s.id);
+    for (let i = jobs.length - 1; i >= 0; i--) { const j = jobs[i]; if (j.st === "rodando") { j.arquivo = null; continue; } jobs.splice(i, 1); }
+    avisar();
+  }
   function ouvir(fn) { ouvintes.add(fn); return () => ouvintes.delete(fn); }
   // trabalho só na memória (sem IndexedDB) e ainda não feito: avisa antes de fechar a página
   g.addEventListener && g.addEventListener("beforeunload", (e) => { if (pendentes().some((j) => !j.persistente)) { e.preventDefault(); e.returnValue = ""; } });
 
-  g.Fila = { registrar, adicionar, salvar, tirar, limparFeitos, iniciar, ouvir, lista, pendentes };
+  g.Fila = { registrar, adicionar, salvar, tirar, limparFeitos, iniciar, ouvir, lista, pendentes, pausar, esvaziar };
 })(window);

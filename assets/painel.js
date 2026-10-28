@@ -202,7 +202,7 @@
   /* ---------- Configurações: cada cadastro tem o seu cartão (as abas do painel só mostram) ---------- */
   const CFG = { materias: "Matérias e semestres", conteudos: "Conteúdos e materiais", calendario: "Calendário e avaliações", aulas: "Aulas e horários",
     vida: "Vida acadêmica", lam: "Laminário", enviar: "Enviar arquivos e documentos", docs: "Documentos importados",
-    drive: "Meu Google Drive", livros: "Meus livros", agenda: "Ajustes da agenda", memoria: "Memória de estudo", antigo: "Importar dados do painel antigo" };
+    drive: "Meu Google Drive", livros: "Meus livros", agenda: "Ajustes da agenda", memoria: "Memória de estudo", antigo: "Importar dados do painel antigo", conta: "Minha conta" };
   const cfgFechados = new Set((() => { try { return JSON.parse(ss.get("painel:cfgFechados") || "[]"); } catch (_) { return []; } })());
   /** Cartão de Configurações: janela que abre e fecha (o aluno recolhe o que não usa; fica lembrado nesta aba do navegador) */
   function cartao(k, corpo) {
@@ -212,6 +212,34 @@
   const lnkCfg = (k, extra = "") => `<button class="lnk" data-a="goCfg" data-s="${k}"${extra}>Configurações → ${esc(CFG[k])}</button>`;
   const dicaCfg = (k, oQue, extra = "") => `<p class="cfg-dica">Para ${oQue}, vá em ${lnkCfg(k, extra)}.</p>`;
   const SEM_MATERIA = `Adicione em ${lnkCfg("materias")}.`;
+
+  /* ---------- Escolher o conteúdo: lista (select) com os temas + "Outro conteúdo (escrever)" ---------- */
+  // Igual ao campo Disciplina: a seta sempre mostra a lista inteira (o <datalist> antigo só mostrava a lista
+  // com o campo vazio). "Outro conteúdo (escrever)" mostra a caixa de texto. O valor enviado (name) fica
+  // sempre na caixa de texto (escondida quando o conteúdo vem da lista).
+  const OUTRO = "__outro__";
+  function campoConteudo({ name, id, rotulo = "Conteúdo", temas, valor, outro, max, ph, obrigatorio, vazio, flex }) {
+    const lista = [...new Set((temas || []).map((t) => String(t || "").trim()).filter(Boolean))];
+    let v = String(valor || "");
+    const achado = v && !outro ? lista.find((t) => t === v) || lista.find((t) => qNorm(t) === qNorm(v)) : null;
+    if (achado) v = achado;
+    const escrever = !!outro || (!!v && !achado);
+    const caixa = (vis) => `<input name="${name}" id="${id}" maxlength="${max}" placeholder="${esc(ph)}" value="${esc(v)}" autocomplete="off"${vis ? (obrigatorio ? " required" : "") : " hidden"}${lista.length ? ` aria-label="Escreva o conteúdo"` : ""}>`;
+    if (!lista.length) return `<label class="field" style="flex:${flex}"><span class="mono">${esc(rotulo)}</span>${caixa(true)}</label>`;
+    return `<div class="field escolha" style="flex:${flex}"><label class="mono" for="${id}Sel">${esc(rotulo)}</label>
+      <select id="${id}Sel" data-escolha="${id}"${obrigatorio ? " required" : ""}><option value="">${esc(vazio)}</option>${lista.map((t) => `<option value="${esc(t)}"${!escrever && t === v ? " selected" : ""}>${esc(t)}</option>`).join("")}<option value="${OUTRO}"${escrever ? " selected" : ""}>Outro conteúdo (escrever)</option></select>
+      ${caixa(escrever)}</div>`;
+  }
+  /** Mudou a lista de conteúdo: copia o tema para a caixa (escondida) ou mostra a caixa para escrever */
+  function escolhaMudou(sel) {
+    const inp = document.getElementById(sel.dataset.escolha); if (!inp) return;
+    const escrever = sel.value === OUTRO;
+    inp.hidden = !escrever; inp.required = escrever && sel.required;
+    inp.value = escrever ? "" : sel.value;
+    if (inp.id === "genTemaTxt") { ui.genOutro = escrever; ui.genTema = inp.value; }
+    if (inp.id === "lamTemaTxt") { ui.lamOutro = escrever; ui.lamForm = { ...(ui.lamForm || {}), tema: inp.value }; }
+    if (escrever) inp.focus();
+  }
 
   /* ================= MATERIAIS DA MATÉRIA E ENVIO DE ARQUIVOS ================= */
   // O arquivo não sai do aparelho: o navegador lê o texto (mesma leitura dos arquivos do Drive, lerArquivo)
@@ -476,7 +504,7 @@
   /* ================= CONFIGURAÇÕES ================= */
   // Ordem: a base (matérias), os cadastros de cada aba, os arquivos, Drive e livros (montados à parte, em #pfixos)
   // e, no fim (#pcfg), os ajustes da agenda e a memória do resumo.
-  const CFG_ORDEM = ["materias", "conteudos", "calendario", "aulas", "vida", "lam", "enviar", "docs", "drive", "livros", "agenda", "memoria"];
+  const CFG_ORDEM = ["materias", "conteudos", "calendario", "aulas", "vida", "lam", "enviar", "docs", "drive", "livros", "agenda", "memoria", "conta"];
   // "Importar dados do painel antigo": só o administrador vê (assets/importar.js). Quem não é admin também não
   // conseguiria gravar resumos, mapas e questões: a função importar_painel do banco recusa.
   const verAntigo = () => !!(H && H.P && H.P.is_admin && window.Importar);
@@ -497,7 +525,8 @@
       + (verAntigo() ? cartao("antigo", `<div class="win-body" id="impBox">${Importar.html(ctxImp())}</div>`) : "");
   }
   function vConfigFim() {
-    return cartao("agenda", vCfgAgenda()) + cartao("memoria", `<div class="win-body" id="memoriaBox">${vMemoria()}</div>`);
+    return cartao("agenda", vCfgAgenda()) + cartao("memoria", `<div class="win-body" id="memoriaBox">${vMemoria()}</div>`)
+      + (window.Conta ? cartao("conta", `<div class="win-body" id="contaBox">${Conta.html(H.P)}</div>`) : ""); // Minha conta (assets/conta.js): sempre o último
   }
   /* ---------- Memória de estudo: como o aluno quer os resumos, questões, mapas, flash cards e painéis (texto livre) ---------- */
   // Cada parte tem a sua coluna em preferencias (memoria_resumo do 10; as outras do 12_estudo_extra.sql), exemplos,
@@ -720,11 +749,10 @@
         ${worst && worst.e ? `<div class="stat" style="background:var(--terra-s);border-color:transparent"><span class="mono">Revisar hoje</span><div style="font-weight:700;margin-top:6px">${esc(worst.tema)} · ${worst.e} erro${worst.e > 1 ? "s" : ""}</div></div>` : ""}</div></div>`;
     } else {
       const d = ui.genDisc && discById(ui.genDisc) ? ui.genDisc : S.disc[0]?.id;
-      const topics = temasDe(d).map((t) => `<option value="${esc(t.nome)}">`).join("");
       main = `<h2 style="font-size:19px">Gerar questões com IA</h2><p class="muted" style="margin:6px 0 14px">Escolha a disciplina, o conteúdo e quantas questões de cada tipo (até 20 de cada, 40 no total). São no estilo de prova de medicina, a maioria com caso clínico, e nunca repetem as que você já recebeu.</p>
         ${S.disc.length ? `<form data-form="gen" class="row">
           <label class="field" style="flex:1 1 200px"><span class="mono">Disciplina</span><select name="disc" data-a="genDisc">${S.disc.map((x) => `<option value="${x.id}" ${x.id == d ? "selected" : ""}>${esc(x.nome)}</option>`).join("")}</select></label>
-          <label class="field" style="flex:1 1 200px"><span class="mono">Conteúdo</span><input name="tema" list="temasDl" maxlength="200" placeholder="Ex.: Anticoagulantes" value="${esc(ui.genTema || "")}" required><datalist id="temasDl">${topics}</datalist></label>
+          ${campoConteudo({ name: "tema", id: "genTemaTxt", temas: temasDe(d).map((t) => t.nome), valor: ui.genTema, outro: ui.genOutro, max: 200, ph: "Ex.: Anticoagulantes", obrigatorio: true, vazio: "Escolha o conteúdo", flex: "1 1 200px" })}
           <div class="qmix">${[["nmc", "Marcar X", 4], ["nvf", "Verdadeiro ou falso", 3], ["nrel", "Relacionar", 2], ["ndis", "Dissertativa", 1]].map(([k, l, dv]) => `<label class="field"><span class="mono">${l}</span><input name="${k}" type="number" min="0" max="20" step="1" inputmode="numeric" value="${(ui.genMix && ui.genMix[k]) ?? dv}"></label>`).join("")}</div>
           <button class="btn solid" ${ui.genBusy ? "disabled" : ""}>${ui.genBusy ? "Gerando…" : "Gerar questões"}</button></form>` : `<div class="empty">Adicione uma matéria primeiro. ${SEM_MATERIA}</div>`}
         <p class="muted" style="font-size:13px;margin-top:8px">As questões são feitas pelo Claude a partir do material do professor do tema (quando houver). ${esc(usoTxt("questoes", "limite_questoes_mes", "questões"))}. ${S.pref.memoria_questoes ? "Usando sua memória das questões" : "Formato padrão"} (<button class="lnk" data-a="editMemoria" data-k="questoes">editar</button>).</p>
@@ -744,7 +772,7 @@
     const tema = String(fd.tema || "").trim(); if (!tema) return;
     const cl = (v) => Math.max(0, Math.min(20, parseInt(v, 10) || 0));
     const mix = { mc: cl(fd.nmc), vf: cl(fd.nvf), rel: cl(fd.nrel), dis: cl(fd.ndis) };
-    ui.genMix = { nmc: mix.mc, nvf: mix.vf, nrel: mix.rel, ndis: mix.dis }; ui.genTema = tema; ui.genDisc = disc.id;
+    ui.genMix = { nmc: mix.mc, nvf: mix.vf, nrel: mix.rel, ndis: mix.dis }; ui.genTema = tema; ui.genDisc = disc.id; ui.genOutro = false;
     const total = mix.mc + mix.vf + mix.rel + mix.dis;
     if (!total) { ui.genMsg = "Escolha pelo menos uma questão em algum dos tipos."; return render(); }
     if (total > 40) { ui.genMsg = "O máximo é 40 questões por vez. Diminua alguma quantidade."; return render(); }
@@ -810,7 +838,7 @@
       <form data-form="addLam" class="stack" style="margin-top:10px">
         <label class="field"><span class="mono">Imagem (foto da lâmina ou do slide)</span><input type="file" name="arq" id="lamArq" accept="image/*" required></label>
         <div class="row"><label class="field" style="flex:1 1 180px"><span class="mono">Resposta (diagnóstico)</span><input name="resposta" maxlength="300" required placeholder="Ex.: Cirrose hepática" value="${esc(f.resposta || "")}"></label>
-          <label class="field" style="flex:1 1 160px"><span class="mono">Conteúdo (para filtrar)</span><input name="tema" maxlength="120" list="lamTemasDl" placeholder="Ex.: Fígado" value="${esc(f.tema || "")}"><datalist id="lamTemasDl">${temas.map((t) => `<option value="${esc(t)}">`).join("")}</datalist></label></div>
+          ${campoConteudo({ name: "tema", id: "lamTemaTxt", rotulo: "Conteúdo (para filtrar)", temas, valor: f.tema, outro: ui.lamOutro, max: 120, ph: "Ex.: Fígado", vazio: "Sem conteúdo", flex: "1 1 160px" })}</div>
         <div class="row"><label class="field" style="flex:1 1 140px"><span class="mono">Órgão (opcional)</span><input name="orgao" maxlength="120" value="${esc(f.orgao || "")}"></label>
           <label class="field" style="flex:1 1 140px"><span class="mono">Vista / coloração (opcional)</span><input name="vista" maxlength="120" placeholder="Ex.: HE 40x" value="${esc(f.vista || "")}"></label>
           <label class="field" style="flex:1 1 160px"><span class="mono">Matéria (opcional)</span><select name="disc"><option value="">Nenhuma</option>${S.disc.map((d) => `<option value="${d.id}" ${f.disc == d.id ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select></label></div>
@@ -1225,8 +1253,8 @@
   // Imagens, vídeos e áudios: sem texto (null).
   function tipoMat(m) { const t = Extrair.tipoDoArquivo(m.nome, m.mime); return t && !t.semTexto ? t.tipo : null; }
   async function baixarMaterial(id) {
-    const { data, error } = await sb.functions.invoke("drive-arquivo", { body: { material_id: id } });
-    if (error) { let j = null; try { j = await error.context.json(); } catch (_) { } const e = new Error(j?.erro || "O servidor não entregou o arquivo."); e.status = j?.status; throw e; }
+    const { data, error, corpo: j } = await App.invocar("drive-arquivo", { material_id: id }); // renova a sessão se o login venceu
+    if (error) { const e = new Error(j?.erro || "O servidor não entregou o arquivo."); e.status = j?.status; if (error.sessao) e.sessao = true; throw e; }
     if (data instanceof Blob) return new Uint8Array(await data.arrayBuffer());
     if (data instanceof ArrayBuffer) return new Uint8Array(data);
     if (typeof data === "string") return new TextEncoder().encode(data);
@@ -1962,6 +1990,7 @@
       return;
     }
     if (guardarDoc(e.target)) return;
+    if (e.target.matches && e.target.matches("select[data-escolha]")) { escolhaMudou(e.target); return; }
     if (e.target.closest && e.target.closest("#impBox")) { if (verAntigo()) Importar.mudou(e.target, ctxImp()); return; }
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b)) return; const a = b.dataset.a;
     if (a === "upArq") {
@@ -1986,7 +2015,11 @@
     if (a === "qDisc") { ui.qDisc = b.value; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); }
     else if (a === "calcDisc") { ui.calcDisc = +b.value; render(); }
     else if (a === "cfgDisc") { ui.cfgDisc = +b.value; ui.confDel = null; ui.confMat = null; render(); }
-    else if (a === "genDisc") { ui.genDisc = +b.value; render(); }
+    else if (a === "genDisc") {
+      // outra disciplina: a lista de conteúdos muda (o que foi escrito em "Outro conteúdo" continua); as quantidades ficam
+      const f = b.form; if (f) { const n = (k) => f.elements[k]?.value; ui.genMix = { nmc: n("nmc"), nvf: n("nvf"), nrel: n("nrel"), ndis: n("ndis") }; }
+      ui.genDisc = +b.value; if (!ui.genOutro) ui.genTema = ""; render();
+    }
     else if (a === "grade") { const v = num(b.value); if (b.value.trim() && v == null) { toast("Use só números (ex.: 15,5)."); return; } salvarNota(+b.dataset.id, b.dataset.k, v); }
   }
   // revisão do documento: guarda cada mudança (o painel redesenha e não pode perder o que o aluno mudou)
@@ -2001,6 +2034,8 @@
     if (guardarDoc(e.target)) return;
     if (e.target && e.target.id === "disTxt" && ui.qst && ui.qst.id == e.target.dataset.qid) ui.qst.txt = e.target.value;
     if (e.target && e.target.id === "upTemaNome") ui.up.temaNome = e.target.value;
+    if (e.target && e.target.id === "genTemaTxt") ui.genTema = e.target.value;
+    if (e.target && e.target.id === "lamTemaTxt") ui.lamForm = { ...(ui.lamForm || {}), tema: e.target.value };
     if (e.target && e.target.id === "memInp") { memDrafts[e.target.dataset.k] = e.target.value; contarMem(); }
     if (e.target && e.target.id === "resExtra") { ui.resExtra = e.target.value; const c = document.getElementById("resExtraCont"); if (c) c.textContent = `${e.target.value.length}/${EXTRA_MAX}`; }
   }
@@ -2124,6 +2159,7 @@
       Object.keys(fixosIni).forEach((k) => delete fixosIni[k]);
       try { await carregar(); } catch (e) { document.getElementById("pview").innerHTML = `<div class="msg bad">Não consegui carregar seu painel: ${esc(e.message || e)}</div>`; return; }
       render();
+      if (ganchos.cfg && CFG[ganchos.cfg]) irCfg(ganchos.cfg); // ?cfg=conta (rodapé "Excluir minha conta")
       // só depois de carregar: os trabalhos usam as matérias e os temas do painel
       Fila.registrar("upload", trabalhoUpload);
       Fila.registrar("material", trabalhoMaterial);

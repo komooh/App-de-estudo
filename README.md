@@ -35,6 +35,8 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `supabase/11_importar_painel.sql` | Função que grava os resumos, mapas e questões trazidos do painel antigo (só para o administrador) |
 | `supabase/12_estudo_extra.sql` | Flash cards, painel do tema, limite de flash cards e memória de estudo (questões, mapa, flash cards e painel) |
 | `assets/extrair.js` | Leitura do texto de todos os formatos no navegador: PDF, PowerPoint (.ppt e .pptx), Word (.doc e .docx), Excel, OpenDocument (.odp, .odt, .ods), .rtf, .csv, .html, .txt e .md |
+| `assets/conta.js` | Configurações → Minha conta (e Meu perfil → Minha conta): apagar os dados e começar do zero, ou excluir a conta |
+| `supabase/13_minha_conta.sql` | Funções que apagam os dados do aluno logado (e a conta, se ele pedir) |
 | `termos.html`, `privacidade.html` | Termos de uso e política de privacidade (modelo; revisar com advogado) |
 
 ## Como colocar no ar (uma vez)
@@ -264,3 +266,20 @@ O que fazer (uma vez, nesta ordem):
 3. **Função `drive-varrer`:** Edge Functions → **drive-varrer** → Code → cole o novo `supabase/functions/drive-varrer/index.ts` → **Deploy**. "Verify JWT" fica **como está (desligado)**.
 4. **Função `drive-arquivo`:** Edge Functions → **drive-arquivo** → Code → cole o novo `supabase/functions/drive-arquivo/index.ts` → **Deploy**. "Verify JWT" continua **desligado**.
 5. Mais nada: o site atualiza sozinho com o `git push` (quando a etapa for para a `etapa-2`). Antes do passo 1, o resto do site funciona: Flash cards, Painel e as partes novas da memória mostram "Falta rodar o 12_estudo_extra.sql no Supabase."
+
+## Etapa 11: sessão que termina, Conteúdo em lista e Minha conta
+
+- **Sessão que terminou.** Antes, quando o login vencia (computador dormindo, aba parada muito tempo, saída em outra aba, falha ao renovar), a página continuava mostrando os dados e cada ação dava um erro estranho: "permission denied for table drive_fontes" no Drive e "Sessão inválida. Faça login de novo." no Gerar questões. Agora o `assets/comum.js` vigia o login (`onAuthStateChange`, a volta para a aba, a volta da internet e a cada 4 minutos) e, se ele acabou, mostra um aviso fixo: **"Sua sessão terminou. Entre de novo para continuar."** com o botão **Entrar de novo**. Toda chamada às funções do servidor passa por `App.invocar` / `App.chamar`: se o servidor recusa o login, o site renova a sessão uma vez e tenta de novo (o aluno nem percebe); só se não der é que aparece o aviso. Erros crus de login ("permission denied for table…", "JWT expired") viram a mesma frase. A fila de envios deste aparelho fica guardada e continua quando o aluno entrar de novo. No console do navegador ficam só os nomes dos eventos (`[sessão] evento: TOKEN_REFRESHED`…), sem dados pessoais.
+- **Várias abas abertas** (painel e Administração juntos): as duas páginas usam o mesmo cliente do Supabase (`assets/comum.js`, mesma chave de sessão no navegador e a trava padrão entre abas do supabase-js), então só uma aba renova o login por vez e as outras pegam a sessão nova. Se o aluno sai em uma aba, as outras mostram o aviso.
+- **Conteúdo em lista.** Em Questões → Gerar com IA, o campo **Conteúdo** agora é uma lista igual à de Disciplina: a seta sempre mostra todos os temas da disciplina escolhida, e a última opção, **Outro conteúdo (escrever)**, abre a caixa para escrever. Trocar a disciplina troca a lista (as quantidades ficam). O mesmo no Laminário (Configurações → Laminário → Conteúdo).
+- **Minha conta.** Novo cartão no fim de Configurações (e também em Meu perfil, para quem ainda não configurou ou está com o acesso vencido):
+  - **Apagar todos os meus dados e começar do zero:** apaga tudo o que o aluno criou (todas as tabelas com `aluno_id`, menos o perfil, o registro dos aceites dos termos e o uso de IA do mês, que fica para o limite não voltar ao zero), as imagens dele no Storage (foto, lâminas, páginas enviadas) e o que o navegador guarda do painel. O perfil volta para "não configurado" e a próxima entrada mostra a configuração inicial. Login, nome, e-mail, admin, plano, vencimento e limites ficam.
+  - **Excluir minha conta:** tudo isso e também o login. A conta de administrador não pode ser excluída por aqui (só apagar os dados).
+  - As duas mostram o que vai ser apagado e só liberam o botão depois de escrever **APAGAR**.
+- **Rodapé.** "Excluir minha conta" não abre mais o programa de e-mail: logado, abre Configurações → Minha conta (`app.html?cfg=conta`); sem login, leva à explicação na política de privacidade (entrar e usar Minha conta, ou pedir pelo e-mail). Termos e privacidade explicam a exclusão pelo próprio site, na hora.
+
+O que fazer (uma vez, nesta ordem):
+1. **Banco:** Supabase → **SQL Editor** → **New query** → cole todo o `supabase/13_minha_conta.sql` → **Run** (depois do 12). Pode rodar de novo sem problema. Rode no SQL Editor (usuário `postgres`): a função de excluir a conta precisa ser dele para apagar o login.
+2. **Funções do servidor:** nenhuma muda nesta etapa (não precisa publicar de novo).
+3. Mais nada: o site atualiza sozinho quando a etapa for para a `etapa-2`. Antes do passo 1, o resto funciona; Minha conta avisa "falta rodar o 13_minha_conta.sql" e não deixa apagar.
+4. Para testar do zero: entre com a sua conta → Configurações → Minha conta → **Apagar meus dados e começar do zero** → escreva APAGAR. (A sua conta é de administrador, então "Excluir minha conta" não aparece para ela.)

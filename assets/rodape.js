@@ -4,6 +4,9 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const mail = (assunto) => `mailto:${C.CONTATO_EMAIL}?subject=${encodeURIComponent(assunto)}`;
   const zap = C.CONTATO_WHATSAPP ? `https://wa.me/${C.CONTATO_WHATSAPP}` : "";
+  // "Excluir minha conta": logado, abre Configurações → Minha conta (é na hora, pelo site);
+  // sem login, leva à explicação na política de privacidade (entrar e usar Minha conta; ou o e-mail de contato).
+  const logado = (() => { try { for (let i = 0; i < localStorage.length; i++) if (/^sb-.+-auth-token$/.test(localStorage.key(i))) return true; } catch (_) { } return false; })();
   const col = (titulo, links) => `<nav class="rd-col" aria-label="${esc(titulo)}"><h4>${esc(titulo)}</h4>${links.filter(Boolean).map(([t, h, ext]) => `<a href="${esc(h)}"${ext ? ' target="_blank" rel="noopener"' : ""}>${esc(t)}</a>`).join("")}</nav>`;
   // Créditos (config.js): cada linha só aparece se o campo estiver preenchido
   const insp = C.CREDITO_INSPIRACAO || {};
@@ -19,7 +22,7 @@
       <p>Organize matérias, provas, notas e revisões do seu semestre em um só lugar.</p></div>
     ${col("Produto", [["Entrar", "/"], ["Meu painel", "/app.html"]])}
     ${col("Ajuda", [zap && ["Quero assinar", zap + "?text=" + encodeURIComponent("Olá! Quero assinar o Painel de Estudos."), true], C.CONTATO_EMAIL && ["Ajuda por e-mail", mail("Ajuda com o Painel de Estudos")]])}
-    ${col("Legal", [["Termos de uso", "/termos.html"], ["Política de privacidade", "/privacidade.html"], C.CONTATO_EMAIL && ["Excluir minha conta", mail("Excluir minha conta e meus dados")]])}
+    ${col("Legal", [["Termos de uso", "/termos.html"], ["Política de privacidade", "/privacidade.html"], ["Excluir minha conta", logado ? "/app.html?cfg=conta" : "/privacidade.html#excluir-conta"]])}
     ${col("Contato", [zap && ["WhatsApp", zap, true], C.CONTATO_EMAIL && [C.CONTATO_EMAIL, "mailto:" + C.CONTATO_EMAIL]])}
   </div>${creditos.length ? `<div class="rd-creditos">${creditos.join("")}</div>` : ""}<div class="rd-base"><span>© ${new Date().getFullYear()} ${esc(C.RESPONSAVEL || "")}</span><span>Resumos e questões são gerados por IA e podem conter erros.</span></div></footer>`;
   const alvo = document.getElementById("rodape");

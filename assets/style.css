@@ -551,3 +551,23 @@ table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-to
 .mem-aba{border:0;background:none;padding:6px 12px;border-radius:7px;font-size:13.5px;font-weight:500;color:var(--muted)}
 .mem-aba[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
 @media (max-width:520px){.mem-aba{padding:6px 9px;font-size:13px}}
+/* ---------- Sessão terminou (assets/comum.js): aviso fixo, por cima de tudo ---------- */
+.sessao-fim{position:fixed;inset:0;z-index:80;display:flex;align-items:center;justify-content:center;overflow-y:auto;
+  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+  background:color-mix(in srgb,var(--paper) 55%,rgba(0,0,0,.55))}
+.sessao-caixa{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:0 18px 50px rgba(0,0,0,.25);max-width:460px;width:100%;padding:22px;min-width:0}
+.sessao-caixa h2{font-family:var(--f-display);font-weight:800;font-size:clamp(20px,5vw,26px);letter-spacing:-.02em;line-height:1.15;margin:12px 0 8px}
+.sessao-caixa h2:focus{outline:none}
+.sessao-caixa p{margin:0 0 16px;font-size:14.5px}
+.sessao-caixa .btn.solid{padding:11px 18px;font-size:15px}
+/* ---------- Minha conta (assets/conta.js) ---------- */
+.conta-op{border:1px solid var(--line);border-radius:10px;padding:14px;background:var(--card2);min-width:0}
+.conta-op h3{margin:0 0 6px;font-size:16px}
+.conta-op p{margin:0 0 10px;font-size:14px}
+.btn.conta-perigo{color:var(--bad);border-color:var(--bad);white-space:normal;text-align:left}
+.btn.solid.conta-perigo{background:var(--bad);color:#fff;border-color:var(--bad)}
+.btn.solid.conta-perigo:disabled{opacity:.45;cursor:not-allowed}
+.conta-lista{margin:0;padding-left:20px;font-size:14px;display:flex;flex-direction:column;gap:3px}
+.conta-falta{color:var(--bad);font-weight:500}
+.conta-gate .field input{font-size:16px;letter-spacing:.06em;max-width:260px}
+.escolha select{width:100%}
