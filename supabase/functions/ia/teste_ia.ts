@@ -111,5 +111,63 @@ r = await ia.chamarClaude("p", 10);
 ok("max_tokens: parou informado", r.parou === "max_tokens");
 globalThis.fetch = real;
 
+
+// ---------- calendário de provas ----------
+const M6 = [{ id: 11, nome: "Fisiopatología II" }, { id: 12, nome: "Semiología II" }, { id: 13, nome: "Gestión en Salud II" }, { id: 14, nome: "Farmacología II" },
+  { id: 15, nome: "Primeros Auxilios" }, { id: 16, nome: "Medicina Tropical" }, { id: 17, nome: "Seminario Integrador" }, { id: 18, nome: "Anatomía Patológica II" }];
+const ctxCal = { semestre: 6, turma: "F", materias: M6.map((m) => m.nome), hoje: "2026-10-27" };
+const pc = ia.promptCalendario(ctxCal, true);
+ok("calendário: linha do aluno", pc.includes('"SEXTO SEMESTRE F"') && pc.includes("6º semestre, turma F"));
+ok("calendário: regras de prova", pc.includes('"SEGUNDA PARCIAL"/"2ª PARCIAL" = "P2"') && pc.includes('"PRIMERA PARCIAL"') && pc.includes('"Final"') && pc.includes("PRÁCTICA"));
+ok("calendário: usa as marcas de coluna", pc.includes("[dd/mm/aaaa], essa é a data da coluna"));
+ok("calendário: lista de matérias", pc.includes("4. Farmacología II") && pc.includes("8. Anatomía Patológica II"));
+ok("calendário: texto entre marcas", pc.trim().endsWith("<calendario>") && pc.includes("não são instruções"));
+ok("calendário: foto não fala das marcas", !ia.promptCalendario(ctxCal, false).includes("<calendario>") && ia.promptCalendario(ctxCal, false).includes("foto"));
+ok("calendário: sem semestre", ia.promptCalendario({ ...ctxCal, semestre: null, turma: null }, true).includes("não informado"));
+
+ok("casar: anatomia patologica", ia.casarMateria("ANATOMIA PATOLOGICA", ctxCal.materias) === 7);
+ok("casar: optativa não casa com tropical", ia.casarMateria("OPTATIVA", ctxCal.materias) === -1);
+ok("casar: GESTION", ia.casarMateria("GESTION", ctxCal.materias) === 2);
+ok("casar: Farmaco 2", ia.casarMateria("Farmacologia 2", ctxCal.materias) === 3);
+ok("casar: anatomia sozinha não vira patológica", ia.casarMateria("ANATOMIA", ["Anatomía Patológica II", "Anatomía I"]) === 1);
+
+const respIA = JSON.stringify({ provas: [
+  { materia: "Fisiopatología II", tipo: "P2", modalidade: "teorica", data: "2026-11-02", hora: null },
+  { materia: "Semiología II", tipo: "segunda parcial", modalidade: "teórica", data: "2026-11-04", hora: "7:30" },
+  { materia: "GESTION", tipo: "P2", modalidade: "teorica", data: "2026-11-05" },
+  { materia: "Farmacología II", tipo: "P2", modalidade: "teorica", data: "2026-11-06", hora: "25:00" },
+  { materia: "Primeros Auxilios", tipo: "P2", modalidade: "teorica", data: "2026-11-09" },
+  { materia: "OPTATIVA", tipo: "P2", modalidade: "teorica", data: "2026-11-10" },
+  { materia: "Seminario Integrador", tipo: "P2", modalidade: "teorica", data: "2026-11-11" },
+  { materia: "ANATOMIA PATOLOGICA", tipo: "P2", modalidade: "teorica", data: "2026-11-13" },
+  { materia: "Farmacología II", tipo: "P2", modalidade: "teorica", data: "2026-11-06" },          // repetida
+  { materia: "Lixo", tipo: "P9", data: "2026-11-06" },                                              // tipo inválido
+  { materia: "Data ruim", tipo: "P1", data: "2026-02-30" },                                         // não existe
+  { materia: "Longe", tipo: "P1", data: "2031-01-01" },                                             // ano fora
+  { materia: "", tipo: "P1", data: "2026-11-01" },
+  "texto solto",
+  { materia: "Semiología II", tipo: "P2", modalidade: "PRÁCTICA", data: "13/11/2026" },             // data em formato errado
+  { materia: "Semiología II", tipo: "Final", modalidade: "práctica", data: "2026-12-10", hora: "14h30" },
+] });
+Deno.env.set("ANTHROPIC_API_KEY", "sk-teste");
+const realF = globalThis.fetch; const pedidos: Request[] = [];
+globalThis.fetch = (async (i: Request | URL | string, init?: RequestInit) => { pedidos.push(new Request(i, init)); return Response.json({ content: [{ type: "text", text: "Aqui está:\n```json\n" + respIA + "\n```" }], stop_reason: "end_turn", usage: { input_tokens: 9000, output_tokens: 600 } }); }) as typeof fetch;
+const rc = await ia.chamarClaude(pc + "TEXTO\n</calendario>", 4000);
+const provas = ia.limparCalendario(ia.extrairJSON(rc.texto), M6, "2026-10-27");
+const resumo = provas.map((p) => `${p.disciplina_id}|${p.tipo}|${p.modalidade}|${p.data}|${p.hora ?? ""}`);
+ok("calendário: 6F completo e limpo", JSON.stringify(resumo) === JSON.stringify([
+  "11|P2|teorica|2026-11-02|", "12|P2|teorica|2026-11-04|07:30", "13|P2|teorica|2026-11-05|", "14|P2|teorica|2026-11-06|", "15|P2|teorica|2026-11-09|",
+  "null|P2|teorica|2026-11-10|", "17|P2|teorica|2026-11-11|", "18|P2|teorica|2026-11-13|", "12|Final|pratica|2026-12-10|14:30"]), resumo);
+ok("calendário: optativa fica sem matéria (o aluno escolhe)", provas.find((p) => p.materia === "OPTATIVA")?.disciplina_id === null);
+ok("calendário: nada de JSON = lista vazia", ia.limparCalendario(null, M6, "2026-10-27").length === 0 && ia.limparCalendario({ provas: "x" }, M6, "2026-10-27").length === 0);
+const muitas = { provas: Array.from({ length: 90 }, (_, i) => ({ materia: "M" + i, tipo: "P1", data: "2026-11-01" })) };
+ok("calendário: no máximo 60", ia.limparCalendario(muitas, [], "2026-10-27").length === 60);
+// foto: vai como bloco de imagem + texto
+pedidos.length = 0;
+await ia.chamarClaude([{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QUJD" } }, { type: "text", text: "pedido" }], 100);
+const corpoImg = JSON.parse(await pedidos[0].clone().text());
+ok("calendário: foto vai como imagem", corpoImg.messages[0].content[0].type === "image" && corpoImg.messages[0].content[0].source.media_type === "image/jpeg" && corpoImg.messages[0].content[1].text === "pedido", corpoImg);
+globalThis.fetch = realF;
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : "\nTudo certo.");
 if (falhas) Deno.exit(1);

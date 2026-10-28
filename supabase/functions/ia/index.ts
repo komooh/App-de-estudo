@@ -6,6 +6,8 @@
 //   POST {acao:"resumo",   tema_id, modo:"professor"|"livros"}  -> {resumo}
 //   POST {acao:"mapa",     tema_id}                              -> {mapa}
 //   POST {acao:"questoes", disciplina_id, tema, tema_id?, tipo:"mc"|"vf"|"rel"|"dis", n} -> {questoes, repetidas}
+//   POST {acao:"calendario", texto? | imagem?:{mime,base64}, semestre?, turma?, materias?} -> {provas, semestre, turma}
+//        (lê o calendário oficial de provas; NADA é salvo aqui: o aluno revisa e confirma no site)
 //
 // O texto que vai para a IA é montado AQUI, no servidor, com o material do professor (tabela
 // materiais), os trechos dos livros do aluno (busca buscar_nos_livros, feita com o login do aluno)
@@ -21,7 +23,9 @@ export const MODELO_PADRAO = "claude-haiku-5-5";
 const modelo = () => (Deno.env.get("IA_MODELO") || MODELO_PADRAO).trim();
 const API_ANTHROPIC = "https://api.anthropic.com/v1/messages";
 const PRAZO_MS = 125_000;                    // a função do Supabase tem ~150 s no total
-const MAX_TOKENS = { resumo: 8000, mapa: 3500, questoes: 7000 };
+const MAX_TOKENS = { resumo: 8000, mapa: 3500, questoes: 7000, calendario: 4000 };
+const LIMITE_CALENDARIO = 60_000;            // letras do texto do calendário
+const MAX_IMAGEM_B64 = 4_000_000;            // ~3 MB de imagem (o site manda até 1600 px em JPEG)
 const LIMITE_MATERIAL = { resumo: 60_000, mapa: 40_000, questoes: 24_000 }; // letras do material do professor
 const LIMITE_LIVROS = 16_000;                // letras somando os trechos dos livros
 const MAX_POR_LOTE: Record<string, number> = { mc: 8, vf: 6, rel: 6, dis: 5 };
@@ -282,8 +286,99 @@ export function consultasLivro(tema: string): string[] {
   return out;
 }
 
+
+// ======================= calendário de provas =======================
+const ORDINAIS = ["", "PRIMER", "SEGUNDO", "TERCER", "CUARTO", "QUINTO", "SEXTO", "SEPTIMO", "OCTAVO", "NOVENO", "DECIMO", "UNDECIMO", "DUODECIMO"];
+export type ProvaLida = { materia: string; disciplina_id: number | null; tipo: "P1" | "P2" | "Final"; modalidade: "teorica" | "pratica"; data: string; hora: string | null };
+export type CtxCalendario = { semestre: number | null; turma: string | null; materias: string[]; hoje: string };
+
+export function promptCalendario(c: CtxCalendario, temTexto: boolean): string {
+  const ord = c.semestre && ORDINAIS[c.semestre] ? ORDINAIS[c.semestre] : "";
+  const turma = (c.turma || "").trim();
+  const linha = c.semestre ? `${c.semestre}º semestre${turma ? `, turma ${turma}` : ""}` : "(não informado: use as provas de todas as linhas só se o documento tiver uma única turma)";
+  return `Você lê o calendário oficial de provas de uma faculdade de medicina (Paraguai, em espanhol) e devolve as provas de UM aluno.
+Aluno: ${linha}.${ord ? ` No documento a linha dele aparece como "${ord} SEMESTRE${turma ? ` ${turma.toUpperCase()}` : ""}" (ou "${c.semestre}º"/"${c.semestre}°"${turma ? ` com a letra ${turma.toUpperCase()}` : ""}).` : ""}
+Hoje é ${c.hoje}.
+
+Como ler:
+- Em geral é uma grade: cada linha é um semestre + turma (ex.: "SEXTO SEMESTRE F"); cada coluna é uma data (dd/mm/aaaa, às vezes com o dia da semana); cada célula é o nome da matéria que tem prova naquele dia.
+- Use SÓ a linha do aluno (semestre e turma exatos). Ignore as outras turmas e os outros semestres.
+- Nomes e rótulos podem ocupar 2 ou 3 linhas (ex.: "ANATOMIA" em cima e "PATOLOGICA" embaixo, ou "SEXTO" em cima e "SEMESTRE F" embaixo): junte as partes da mesma célula.${temTexto ? `
+- O texto foi extraído do PDF mantendo as colunas. Quando um texto termina com [dd/mm/aaaa], essa é a data da coluna em que ele está: confie nela.` : `
+- É uma foto ou print: alinhe cada célula com a data do cabeçalho da coluna dela.`}
+- Qual prova é: veja o título. "PRIMERA PARCIAL"/"PRIMER PARCIAL"/"1ª PARCIAL" = "P1"; "SEGUNDA PARCIAL"/"2ª PARCIAL" = "P2"; "FINAL"/"EXAMEN FINAL"/"EXTRAORDINARIO" = "Final".
+- Modalidade: "pratica" se o título ou a célula disser PRÁCTICA/PRACTICO; senão "teorica" (TEORÍA/TEÓRICO ou nada dito).
+- Hora: só se o documento disser a hora (HH:MM, 24 h); senão null.
+- Datas no formato AAAA-MM-DD. Se o ano não aparecer, use o ano da próxima ocorrência a partir de hoje.
+- Matéria: se corresponder a uma destas matérias do aluno, escreva EXATAMENTE o nome da lista; senão, o nome como está no documento.
+Matérias do aluno:
+${c.materias.length ? c.materias.map((m, i) => `${i + 1}. ${m}`).join("\n") : "(nenhuma cadastrada)"}
+
+Se não achar a linha do aluno, responda {"provas":[],"aviso":"motivo curto"}.
+Responda SOMENTE com JSON válido, sem texto antes ou depois:
+{"provas":[{"materia":"...","tipo":"P1|P2|Final","modalidade":"teorica|pratica","data":"AAAA-MM-DD","hora":"HH:MM ou null"}],"aviso":""}${temTexto ? `\n\n${AVISO_FONTES}\n<calendario>\n` : ""}`;
+}
+
+const ROMANOS: Record<string, string> = { i: "1", ii: "2", iii: "3", iv: "4", v: "5", vi: "6" };
+const palavrasMat = (s: string) => semAcento(s).replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).map((w) => ROMANOS[w] || w)
+  .filter((w) => !["de", "da", "do", "la", "el", "en", "e", "y"].includes(w));
+/** Índice da matéria do aluno com o nome do documento (ou -1). Igual ao do site (assets/leitor.js). */
+export function casarMateria(nome: string, materias: string[]): number {
+  const A = palavrasMat(nome).filter((w) => !/^\d+$/.test(w)); if (!A.length) return -1;
+  let melhor = -1, nota = 0;
+  materias.forEach((m, i) => {
+    const B = palavrasMat(m).filter((w) => !/^\d+$/.test(w)); if (!B.length) return;
+    const igual = (a: string, b: string) => a === b || (a.length >= 5 && b.length >= 5 && (a.startsWith(b.slice(0, 5)) || b.startsWith(a.slice(0, 5))));
+    const n = A.filter((a) => B.some((b) => igual(a, b))).length;
+    // o documento costuma usar o nome curto ("GESTION" = "Gestión en Salud II"): pesa mais cobrir as palavras do documento
+    const s = 0.6 * n / A.length + 0.4 * n / B.length;
+    if (n && s > nota) { nota = s; melhor = i; }
+  });
+  return nota >= 0.55 ? melhor : -1;
+}
+function dataValida(s: unknown, hoje: string): string | null {
+  const m = String(s ?? "").trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if (!m) return null;
+  const [y, mo, d] = [+m[1], +m[2], +m[3]];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+  const ano = +hoje.slice(0, 4);
+  if (y < ano - 1 || y > ano + 1) return null;
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+const TIPO_PROVA = (s: unknown): "P1" | "P2" | "Final" | null => {
+  const t = semAcento(String(s ?? "")).replace(/\s+/g, "");
+  if (/^(p1|1|primer[ao]?(parcial)?|1aparcial|1parcial)$/.test(t)) return "P1";
+  if (/^(p2|2|segund[ao](parcial)?|2aparcial|2parcial)$/.test(t)) return "P2";
+  if (/^(final|examenfinal|ef|extraordinario)$/.test(t)) return "Final";
+  return null;
+};
+/** Confere a resposta da IA: só provas com matéria, tipo, data real e hora válida; sem repetidas; até 60. */
+export function limparCalendario(out: Record<string, unknown> | null, materias: { id: number; nome: string }[], hoje: string): ProvaLida[] {
+  const lista = Array.isArray(out?.provas) ? out!.provas as Record<string, unknown>[] : [];
+  const nomes = materias.map((m) => m.nome);
+  const vistos = new Set<string>(); const res: ProvaLida[] = [];
+  for (const p of lista) {
+    if (!p || typeof p !== "object") continue;
+    const materia = String(p.materia ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    const tipo = TIPO_PROVA(p.tipo), data = dataValida(p.data, hoje);
+    if (!materia || !tipo || !data) continue;
+    const modalidade = /prat|prac/.test(semAcento(String(p.modalidade ?? ""))) ? "pratica" : "teorica";
+    const hm = String(p.hora ?? "").trim().match(/^([01]?\d|2[0-3])[:h.]([0-5]\d)$/);
+    const hora = hm ? `${hm[1].padStart(2, "0")}:${hm[2]}` : null;
+    const exato = nomes.findIndex((n) => semAcento(n).trim() === semAcento(materia));
+    const i = exato >= 0 ? exato : casarMateria(materia, nomes);
+    const disciplina_id = i >= 0 ? materias[i].id : null;
+    const k = `${disciplina_id ?? semAcento(materia)}|${tipo}|${modalidade}`;
+    if (vistos.has(k)) continue; vistos.add(k);
+    res.push({ materia, disciplina_id, tipo, modalidade, data, hora });
+    if (res.length >= 60) break;
+  }
+  return res.sort((a, b) => a.data.localeCompare(b.data));
+}
+
 // ======================= chamada ao Claude =======================
-export async function chamarClaude(prompt: string, maxTokens: number, prazoMs = PRAZO_MS): Promise<{ texto: string; parou: string; entrada: number; saida: number }> {
+export type Conteudo = string | Record<string, unknown>[];
+export async function chamarClaude(prompt: Conteudo, maxTokens: number, prazoMs = PRAZO_MS): Promise<{ texto: string; parou: string; entrada: number; saida: number }> {
   const chave = Deno.env.get("ANTHROPIC_API_KEY") || "";
   if (!chave) throw new ErroIA("A IA ainda não foi configurada. Avise o administrador.", 503);
   const inicio = Date.now();
@@ -325,8 +420,8 @@ export async function chamarClaude(prompt: string, maxTokens: number, prazoMs = 
 }
 
 // ======================= banco =======================
-const NOMES_LIMITE: Record<string, [string, string]> = { resumos: ["limite_resumos_mes", "resumos"], questoes: ["limite_questoes_mes", "questões"], mapas: ["limite_mapas_mes", "mapas mentais"] };
-async function reservar(admin: SupabaseClient, uid: string, tipo: "resumos" | "questoes" | "mapas", n: number, perfil: Record<string, unknown>) {
+const NOMES_LIMITE: Record<string, [string, string]> = { resumos: ["limite_resumos_mes", "resumos"], questoes: ["limite_questoes_mes", "questões"], mapas: ["limite_mapas_mes", "mapas mentais"], calendarios: ["limite_calendarios_mes", "importações de calendário"] };
+async function reservar(admin: SupabaseClient, uid: string, tipo: "resumos" | "questoes" | "mapas" | "calendarios", n: number, perfil: Record<string, unknown>) {
   const { data, error } = await admin.rpc("ia_uso", { p_aluno: uid, p_tipo: tipo, p_delta: n, p_checar: true });
   if (error) { console.error("ia_uso:", error.message); throw new ErroIA("Não consegui conferir seu limite agora. Tente de novo.", 500); }
   if (data !== true) {
@@ -381,7 +476,7 @@ Deno.serve(async (req) => {
   if (eQuem || !quem?.user) return json({ erro: "Sessão inválida. Faça login de novo." }, 401);
   const uid = quem.user.id;
   const { data: perfil } = await admin.from("perfis")
-    .select("ativo, vence_em, semestre, limite_resumos_mes, limite_questoes_mes, limite_mapas_mes, faculdades(nome)").eq("id", uid).maybeSingle();
+    .select("*, faculdades(nome)").eq("id", uid).maybeSingle();
   const hoje = new Date().toISOString().slice(0, 10);
   if (!perfil?.ativo || (perfil.vence_em && perfil.vence_em < hoje)) return json({ erro: "Seu acesso não está liberado ou venceu." }, 403);
 
@@ -493,6 +588,44 @@ Deno.serve(async (req) => {
       reservado = null;
       await registrar(admin, uid, "questoes", salvas.length - n, r.entrada, r.saida); // devolve o que não veio
       return json({ questoes: salvas, repetidas, pedidas: n });
+    }
+
+
+    // ---------------- CALENDÁRIO DE PROVAS (só lê; quem salva é o site depois da revisão) ----------------
+    if (b.acao === "calendario") {
+      const texto = typeof b.texto === "string" ? b.texto.replace(/\u0000/g, " ").trim().slice(0, LIMITE_CALENDARIO) : "";
+      const img = b.imagem && typeof b.imagem === "object" ? b.imagem as Record<string, unknown> : null;
+      const mime = String(img?.mime || ""), b64 = String(img?.base64 || "");
+      if (!texto && !img) throw new ErroIA("Mande o PDF ou a foto do calendário.", 400);
+      if (img && (!/^image\/(jpeg|png|webp)$/.test(mime) || !b64 || b64.length > MAX_IMAGEM_B64 || !/^[A-Za-z0-9+/=]+$/.test(b64))) throw new ErroIA("Imagem inválida ou grande demais.", 400);
+      if (!img && texto.length < 30) throw new ErroIA("Não achei texto nesse arquivo.", 400);
+      // semestre, turma e matérias: do semestre atual do aluno; o site pode mandar os da configuração (semestre novo ainda não salvo)
+      const { data: sem } = await admin.from("semestres").select("id,numero,turma").eq("aluno_id", uid).eq("atual", true).maybeSingle();
+      let qd = admin.from("disciplinas").select("id,nome").eq("aluno_id", uid).order("ordem").order("id");
+      if (sem) qd = qd.eq("semestre_id", sem.id);
+      const { data: discs } = await qd;
+      const materias = ((discs || []) as { id: number; nome: string }[]).slice(0, 40);
+      const listaSite = Array.isArray(b.materias) ? (b.materias as unknown[]).map((x) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean).slice(0, 40) : null;
+      const numSite = Number(b.semestre);
+      const c: CtxCalendario = {
+        semestre: Number.isInteger(numSite) && numSite >= 1 && numSite <= 12 ? numSite : (sem?.numero ?? P.semestre ?? null),
+        turma: typeof b.turma === "string" && b.turma.trim() ? b.turma.trim().slice(0, 10) : (sem?.turma ?? P.turma ?? null),
+        materias: listaSite ?? materias.map((m) => m.nome), hoje,
+      };
+      await reservar(admin, uid, "calendarios", 1, P); reservado = { tipo: "calendarios", n: 1 };
+      const prompt = promptCalendario(c, !img);
+      const conteudo: Conteudo = img
+        ? [{ type: "image", source: { type: "base64", media_type: mime, data: b64 } }, { type: "text", text: prompt }]
+        : prompt + texto + "\n</calendario>";
+      const r = await chamarClaude(conteudo, MAX_TOKENS.calendario);
+      const out = extrairJSON(r.texto);
+      // com a lista do site, as matérias ainda não têm id: o site casa pelo nome
+      const provas = limparCalendario(out, listaSite ? listaSite.map((nome) => ({ id: -1, nome })) : materias, hoje)
+        .map((p) => listaSite ? { ...p, disciplina_id: null } : p);
+      await registrar(admin, uid, "calendarios", 0, r.entrada, r.saida);
+      if (!out) throw new ErroIA("A IA não conseguiu ler esse calendário. Tente de novo ou mande uma foto mais nítida.", 502); // devolve a importação
+      reservado = null;
+      return json({ provas, semestre: c.semestre, turma: c.turma, aviso: String(out.aviso || "").slice(0, 300) });
     }
 
     return json({ erro: "Ação desconhecida." }, 400);
