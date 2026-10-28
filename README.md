@@ -4,7 +4,7 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 
 - **Hospedagem:** Cloudflare Pages (site estático, sem etapa de build)
 - **Login e banco de dados:** Supabase (link mágico por e-mail, regras de acesso por aluno)
-- **IA:** API do Claude, chamada só pelo servidor (Edge Functions do Supabase), na Etapa 3
+- **IA:** API do Claude (modelo Claude Haiku 4.5), chamada só pelo servidor (função `ia` do Supabase), e só quando o aluno pede
 
 ## Páginas
 
@@ -20,6 +20,10 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `supabase/functions/drive-varrer` | Função que lê a pasta do Drive, liga os arquivos às matérias e cria os temas |
 | `supabase/04_semestres.sql` | Semestres de cada aluno (o histórico fica guardado) e a lista de matérias de cada semestre |
 | `supabase/05_livros.sql` | Livros dos alunos (só o texto) e a busca dentro deles |
+| `supabase/06_estudo.sql` | O painel de estudo: questões, resumos, mapas, agenda, aulas, calendário, vida acadêmica, laminário e limites de IA |
+| `supabase/functions/ia` | Função que faz resumos, mapas mentais e questões com o Claude |
+| `supabase/functions/drive-arquivo` | Função que entrega ao navegador os PDF/Word/PowerPoint do Drive para ele ler o texto |
+| `assets/painel.js` | As abas do painel (Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica) |
 
 ## Como colocar no ar (uma vez)
 
@@ -71,7 +75,7 @@ O que fazer (uma vez):
 1. Supabase → **SQL Editor** → **New query**. Cole todo o `supabase/04_semestres.sql` e clique em **Run**. Ele cria o semestre atual de quem já usa o site, com as matérias que a pessoa já tem.
 2. **Republique a drive-varrer colando o novo index.ts** (Edge Functions → drive-varrer → Code → apague tudo, cole `supabase/functions/drive-varrer/index.ts` e clique em **Deploy**). A função nova liga os arquivos só às matérias do semestre atual (os arquivos já ligados a semestres antigos continuam lá) e entende nomes em espanhol e em português (ex.: pasta "Farmacologia 2" = "Farmacología II", "Anatopato" = "Anatomía Patológica", "Gestão" = "Gestión").
 
-Ainda não dá para editar as matérias do semestre atual depois de configurado (só criando um semestre novo). Isso fica para a próxima etapa.
+Depois de configurado, o aluno muda as matérias do semestre atual em **Ajustes do semestre**, no fim do painel (nome, professor, "tem prática", adicionar e remover).
 
 ### 7. Livros
 Cada aluno tem a janela **Meus livros**, com o botão **Adicionar livro**. Ele escolhe o arquivo (PDF, EPUB, Word .docx ou .txt). O **próprio navegador** do aluno lê o texto página por página (com barra de progresso) e grava **só o texto**, em trechos de cerca de 2.000 letras com o número da página. O arquivo do livro **não** é enviado nem guardado, então não gasta o espaço de arquivos do Supabase. O livro fica só na conta do aluno: ninguém mais vê (nem o administrador, que vê só a lista de títulos).
@@ -87,6 +91,34 @@ Limites e espaço:
 - Um livro de 1.000 páginas ocupa uns 5 a 8 MB no banco. O plano grátis tem 500 MB no total: acompanhe em **Project Settings → Usage** (Database size). Com muitos alunos usando livros, vai precisar do plano Pro.
 - PDF escaneado (páginas que são fotos) não tem texto: o site avisa e não grava nada.
 - Livros muito grandes (mais de 1.000 páginas) podem demorar alguns minutos e pesar no celular; no computador é melhor. Se a página for fechada no meio, o livro aparece como "incompleto": é só apagar e enviar de novo.
+
+### 8. O painel de estudo completo (Etapa 4)
+O painel agora tem as mesmas abas do painel original: **Agenda**, **Disciplinas**, **Questões**, **Média**, **Aulas**, **Calendário** e **Vida acadêmica**. Cada aluno começa com tudo vazio e só vê o que é dele.
+
+- **Agenda:** monta o plano de estudo até cada prova com os temas que faltam; o aluno marca o que estudou e ajusta as horas por dia.
+- **Disciplinas:** os temas de cada matéria (os do Drive entram sozinhos), com **Resumo** e **Mapa mental**. As janelas "Meu Google Drive" e "Meus livros" ficam nesta aba; quem não usa clica em **Agora não** e elas ficam fechadas (o navegador lembra).
+- **Resumo:** só é feito quando o aluno clica em "Gerar resumo", no formato **resumo ativo** (tópicos diretos, sem texto corrido). Se o tema aparece nos livros do aluno, o site pergunta: **Do jeito do professor** ou **Corrigido pelos livros**. Nos dois, o resumo separa o que diz o material do professor e o que diz cada livro (com título e página) e avisa quando discordam. Dá para baixar em **PDF** e **Word**. O modelo do resumo pode ser trocado em Agenda → Ajustes da agenda → Modelo dos resumos.
+- **PDF, Word e PowerPoint do Drive:** são lidos no navegador do aluno na hora do primeiro resumo daquele tema (a função do Supabase não aguenta ler arquivos pesados).
+- **Questões:** 4 tipos (marcar X, verdadeiro ou falso, relacionar, dissertativa), até 20 de cada e 40 por vez, estilo prova com caso clínico. A IA nunca repete as que o aluno já recebeu (mesmo as que ele apagou).
+- **Laminário:** o aluno envia as fotos das lâminas/slides dele, com a resposta, e treina (mostrar resposta, acertei/errei, só as que errei). As imagens ficam numa pasta privada; cada aluno pode ter até 300 (cada uma é reduzida para cerca de 300 KB no aparelho).
+- **Média:** calculadora "quanto falta" com a regra de notas da faculdade (a mesma do passo 4 da configuração).
+- **Aulas**, **Calendário** (provas, seminários, entregas, feriados e semanas de prova) e **Vida acadêmica** (eventos, ligas, horas e certificados): o aluno preenche.
+
+O que fazer (uma vez, nesta ordem):
+
+1. **Banco:** Supabase → **SQL Editor** → **New query**. Cole todo o `supabase/06_estudo.sql` e clique em **Run** (depois do 05). Ele também cria a pasta privada `laminas` no Storage. Pode rodar de novo sem problema.
+2. **Chave da IA:**
+   1. Entre em **console.anthropic.com** com a sua conta → **Settings → Billing** e coloque crédito (ex.: 10 dólares) → **API Keys → Create Key**. Copie a chave (começa com `sk-ant-`).
+   2. Supabase → **Edge Functions → Secrets** → **Add new secret**. Nome: `ANTHROPIC_API_KEY`. Valor: cole a chave. Salve.
+   3. **Nunca cole essa chave no chat, no site, no GitHub ou em mensagens.** Ela só fica nesse lugar do Supabase. Se vazar, apague a chave no console da Anthropic e crie outra.
+   4. (Opcional) Para trocar o modelo, crie o segredo `IA_MODELO` (ex.: `claude-sonnet-4-5`). Sem ele, usa `claude-haiku-4-5`, o mais barato.
+3. **Função `ia`:** **Edge Functions → Deploy a new function → Via Editor**. Nome: `ia`. Apague o exemplo, cole todo o `supabase/functions/ia/index.ts` e clique em **Deploy**. Depois abra a função → **Details/Settings** → desligue **"Verify JWT"** e salve (a função confere o login sozinha).
+4. **Função `drive-arquivo`:** do mesmo jeito, nome `drive-arquivo`, colando `supabase/functions/drive-arquivo/index.ts`, e também com **"Verify JWT" desligado**. Ela usa os segredos do Google que já existem (`GOOGLE_SA_KEY`, `GOOGLE_OAUTH_SECRET`, `GOOGLE_OAUTH_CLIENT_ID`).
+5. **Teste:** entre como aluno → **Disciplinas** → um tema → **Resumo** → **Gerar resumo**. Se aparecer "A IA ainda não foi configurada", falta o passo 2 (ou a função foi publicada antes do segredo: publique de novo).
+
+Limites de IA por mês (cada aluno): **60 resumos**, **400 questões** e **60 mapas mentais**. Quando passa, aparece "Você chegou ao limite do mês" e renova no dia 1º. Você vê o uso e muda o limite de cada aluno na página de **Administração** (coluna "IA no mês"; mude o número e clique em Salvar).
+
+Custo estimado com o Claude Haiku 4.5 (1 dólar por milhão de tokens de entrada e 5 por milhão de saída): um resumo custa cerca de **2 a 6 centavos de dólar** (mais caro quando o material do professor é grande); 10 questões, cerca de **3 a 5 centavos**; um mapa mental, cerca de **1 a 2 centavos**. Um aluno que usa o limite inteiro do mês gasta no máximo uns 5 a 6 dólares; o uso normal deve ficar bem abaixo disso. Acompanhe em console.anthropic.com → **Usage**.
 
 ## Configuração pública
 `assets/config.js` tem só a URL do projeto e a chave **publishable** do Supabase, que podem ficar no navegador. A chave secreta (service_role) e a chave da API do Claude **nunca** entram neste repositório.

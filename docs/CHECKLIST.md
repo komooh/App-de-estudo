@@ -8,15 +8,15 @@ Duas listas que guiam o projeto: o que um site profissional precisa ter por baix
 | --- | --- | --- | --- |
 | 1 | Servidor (site no ar 24h) | Cloudflare Pages | Pronto para publicar |
 | 2 | Domínio próprio | A comprar quando o nome for decidido | Pendente |
-| 3 | Banco de dados | Supabase (Postgres). Histórico por semestre (`04_semestres.sql`); livros só como texto, com limite por aluno (`05_livros.sql`) para caber nos 500 MB do plano grátis | Pronto |
+| 3 | Banco de dados | Supabase (Postgres). Histórico por semestre (`04_semestres.sql`); livros só como texto, com limite por aluno (`05_livros.sql`) para caber nos 500 MB do plano grátis; painel de estudo (`06_estudo.sql`); imagens do laminário numa pasta privada, até 300 por aluno (cerca de 90 MB do 1 GB grátis de arquivos) | Pronto |
 | 4 | Login | Link mágico por e-mail, só para quem foi convidado | Pronto |
-| 5 | Permissões | Regras do banco (RLS): cada aluno só vê o que é dele (semestres, livros e busca nos livros também); aluno não muda plano nem vencimento; só o admin muda a lista de matérias | Pronto e testado |
-| 6 | API entre a tela e o banco | Supabase + Edge Functions (criar aluno; Google Drive; IA na Etapa 3) | Parcial |
+| 5 | Permissões | Regras do banco (RLS): cada aluno só vê o que é dele (semestres, livros, questões, resumos, mapas, lâminas, agenda, aulas, calendário e vida acadêmica também); aluno não muda plano, vencimento nem limites de IA; resumos, mapas e questões só o servidor grava; o texto dos PDFs só entra pelo material do próprio aluno | Pronto e testado |
+| 6 | API entre a tela e o banco | Supabase + Edge Functions (criar aluno; Google Drive; arquivos do Drive; IA com limite mensal por aluno) | Pronto |
 | 7 | Gateway de pagamento | Por enquanto pagamento por fora (Pix/transferência); Mercado Pago ou Pagopar depois | Fora da versão 1 |
 | 8 | Webhook do pagamento | Só quando houver gateway | Fora da versão 1 |
 | 9 | Cobrança recorrente | Hoje: vencimento controlado no painel do administrador | Manual |
 | 10 | E-mail transacional | Hoje: e-mail gratuito do Supabase (cerca de 2 por hora). Antes do teste fechado: Resend com domínio próprio | Pendente |
-| 11 | Chaves fora do código | Só a chave pública no navegador; chave de serviço, chave do Claude e chaves do Google ficam no servidor (a conexão do Google de cada aluno fica criptografada no banco) | Pronto |
+| 11 | Chaves fora do código | Só a chave pública no navegador; chave de serviço, chave do Claude (`ANTHROPIC_API_KEY`) e chaves do Google ficam nos segredos do Supabase (a conexão do Google de cada aluno fica criptografada no banco). O pedido para a IA é montado no servidor, nunca no navegador | Pronto |
 | 12 | Aviso se o site cair | Monitor gratuito (UptimeRobot ou Cloudflare) mandando alerta no celular | Pendente |
 | 13 | Backup do banco | Supabase Pro faz backup diário; até lá, exportação semanal | Pendente |
 
@@ -40,3 +40,9 @@ Duas listas que guiam o projeto: o que um site profissional precisa ter por baix
 | 14 | Sem selo "feito com IA" | Ok. O aviso de que os resumos são gerados por IA continua, porque é sobre o conteúdo, não sobre o site |
 | 15 | Política de privacidade | Rascunho feito (`privacidade.html`); falta o e-mail de contato |
 | 16 | Termos e condições | Rascunho feito (`termos.html`); falta o e-mail de contato |
+
+## Etapa 4: o que foi testado
+- Banco: 01 a 06 rodados duas vezes seguidas num Postgres de teste; cada aluno só vê e muda o que é dele; aluno não grava resumos/questões/mapas, não muda limites, não grava texto em material de outro, não liga horário/tema/prova a matéria de outro e não envia lâmina na pasta de outro.
+- Funções `ia` e `drive-arquivo`: testes com a IA e o Google falsos (sem gastar), incluindo limite do mês, falha da IA (o uso é devolvido), questões repetidas descartadas e IA sem chave.
+- Telas: todas as abas no computador e no celular (390 px), sem rolagem lateral, sem erros, com textos do aluno e da IA escapados (teste com código malicioso nos nomes e no resumo).
+
