@@ -41,6 +41,12 @@ Duas listas que guiam o projeto: o que um site profissional precisa ter por baix
 | 15 | Política de privacidade | Modelo completo (`privacidade.html`, com resumo em espanhol), igual ao que o site coleta de verdade. Falta: preencher lei/foro e revisão de advogado |
 | 16 | Termos e condições | Modelo completo (`termos.html`, com resumo em espanhol) e aceite obrigatório com versão (`09_termos.sql`). Falta: preencher lei/foro e revisão de advogado |
 
+## Regra das telas: abas informativas, cadastros em Configurações
+- As abas do painel (Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica, Laminário) **só mostram** os dados e servem para estudar (marcar tema estudado, resumo, mapa, questões, treinar lâminas, notas da Média, status do evento, certificado, "Provas sem data" na Agenda).
+- **Todo formulário ou botão de adicionar/cadastrar fica em Configurações**, em cartões que abrem e fecham (matérias e semestres, conteúdos e materiais, calendário e avaliações, aulas e horários, vida acadêmica, laminário, enviar arquivos, importar documento, ajustes da agenda). Remover e editar itens fica junto da lista no mesmo cartão.
+- Onde a aba perdeu o formulário, fica uma dica discreta com link para o cartão certo; os vazios também apontam para Configurações.
+- Teste automático (`cadastros.js`): nenhuma aba tem `form[data-form^=add]`, botão de adicionar, campo de arquivo ou botão de remover; cada cadastro existe em Configurações e cria o item.
+
 ## Etapa 4: o que foi testado
 - Banco: 01 a 06 rodados duas vezes seguidas num Postgres de teste; cada aluno só vê e muda o que é dele; aluno não grava resumos/questões/mapas, não muda limites, não grava texto em material de outro, não liga horário/tema/prova a matéria de outro e não envia lâmina na pasta de outro.
 - Funções `ia` e `drive-arquivo`: testes com a IA e o Google falsos (sem gastar), incluindo limite do mês, falha da IA (o uso é devolvido), questões repetidas descartadas e IA sem chave.
