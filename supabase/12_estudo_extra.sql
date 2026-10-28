@@ -9,6 +9,9 @@
 --     contador uso_ia.flashcards). Só o administrador muda o limite.
 --   - paineis: o "painel do tema" (resumo visual em cartões), um por tema, feito pela IA (quem grava é
 --     o servidor; o aluno lê e apaga). Conta no limite de mapas mentais (não tem limite próprio).
+--   - memória de estudo: além da memória do resumo (10_memoria_resumo.sql), o jeito que o aluno quer
+--     as questões, o mapa mental, os flash cards e o painel (texto livre, até 1500 letras cada).
+--     São preferências de ESTILO: a função "ia" nunca deixa que mudem as regras (só o material, sem inventar, mesmo JSON).
 -- =====================================================================
 
 -- ---------- Flash cards ----------
@@ -117,6 +120,16 @@ drop policy if exists admin_ler on public.paineis;
 create policy admin_ler on public.paineis for select to authenticated using (public.is_admin());
 revoke all on public.paineis from anon, authenticated;
 grant select, delete on public.paineis to authenticated;
+
+-- ---------- Memória de estudo (mesmas regras de acesso das preferências: cada aluno só lê e muda a dele) ----------
+alter table public.preferencias add column if not exists memoria_questoes text;
+alter table public.preferencias add column if not exists memoria_mapa text;
+alter table public.preferencias add column if not exists memoria_flashcards text;
+alter table public.preferencias add column if not exists memoria_painel text;
+alter table public.preferencias drop constraint if exists preferencias_memorias_tamanho;
+alter table public.preferencias add constraint preferencias_memorias_tamanho check (
+  (memoria_questoes is null or char_length(memoria_questoes) <= 1500) and (memoria_mapa is null or char_length(memoria_mapa) <= 1500) and
+  (memoria_flashcards is null or char_length(memoria_flashcards) <= 1500) and (memoria_painel is null or char_length(memoria_painel) <= 1500));
 
 -- ---------- Tarefas: os tipos novos ----------
 alter table public.tarefas drop constraint if exists tarefas_tipo_check;

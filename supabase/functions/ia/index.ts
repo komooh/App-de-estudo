@@ -230,7 +230,7 @@ export const TIPOS_QUESTAO: Record<string, { nome: string; fmt: string; regra: s
   dis: { nome: "dissertativa", fmt: `{"questoes":[{"enunciado":"caso clínico + pergunta aberta","resposta":"gabarito em tópicos","explicacao":"..."}]}`,
     regra: `Pergunta aberta como numa prova discursiva: caso clínico com 1 a 3 perguntas (ex.: qual o diagnóstico, qual fármaco usar e por quê, qual associação é proibida, qual a conduta). "resposta" é o gabarito em tópicos curtos (Markdown), com o que precisa aparecer para ganhar a nota toda.` },
 };
-export function promptQuestoes(c: Contexto, tipo: string, n: number, evitar: string[], material: string): string {
+export function promptQuestoes(c: Contexto, tipo: string, n: number, evitar: string[], material: string, memoria: string | null = null): string {
   const g = TIPOS_QUESTAO[tipo];
   return `${cabecalho(c, "Você é professor de medicina e elabora questões de prova")}
 
@@ -242,13 +242,13 @@ Estilo e nível (obrigatório):
 - Português do Brasil; quando o nome usado na prova em espanhol ajudar, coloque entre parênteses.
 
 Tipo: ${g.nome}. ${g.regra}
-Escreva exatamente ${n} questões deste tipo, cada uma sobre um aspecto diferente do conteúdo.
+Escreva exatamente ${n} questões deste tipo, cada uma sobre um aspecto diferente do conteúdo.${blocoMemoria("questoes", memoria)}
 ${evitar.length ? `\nNÃO repita nem reformule estas questões que o aluno já recebeu (crie casos e focos diferentes):\n${evitar.map((x) => "- " + x).join("\n")}\n` : ""}
 ${material.trim() ? `${AVISO_FONTES}\n<material_do_professor>\n${material}\n</material_do_professor>\n` : ""}
 Responda SOMENTE com JSON válido, sem texto antes ou depois, no formato: ${g.fmt}`;
 }
 
-export function promptMapa(c: Contexto, base: string, deResumo: boolean): string {
+export function promptMapa(c: Contexto, base: string, deResumo: boolean, memoria: string | null = null): string {
   return `${cabecalho(c, "Você monta mapas mentais de estudo")}
 
 Regras:
@@ -256,7 +256,7 @@ Regras:
 - 4 a 7 ramos principais, organizados pela lógica da matéria (ex.: definição, etiopatogenia, clínica, diagnóstico, tratamento; em Anatomia Patológica: macro, micro e como reconhecer na lâmina; em Farmacologia: mecanismo, usos, efeitos adversos).
 - Cada ramo com 2 a 6 filhos; pode descer até 3 níveis abaixo do tema central.
 - Cada nó é uma palavra-chave ou frase curta (no máximo 8 palavras), nunca um parágrafo. Inclua números e valores de corte que caem na prova.
-- Use só conhecimento consolidado e o material abaixo; não invente.
+- Use só conhecimento consolidado e o material abaixo; não invente.${blocoMemoria("mapa", memoria)}
 Responda SOMENTE com JSON: {"ramos":[{"t":"...","filhos":[{"t":"...","filhos":[]}]}]}
 
 ${base.trim() ? `${AVISO_FONTES}\n<${deResumo ? "resumo_do_tema" : "material_do_professor"}>\n${base}\n</${deResumo ? "resumo_do_tema" : "material_do_professor"}>` : "Não há material; use os livros-base (Robbins, Harrison, Goodman & Gilman)."}`;
@@ -1025,7 +1025,8 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
     const deResumo = !!base;
     if (!base) base = (await materialDoTema(admin, uid, t.id, LIMITE_MATERIAL.mapa)).texto;
     const c: Contexto = { ...ctxBase, materia: t.disciplinas.nome, tema: t.nome, prova: t.prova, itens: itensDe(t.itens) };
-    const r = await pedirJSON(promptMapa(c, base, deResumo), MAX_TOKENS.mapa, "mapa", gasto, ctx.fim);
+    const mem = await memoriaDe(admin, uid, "mapa");
+    const r = await pedirJSON(promptMapa(c, base, deResumo, mem), MAX_TOKENS.mapa, "mapa", gasto, ctx.fim);
     const ramos = (Array.isArray(r.out?.ramos) ? r.out!.ramos as Q[] : []).map((x) => limparNo(x, 1)).filter(Boolean).slice(0, 8);
     if (!ramos.length) throw new ErroIA("A IA não devolveu um mapa válido. Tente de novo.", 502);
     const linha = { tema_id: t.id, aluno_id: uid, dados: { titulo: t.nome, ramos }, base: deResumo ? "resumo" : base ? "material" : "livros", criado_em: new Date().toISOString() };
@@ -1069,9 +1070,10 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
     const t = e.tema_id != null ? await carregarTema(admin, uid, e.tema_id) : null;
     const tema = String(e.tema), mix = e.mix as Record<string, number>;
     const chaveTema = qNorm(tema);
-    const [{ data: hist }, mat] = await Promise.all([
+    const [{ data: hist }, mat, memQ] = await Promise.all([
       admin.from("questoes_historico").select("tema_chave,enunciado,chave").eq("aluno_id", uid).eq("disciplina_id", disc.id).order("criado_em", { ascending: false }).limit(500),
       t ? materialDoTema(admin, uid, t.id, LIMITE_MATERIAL.questoes) : Promise.resolve({ texto: "", usados: 0, cortado: false }),
+      memoriaDe(admin, uid, "questoes"),
     ]);
     const evitar = (hist || []).filter((h) => h.tema_chave === chaveTema).slice(0, 40).map((h) => String(h.enunciado));
     const c: Contexto = { ...ctxBase, materia: disc.nome, professor: disc.professor, tema, prova: t?.prova, itens: itensDe(t?.itens) };
@@ -1082,7 +1084,7 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
     const pedidas = lotes.reduce((s, [, k]) => s + k, 0);
     const salvas: Q[] = []; let repetidas = 0, ultimoErro: Error | null = null, parar = false;
     const umLote = async (tp: string, k: number) => {
-      const r = await pedirJSON(promptQuestoes(c, tp, k, evitar, mat.texto), MAX_TOKENS.questoes, `questoes ${tp}`, gasto, ctx.fim);
+      const r = await pedirJSON(promptQuestoes(c, tp, k, evitar, mat.texto, memQ), MAX_TOKENS.questoes, `questoes ${tp}`, gasto, ctx.fim);
       const brutas = Array.isArray(r.out?.questoes) ? r.out!.questoes as Q[] : r.cortada ? objetosDaLista(r.texto, "questoes") : [];
       const novas: Q[] = [];
       for (const q of brutas.map((x) => limparQuestao(tp, x)).filter(Boolean) as Q[]) {

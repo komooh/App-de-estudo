@@ -546,3 +546,8 @@ table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-to
   body.imprimindo-painel .pn-sec,body.imprimindo-painel .pn-num,body.imprimindo-painel .pn-card{break-inside:avoid;background:#fff}
   body.imprimindo-painel .pn-cab{background:#fff}
 }
+/* Memória de estudo: uma aba para cada parte */
+.mem-abas{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 14px;padding:3px;background:var(--card2);border:1px solid var(--line);border-radius:10px;width:fit-content;max-width:100%}
+.mem-aba{border:0;background:none;padding:6px 12px;border-radius:7px;font-size:13.5px;font-weight:500;color:var(--muted)}
+.mem-aba[aria-selected="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.12)}
+@media (max-width:520px){.mem-aba{padding:6px 9px;font-size:13px}}

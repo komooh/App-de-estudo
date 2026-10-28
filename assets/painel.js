@@ -202,7 +202,7 @@
   /* ---------- Configurações: cada cadastro tem o seu cartão (as abas do painel só mostram) ---------- */
   const CFG = { materias: "Matérias e semestres", conteudos: "Conteúdos e materiais", calendario: "Calendário e avaliações", aulas: "Aulas e horários",
     vida: "Vida acadêmica", lam: "Laminário", enviar: "Enviar arquivos e documentos", docs: "Documentos importados",
-    drive: "Meu Google Drive", livros: "Meus livros", agenda: "Ajustes da agenda", memoria: "Memória do resumo", antigo: "Importar dados do painel antigo" };
+    drive: "Meu Google Drive", livros: "Meus livros", agenda: "Ajustes da agenda", memoria: "Memória de estudo", antigo: "Importar dados do painel antigo" };
   const cfgFechados = new Set((() => { try { return JSON.parse(ss.get("painel:cfgFechados") || "[]"); } catch (_) { return []; } })());
   /** Cartão de Configurações: janela que abre e fecha (o aluno recolhe o que não usa; fica lembrado nesta aba do navegador) */
   function cartao(k, corpo) {
@@ -497,35 +497,81 @@
   function vConfigFim() {
     return cartao("agenda", vCfgAgenda()) + cartao("memoria", `<div class="win-body" id="memoriaBox">${vMemoria()}</div>`);
   }
-  /* ---------- Memória do resumo: como o aluno quer os resumos (texto livre) + o modelo completo (avançado) ---------- */
+  /* ---------- Memória de estudo: como o aluno quer os resumos, questões, mapas, flash cards e painéis (texto livre) ---------- */
+  // Cada parte tem a sua coluna em preferencias (memoria_resumo do 10; as outras do 12_estudo_extra.sql), exemplos,
+  // contador, Salvar e Limpar. Resumos têm também o modelo completo (Avançado).
   const MEM_MAX = 1500, EXTRA_MAX = 500;
-  const MEM_EXEMPLOS = [
-    ["Tabelas comparativas", "Use tabelas comparativas sempre que houver dois ou mais fármacos, classes ou doenças."],
-    ["Frases curtas", "Frases bem curtas: no máximo uma linha por tópico."],
-    ["Mnemônicos", "No fim de cada seção, crie um mnemônico para decorar."],
-    ["Doses e valores", "Destaque em negrito doses, valores de referência e números importantes."],
-  ];
-  const memAtual = () => ui.memDraft ?? (S.pref.memoria_resumo || "");
+  const MEM_SEC = {
+    resumo: { nome: "Resumos", col: "memoria_resumo", rot: "Como eu quero meus resumos", salvo: "Memória do resumo salva",
+      intro: "Escreva como você quer seus resumos. Se deixar vazio, usamos o formato padrão: resumo ativo, com tópicos diretos.",
+      regra: "Vale para todos os resumos novos. A IA segue o seu jeito no formato e no estilo, mas continua usando só o seu material, marcando o que vem do professor e dos livros, e sem inventar dados.",
+      ph: "Ex.: quero tabelas comparativas entre as classes, frases curtas, um mnemônico no fim de cada seção, doses e valores em negrito, começar pelas pegadinhas de prova e colocar o nome em espanhol entre parênteses.",
+      usa: "Seus resumos novos usam esta memória.",
+      ex: [["Tabelas comparativas", "Use tabelas comparativas sempre que houver dois ou mais fármacos, classes ou doenças."], ["Frases curtas", "Frases bem curtas: no máximo uma linha por tópico."],
+        ["Mnemônicos", "No fim de cada seção, crie um mnemônico para decorar."], ["Doses e valores", "Destaque em negrito doses, valores de referência e números importantes."]] },
+    questoes: { nome: "Questões", col: "memoria_questoes", rot: "Como eu quero minhas questões", salvo: "Memória das questões salva",
+      intro: "Escreva como você quer as questões. Se deixar vazio, usamos o padrão: estilo prova de medicina, a maioria com caso clínico.",
+      regra: "Vale para as questões novas. Muda o estilo (tamanho, foco, tipo de caso), mas não o tipo nem a quantidade que você pedir, e a IA não inventa dados.",
+      ph: "Ex.: casos clínicos curtos, foco em conduta e em fármaco de escolha, explicação curta de cada alternativa e nome em espanhol entre parênteses.",
+      usa: "Suas questões novas usam esta memória.",
+      ex: [["Casos curtos", "Casos clínicos curtos, de no máximo 4 linhas."], ["Foco em conduta", "Cobre mais conduta e fármaco de escolha do que definição."],
+        ["Explicar cada alternativa", "Na explicação, diga em uma frase por que cada alternativa errada está errada."], ["Estilo residência", "Estilo das provas de residência (ENARE, USP), nível difícil."]] },
+    mapa: { nome: "Mapa mental", col: "memoria_mapa", rot: "Como eu quero meus mapas mentais", salvo: "Memória do mapa mental salva",
+      intro: "Escreva como você quer os mapas mentais. Se deixar vazio, usamos o padrão: 4 a 7 ramos com palavras-chave.",
+      regra: "Vale para os mapas novos. Muda a organização e o tamanho dos ramos, mas a IA continua usando só o material, sem inventar.",
+      ph: "Ex.: poucos ramos, no máximo 5, com palavras-chave bem curtas e um ramo só para os números que caem na prova.",
+      usa: "Seus mapas novos usam esta memória.",
+      ex: [["Poucos ramos", "No máximo 5 ramos principais."], ["Palavras-chave", "Só palavras-chave, no máximo 4 palavras por nó."],
+        ["Ramo de números", "Um ramo só com os números e valores que caem na prova."], ["Ordem clínica", "Ramos na ordem: definição, causa, clínica, diagnóstico, tratamento."]] },
+    flashcards: { nome: "Flash cards", col: "memoria_flashcards", rot: "Como eu quero meus flash cards", salvo: "Memória dos flash cards salva",
+      intro: "Escreva como você quer os flash cards. Se deixar vazio, usamos o padrão: pergunta curta na frente e resposta direta atrás.",
+      regra: "Vale para os flash cards novos. Muda o jeito da pergunta e da resposta, mas a IA continua usando só o seu material, sem inventar.",
+      ph: "Ex.: frente como mini caso clínico, resposta em uma palavra ou lista curta, e sempre uma dica com mnemônico.",
+      usa: "Seus flash cards novos usam esta memória.",
+      ex: [["Mini caso na frente", "Na frente, um mini caso clínico de uma linha."], ["Resposta curtíssima", "Resposta de no máximo uma linha."],
+        ["Sempre com dica", "Sempre coloque uma dica com mnemônico."], ["Mais doses", "Faça mais cards de doses e valores de referência."]] },
+    painel: { nome: "Painel do tema", col: "memoria_painel", rot: "Como eu quero meus painéis", salvo: "Memória do painel salva",
+      intro: "Escreva como você quer o painel do tema. Se deixar vazio, usamos o padrão: frase, conceitos, números, comparação, conduta, pegadinhas e checklist.",
+      regra: "Vale para os painéis novos. Muda a ênfase e o tamanho de cada parte, mas a IA usa só o seu material e deixa vazio o que não estiver nele.",
+      ph: "Ex.: checklist maior, conceitos bem curtos e a comparação sempre que houver mais de um fármaco.",
+      usa: "Seus painéis novos usam esta memória.",
+      ex: [["Checklist maior", "Checklist com 8 a 10 itens."], ["Conceitos curtos", "Conceitos com explicação de uma linha só."],
+        ["Sempre comparar", "Monte a tabela de comparação sempre que o material tiver mais de um item parecido."], ["Mais pegadinhas", "Destaque as pegadinhas de prova."]] },
+  };
+  const MEM_EXEMPLOS = MEM_SEC.resumo.ex;
+  const memSec = () => MEM_SEC[ui.memSec] ? ui.memSec : "resumo";
+  const memDrafts = {};
+  const memAtual = (k = memSec()) => memDrafts[k] ?? (S.pref[MEM_SEC[k].col] || "");
+  // a coluna desta parte ainda não existe (falta o 12): a linha de preferências veio sem ela, ou salvar falhou por isso
+  const memFalta = (k) => k !== "resumo" && (ui.memFalta12 || (Object.keys(S.pref).length > 0 && !(MEM_SEC[k].col in S.pref)));
   function vMemoria() {
-    const v = memAtual(), salvo = S.pref.memoria_resumo || "";
-    return `<p style="margin:0">Escreva como você quer seus resumos. Se deixar vazio, usamos o formato padrão: resumo ativo, com tópicos diretos.</p>
-      <p class="muted" style="margin:6px 0 12px;font-size:13px">Vale para todos os resumos novos. A IA segue o seu jeito no formato e no estilo, mas continua usando só o seu material, marcando o que vem do professor e dos livros, e sem inventar dados.</p>
-      <label class="field"><span class="mono">Como eu quero meus resumos</span>
-        <textarea id="memInp" class="inp" rows="6" maxlength="${MEM_MAX}" aria-describedby="memCont" style="width:100%" placeholder="Ex.: quero tabelas comparativas entre as classes, frases curtas, um mnemônico no fim de cada seção, doses e valores em negrito, começar pelas pegadinhas de prova e colocar o nome em espanhol entre parênteses.">${esc(v)}</textarea></label>
-      <div class="row" style="justify-content:space-between;align-items:center;margin-top:6px"><div class="mem-chips" role="group" aria-label="Exemplos para inserir">${MEM_EXEMPLOS.map(([t], i) => `<button type="button" class="mem-chip" data-a="memEx" data-i="${i}">+ ${esc(t)}</button>`).join("")}</div>
+    const k = memSec(), m = MEM_SEC[k], v = memAtual(k), salvo = S.pref[m.col] || "";
+    const abas = `<div class="mem-abas" role="tablist" aria-label="Partes da memória de estudo">${Object.entries(MEM_SEC).map(([kk, x]) => `<button type="button" role="tab" class="mem-aba" data-a="memSec" data-k="${kk}" aria-selected="${kk === k}">${esc(x.nome)}${S.pref[x.col] ? " ✓" : ""}</button>`).join("")}</div>`;
+    return `${abas}<div role="tabpanel" aria-label="${esc(m.nome)}" class="mem-parte">
+      ${memFalta(k) ? `<div class="fb bad" style="margin:0 0 12px">${FALTA12} Até lá, esta parte não é guardada.</div>` : ""}
+      <p style="margin:0">${esc(m.intro)}</p>
+      <p class="muted" style="margin:6px 0 12px;font-size:13px">${esc(m.regra)}</p>
+      <label class="field"><span class="mono">${esc(m.rot)}</span>
+        <textarea id="memInp" data-k="${k}" class="inp" rows="6" maxlength="${MEM_MAX}" aria-describedby="memCont" style="width:100%" placeholder="${esc(m.ph)}">${esc(v)}</textarea></label>
+      <div class="row" style="justify-content:space-between;align-items:center;margin-top:6px"><div class="mem-chips" role="group" aria-label="Exemplos para inserir">${m.ex.map(([t], i) => `<button type="button" class="mem-chip" data-a="memEx" data-i="${i}">+ ${esc(t)}</button>`).join("")}</div>
         <span class="mono tnum" id="memCont" aria-live="polite">${v.length}/${MEM_MAX}</span></div>
       <div class="row" style="margin-top:12px"><button class="btn solid" data-a="memSalvar">Salvar</button><button class="btn ghost" data-a="memLimpar" ${!salvo && !v ? "disabled" : ""}>Limpar e voltar ao padrão</button></div>
-      <p class="muted" style="margin:10px 0 0;font-size:13px" id="memStatus">${salvo ? "Seus resumos novos usam esta memória." : "Agora: formato padrão."}</p>
-      <details class="cfg" id="modeloBox" style="margin-top:18px" ${ui.modeloOpen ? "open" : ""}><summary>Avançado: modelo completo</summary>
+      <p class="muted" style="margin:10px 0 0;font-size:13px" id="memStatus">${salvo ? esc(m.usa) : "Agora: formato padrão."}</p>
+      ${k === "resumo" ? `<details class="cfg" id="modeloBox" style="margin-top:18px" ${ui.modeloOpen ? "open" : ""}><summary>Avançado: modelo completo</summary>
         <p class="muted" style="font-size:13px;margin:8px 0">Esta é a estrutura que a IA segue em todo resumo (formato resumo ativo: tópicos diretos, sem texto corrido). Cole aqui o seu modelo, se tiver um. Se a memória acima pedir outra coisa, vale a memória.</p>
         <textarea id="agModelo" class="inp" rows="12" maxlength="4000" style="width:100%;font-family:var(--f-mono);font-size:12.5px" aria-label="Modelo completo do resumo">${esc(S.pref.modelo_resumo || MODELO_PADRAO)}</textarea>
-        <div class="row" style="margin-top:8px"><button class="btn solid" data-a="saveModelo">Salvar modelo</button><button class="btn ghost" data-a="resetModelo">Voltar ao padrão</button></div></details>`;
+        <div class="row" style="margin-top:8px"><button class="btn solid" data-a="saveModelo">Salvar modelo</button><button class="btn ghost" data-a="resetModelo">Voltar ao padrão</button></div></details>` : ""}</div>`;
   }
-  async function salvarMemoria(valor) {
-    const v = String(valor || "").replace(/\r\n?/g, "\n").trim().slice(0, MEM_MAX) || null;
-    const { error } = await sb.from("preferencias").upsert({ aluno_id: H.P.id, memoria_resumo: v, atualizado_em: new Date().toISOString() });
-    if (error) { toast(/memoria_resumo/.test(error.message) ? "Falta rodar o 10_memoria_resumo.sql no Supabase." : "Não consegui salvar: " + error.message); return false; }
-    S.pref.memoria_resumo = v; ui.memDraft = null; return true;
+  async function salvarMemoria(valor, k = memSec()) {
+    const m = MEM_SEC[k], v = String(valor || "").replace(/\r\n?/g, "\n").trim().slice(0, MEM_MAX) || null;
+    const { error } = await sb.from("preferencias").upsert({ aluno_id: H.P.id, [m.col]: v, atualizado_em: new Date().toISOString() });
+    if (error) {
+      if (k === "resumo") toast(/memoria_resumo/.test(error.message) ? "Falta rodar o 10_memoria_resumo.sql no Supabase." : "Não consegui salvar: " + error.message);
+      else if (new RegExp(m.col + "|column|schema cache").test(error.message)) { ui.memFalta12 = true; toast(FALTA12); render(); }
+      else toast("Não consegui salvar: " + error.message);
+      return false;
+    }
+    S.pref[m.col] = v; delete memDrafts[k]; return true;
   }
   /** Semestre atual (número, turma e faculdade) e a turma dos semestres anteriores */
   function vSemestres() {
@@ -679,7 +725,7 @@
           <label class="field" style="flex:1 1 200px"><span class="mono">Conteúdo</span><input name="tema" list="temasDl" maxlength="200" placeholder="Ex.: Anticoagulantes" value="${esc(ui.genTema || "")}" required><datalist id="temasDl">${topics}</datalist></label>
           <div class="qmix">${[["nmc", "Marcar X", 4], ["nvf", "Verdadeiro ou falso", 3], ["nrel", "Relacionar", 2], ["ndis", "Dissertativa", 1]].map(([k, l, dv]) => `<label class="field"><span class="mono">${l}</span><input name="${k}" type="number" min="0" max="20" step="1" inputmode="numeric" value="${(ui.genMix && ui.genMix[k]) ?? dv}"></label>`).join("")}</div>
           <button class="btn solid" ${ui.genBusy ? "disabled" : ""}>${ui.genBusy ? "Gerando…" : "Gerar questões"}</button></form>` : `<div class="empty">Adicione uma matéria primeiro. ${SEM_MATERIA}</div>`}
-        <p class="muted" style="font-size:13px;margin-top:8px">As questões são feitas pelo Claude a partir do material do professor do tema (quando houver). ${esc(usoTxt("questoes", "limite_questoes_mes", "questões"))}.</p>
+        <p class="muted" style="font-size:13px;margin-top:8px">As questões são feitas pelo Claude a partir do material do professor do tema (quando houver). ${esc(usoTxt("questoes", "limite_questoes_mes", "questões"))}. ${S.pref.memoria_questoes ? "Usando sua memória das questões" : "Formato padrão"} (<button class="lnk" data-a="editMemoria" data-k="questoes">editar</button>).</p>
         ${ui.genMsg ? `<p style="margin-top:12px" aria-live="polite">${esc(ui.genMsg)}</p>` : ""}`;
     }
     const nav = [["prat", "Praticar questões"], ["flash", "Flash cards"], ["perf", "Desempenho"], ["rev", "Revisar erros"], ["gen", "Gerar com IA"]].map(([k, l]) => `<button data-a="qMode" data-m="${k}" aria-current="${ui.qMode === k}">${l}</button>`).join("");
@@ -1157,7 +1203,7 @@
       + semTemasHtml()
       + missHtml
       + janela("Plano de estudo", `<div class="win-body"><p class="muted" style="margin:0 0 12px;font-size:13.5px">A agenda distribui os temas que faltam entre hoje e cada prova, começando pela mais próxima, com revisão rápida 2 dias depois de cada tema e revisão final na véspera. Ela se refaz sozinha quando você marca um tema como estudado.</p>${dayHtml || `<div class="empty">Sem tarefas planejadas.</div>`}</div>`)
-      + `<p class="cfg-dica">Horas de estudo por dia e hora de dormir: ${lnkCfg("agenda")}. O jeito dos seus resumos: <button class="lnk" data-a="editMemoria">Configurações → Memória do resumo</button>.</p>`;
+      + `<p class="cfg-dica">Horas de estudo por dia e hora de dormir: ${lnkCfg("agenda")}. O jeito dos seus resumos, questões, mapas, flash cards e painéis: <button class="lnk" data-a="editMemoria">Configurações → Memória de estudo</button>.</p>`;
   }
 
   /** Configurações → Ajustes da agenda: horas por dia e hora de dormir */
@@ -1523,7 +1569,7 @@
         ${busy ? "" : `<button class="btn" data-a="fcGerar" data-id="${t.id}" data-mais="1">Gerar mais</button>`}
         ${ui.fcConfDel === t.id ? `<span class="row" style="gap:6px;align-items:center"><span style="color:var(--bad);font-size:13.5px">Apagar os ${cards.length} flash cards deste tema?</span><button class="btn" data-a="fcDel" data-id="${t.id}" style="color:var(--bad);border-color:var(--bad)">Apagar</button><button class="btn ghost" data-a="fcNaoDel">Não</button></span>`
           : `<button class="btn ghost" data-a="fcAskDel" data-id="${t.id}">Apagar flash cards</button>`}</div></div>`;
-    corpo += `<p class="muted" style="font-size:12.5px;margin-top:12px">${esc(usoFlash())}. Flash cards são feitos por IA e podem conter erros: confira no material.</p>`;
+    corpo += `<p class="muted" style="font-size:12.5px;margin-top:12px">${S.pref.memoria_flashcards ? "Usando sua memória dos flash cards" : "Formato padrão"} (<button class="lnk" data-a="editMemoria" data-k="flashcards">editar</button>). ${esc(usoFlash())}. Flash cards são feitos por IA e podem conter erros: confira no material.</p>`;
     const rodape = busy ? `<button class="btn" disabled>Gerando…</button>` : Array.isArray(cards) && !cards.length && !S.falta12 ? `<button class="btn" data-a="fcGerar" data-id="${t.id}">Gerar flash cards</button>` : "";
     return { corpo, rodape };
   }
@@ -1595,7 +1641,7 @@
     else if (!p) corpo += busy ? aviso : `<div class="empty">Ainda não há painel deste tema. O painel junta o tema em cartões: a ideia em uma frase, os conceitos, os números que caem, a comparação, a conduta, as pegadinhas e o que você tem que saber. É feito só com o seu material, quando você pede.<br><button class="btn solid" data-a="pnGerar" data-id="${t.id}" style="margin-top:10px">Gerar painel</button></div>`;
     else corpo += (busy ? aviso : "") + vPainel(p, t.id)
       + `<div class="exp-row"><span class="mono" style="font-size:11px">Imprimir ou salvar em PDF</span><div class="row" style="gap:8px"><button class="btn" data-a="pnImprimir">Imprimir</button></div></div>`;
-    corpo += `<p class="muted" style="font-size:12.5px;margin-top:12px">${esc(usoTxt("mapas", "limite_mapas_mes", "mapas mentais e painéis"))}. O painel é feito por IA só com o seu material e pode conter erros: confira.</p>`;
+    corpo += `<p class="muted" style="font-size:12.5px;margin-top:12px">${S.pref.memoria_painel ? "Usando sua memória do painel" : "Formato padrão"} (<button class="lnk" data-a="editMemoria" data-k="painel">editar</button>). ${esc(usoTxt("mapas", "limite_mapas_mes", "mapas mentais e painéis"))}. O painel é feito por IA só com o seu material e pode conter erros: confira.</p>`;
     const rodape = busy ? `<button class="btn" disabled>Gerando…</button>` : S.falta12 || !carregado ? "" : `<button class="btn" data-a="pnGerar" data-id="${t.id}">${p ? "Gerar painel de novo" : "Gerar painel"}</button>`;
     return { corpo, rodape };
   }
@@ -1865,12 +1911,13 @@
         if (await salvarPref(c)) { render(); toast("Agenda recalculada"); } break; }
       case "saveModelo": { const v = document.getElementById("agModelo").value.trim().slice(0, 4000); if (await salvarPref({ modelo_resumo: v && v !== MODELO_PADRAO ? v : null })) { render(); toast("Modelo salvo"); } break; }
       case "resetModelo": if (await salvarPref({ modelo_resumo: null })) { render(); toast("Modelo padrão restaurado"); } break;
-      case "memSalvar": { const el = document.getElementById("memInp"); if (el && await salvarMemoria(el.value)) { render(); toast(S.pref.memoria_resumo ? "Memória do resumo salva" : "Formato padrão"); } break; }
-      case "memLimpar": if (await salvarMemoria(null)) { render(); toast("Memória apagada. Voltou ao formato padrão."); document.getElementById("memInp")?.focus(); } break;
-      case "memEx": { const el = document.getElementById("memInp"), ex = MEM_EXEMPLOS[+b.dataset.i]; if (!el || !ex) break;
+      case "memSec": { const el = document.getElementById("memInp"); if (el) memDrafts[el.dataset.k] = el.value; ui.memSec = MEM_SEC[b.dataset.k] ? b.dataset.k : "resumo"; render(); document.querySelector(`[data-a=memSec][data-k="${ui.memSec}"]`)?.focus(); break; }
+      case "memSalvar": { const el = document.getElementById("memInp"), k = el?.dataset.k || "resumo"; if (el && await salvarMemoria(el.value, k)) { render(); toast(S.pref[MEM_SEC[k].col] ? MEM_SEC[k].salvo : "Formato padrão"); } break; }
+      case "memLimpar": if (await salvarMemoria(null, document.getElementById("memInp")?.dataset.k || "resumo")) { render(); toast("Memória apagada. Voltou ao formato padrão."); document.getElementById("memInp")?.focus(); } break;
+      case "memEx": { const el = document.getElementById("memInp"), ex = MEM_SEC[el?.dataset.k || "resumo"]?.ex[+b.dataset.i]; if (!el || !ex) break;
         const novo = (el.value.trim() ? el.value.trim() + "\n" : "") + ex[1]; if (novo.length > MEM_MAX) { toast(`A memória pode ter até ${MEM_MAX} letras.`); break; }
-        el.value = novo; ui.memDraft = novo; contarMem(); el.focus(); break; }
-      case "editMemoria": irCfg("memoria", "#memInp"); break;
+        el.value = novo; memDrafts[el.dataset.k] = novo; contarMem(); el.focus(); break; }
+      case "editMemoria": ui.memSec = MEM_SEC[b.dataset.k] ? b.dataset.k : "resumo"; irCfg("memoria", "#memInp"); break;
       case "pickDisc": ui.disc = +id; ui.confDel = null; render(); break;
       case "tick": { const t = temaById(id); if (t) tickTema(t, { [b.dataset.k]: b.checked }); break; }
       case "delTopic": { ui.confDel = null; if (await del("temas", id)) { S.temas = S.temas.filter((t) => t.id != id); S.mats = S.mats.filter((m) => !(m.tema_id == id && !enviado(m))); S.mats.forEach((m) => { if (m.tema_id == id) m.tema_id = null; }); render(); toast("Tema apagado"); } break; }
@@ -1969,7 +2016,7 @@
     if (guardarDoc(e.target)) return;
     if (e.target && e.target.id === "disTxt" && ui.qst && ui.qst.id == e.target.dataset.qid) ui.qst.txt = e.target.value;
     if (e.target && e.target.id === "upTemaNome") ui.up.temaNome = e.target.value;
-    if (e.target && e.target.id === "memInp") { ui.memDraft = e.target.value; contarMem(); }
+    if (e.target && e.target.id === "memInp") { memDrafts[e.target.dataset.k] = e.target.value; contarMem(); }
     if (e.target && e.target.id === "resExtra") { ui.resExtra = e.target.value; const c = document.getElementById("resExtraCont"); if (c) c.textContent = `${e.target.value.length}/${EXTRA_MAX}`; }
   }
   function contarMem() { const el = document.getElementById("memInp"), c = document.getElementById("memCont"); if (el && c) c.textContent = `${el.value.length}/${MEM_MAX}`; }
