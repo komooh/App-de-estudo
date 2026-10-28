@@ -34,6 +34,8 @@
 
   let alunos = [], facs = [], uso = {}, filtro = "";
   const mes = App.isoHoje().slice(0, 8) + "01";
+  // uso de IA no mês e limite de cada aluno (o limite só existe depois do 06_estudo.sql; antes disso só o de resumos)
+  const IA = [["resumos", "limite_resumos_mes", "resumos"], ["questoes", "limite_questoes_mes", "questões"], ["mapas", "limite_mapas_mes", "mapas"]];
   const somaDias = (iso, n) => { const d = iso && iso >= App.isoHoje() ? new Date(iso + "T12:00") : new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
   function status(a) {
     if (!a.ativo) return ["Bloqueado", "s-bad"];
@@ -62,7 +64,7 @@
         <td><select data-k="plano"><option ${a.plano === "mensal" ? "selected" : ""}>mensal</option><option ${a.plano === "semestral" ? "selected" : ""}>semestral</option><option ${a.plano === "teste" ? "selected" : ""}>teste</option></select></td>
         <td><input type="date" data-k="vence_em" value="${esc(a.vence_em || "")}"><div class="row" style="gap:4px;margin-top:4px"><button class="btn ghost" style="padding:2px 6px;font-size:12px" data-a="mais" data-n="30">+30d</button><button class="btn ghost" style="padding:2px 6px;font-size:12px" data-a="mais" data-n="180">+6m</button></div></td>
         <td><span class="chip ${s[1]}">${s[0]}</span></td>
-        <td class="tnum" style="font-size:13px">${u ? `${u.resumos}/${a.limite_resumos_mes} resumos<br>${u.questoes} questões` : `0/${a.limite_resumos_mes}`}</td>
+        <td class="tnum" style="font-size:13px"><div class="ia-uso">${IA.map(([k, lim, nome]) => `<label title="Limite de ${nome} por mês"><span>${u?.[k] || 0} /</span><input type="number" min="0" max="100000" step="1" data-k="${lim}" value="${esc(a[lim] ?? "")}" aria-label="Limite de ${nome} por mês de ${esc(a.nome || a.email)}"> <span class="muted">${nome}</span></label>`).join("")}</div></td>
         <td><div class="row" style="gap:6px"><button class="btn" data-a="salvar">Salvar</button><button class="btn ghost" data-a="ativo">${a.ativo ? "Bloquear" : "Liberar"}</button></div></td></tr>`; }).join("");
     V.innerHTML = win("Novo aluno", `<form id="novo" class="row">
         <label class="field" style="flex:1 1 180px"><span class="mono">Nome</span><input name="nome" required></label>
@@ -73,11 +75,18 @@
         <button class="btn solid">Criar aluno</button></form>
         <p class="muted" style="font-size:13px;margin:10px 0 0">Com senha: a conta já fica pronta e você passa o e-mail e a senha para o aluno (ele pode trocar depois). Sem senha: ele recebe um convite por e-mail. Na primeira entrada, ele monta o painel.</p>${msg ? `<div class="msg ${msg.bad ? "bad" : ""}">${esc(msg.t)}</div>` : ""}`)
       + win(`Alunos · ${emDia} em dia de ${alunos.filter((a) => !a.is_admin).length}`, `<div class="row" style="margin-bottom:10px"><input class="inp" id="busca" placeholder="Buscar por nome ou e-mail" value="${esc(filtro)}" style="max-width:320px"></div>
-        <div class="tablewrap"><table><thead><tr><th>Aluno</th><th>Faculdade</th><th>Plano</th><th>Vencimento</th><th>Situação</th><th>IA no mês</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">Nenhum aluno.</td></tr>`}</tbody></table></div>`);
+        <div class="tablewrap"><table><thead><tr><th>Aluno</th><th>Faculdade</th><th>Plano</th><th>Vencimento</th><th>Situação</th><th>IA no mês (usado / limite)</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">Nenhum aluno.</td></tr>`}</tbody></table></div>`);
   }
   async function salvarLinha(tr, extra) {
     const id = tr.dataset.id;
     const upd = { plano: tr.querySelector('[data-k="plano"]').value, vence_em: tr.querySelector('[data-k="vence_em"]').value || null, ...extra };
+    const aluno = alunos.find((a) => a.id === id);
+    for (const [, lim] of IA) {
+      const inp = tr.querySelector(`[data-k="${lim}"]`); if (!inp || !(lim in aluno)) continue;
+      const v = parseInt(inp.value, 10);
+      if (!Number.isInteger(v) || v < 0 || v > 100000) return toast("Limite inválido: use um número de 0 a 100000.");
+      if (v !== aluno[lim]) upd[lim] = v;
+    }
     const { error } = await sb.from("perfis").update(upd).eq("id", id);
     if (error) return toast("Erro: " + error.message);
     Object.assign(alunos.find((a) => a.id === id), upd); draw(); toast("Salvo");

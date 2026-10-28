@@ -342,3 +342,7 @@ details.cfg summary{cursor:pointer;color:var(--muted);font-size:14px}
   .result .num{font-size:56px}
   .win-body{padding:16px}.qmain,.vmain{padding:16px}
 }
+/* admin: uso de IA e limites */
+.ia-uso{display:flex;flex-direction:column;gap:4px}
+.ia-uso label{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.ia-uso input{width:72px}
