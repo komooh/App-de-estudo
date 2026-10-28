@@ -4,7 +4,7 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 
 - **Hospedagem:** Cloudflare Pages (site estático, sem etapa de build)
 - **Login e banco de dados:** Supabase (link mágico por e-mail, regras de acesso por aluno)
-- **IA:** API do Claude (modelo Claude Haiku 4.5), chamada só pelo servidor (função `ia` do Supabase), e só quando o aluno pede
+- **IA:** API do Claude (modelo Claude Haiku 5.5), chamada só pelo servidor (função `ia` do Supabase), e só quando o aluno pede
 
 ## Páginas
 
@@ -111,14 +111,14 @@ O que fazer (uma vez, nesta ordem):
    1. Entre em **console.anthropic.com** com a sua conta → **Settings → Billing** e coloque crédito (ex.: 10 dólares) → **API Keys → Create Key**. Copie a chave (começa com `sk-ant-`).
    2. Supabase → **Edge Functions → Secrets** → **Add new secret**. Nome: `ANTHROPIC_API_KEY`. Valor: cole a chave. Salve.
    3. **Nunca cole essa chave no chat, no site, no GitHub ou em mensagens.** Ela só fica nesse lugar do Supabase. Se vazar, apague a chave no console da Anthropic e crie outra.
-   4. (Opcional) Para trocar o modelo, crie o segredo `IA_MODELO` (ex.: `claude-sonnet-4-5`). Sem ele, usa `claude-haiku-4-5`, o mais barato.
+   4. (Opcional) Para trocar o modelo, crie o segredo `IA_MODELO` (ex.: `claude-sonnet-5-5`). Sem ele, usa `claude-haiku-5-5`, o mais barato.
 3. **Função `ia`:** **Edge Functions → Deploy a new function → Via Editor**. Nome: `ia`. Apague o exemplo, cole todo o `supabase/functions/ia/index.ts` e clique em **Deploy**. Depois abra a função → **Details/Settings** → desligue **"Verify JWT"** e salve (a função confere o login sozinha).
 4. **Função `drive-arquivo`:** do mesmo jeito, nome `drive-arquivo`, colando `supabase/functions/drive-arquivo/index.ts`, e também com **"Verify JWT" desligado**. Ela usa os segredos do Google que já existem (`GOOGLE_SA_KEY`, `GOOGLE_OAUTH_SECRET`, `GOOGLE_OAUTH_CLIENT_ID`).
 5. **Teste:** entre como aluno → **Disciplinas** → um tema → **Resumo** → **Gerar resumo**. Se aparecer "A IA ainda não foi configurada", falta o passo 2 (ou a função foi publicada antes do segredo: publique de novo).
 
 Limites de IA por mês (cada aluno): **60 resumos**, **400 questões** e **60 mapas mentais**. Quando passa, aparece "Você chegou ao limite do mês" e renova no dia 1º. Você vê o uso e muda o limite de cada aluno na página de **Administração** (coluna "IA no mês"; mude o número e clique em Salvar).
 
-Custo estimado com o Claude Haiku 4.5 (1 dólar por milhão de tokens de entrada e 5 por milhão de saída): um resumo custa cerca de **2 a 6 centavos de dólar** (mais caro quando o material do professor é grande); 10 questões, cerca de **3 a 5 centavos**; um mapa mental, cerca de **1 a 2 centavos**. Um aluno que usa o limite inteiro do mês gasta no máximo uns 6 a 7 dólares; o uso normal deve ficar bem abaixo disso. Acompanhe em console.anthropic.com → **Usage**.
+Custo estimado com o Claude Haiku 5.5 (0,10 dólar por milhão de tokens de entrada e 0,50 por milhão de saída, enquanto o pedido tiver menos de 100 mil tokens; o site corta o material para ficar bem abaixo disso): um resumo custa menos de **1 centavo de dólar**; 10 questões, cerca de **meio centavo**; um mapa mental, menos de **meio centavo**. Um aluno que usa o limite inteiro do mês gasta menos de 1 dólar. Acompanhe em console.anthropic.com → **Usage**.
 
 ## Configuração pública
 `assets/config.js` tem só a URL do projeto e a chave **publishable** do Supabase, que podem ficar no navegador. A chave secreta (service_role) e a chave da API do Claude **nunca** entram neste repositório.

@@ -17,7 +17,7 @@ import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2.7
 
 // ======================= configuração =======================
 // Modelo da IA. Para trocar, mude aqui ou crie o segredo IA_MODELO (ex.: "claude-sonnet-4-5").
-export const MODELO_PADRAO = "claude-haiku-4-5";
+export const MODELO_PADRAO = "claude-haiku-5-5";
 const modelo = () => (Deno.env.get("IA_MODELO") || MODELO_PADRAO).trim();
 const API_ANTHROPIC = "https://api.anthropic.com/v1/messages";
 const PRAZO_MS = 125_000;                    // a função do Supabase tem ~150 s no total

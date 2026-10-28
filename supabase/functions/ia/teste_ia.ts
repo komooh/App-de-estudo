@@ -91,7 +91,7 @@ chamadas = []; respostas = [resposta("# Resumo")];
 let r = await ia.chamarClaude("pedido", 500);
 const corpo = JSON.parse(await chamadas[0].clone().text());
 ok("chamada: cabeçalhos", chamadas[0].headers.get("x-api-key") === "sk-teste" && chamadas[0].headers.get("anthropic-version") === "2023-06-01" && chamadas[0].url === "https://api.anthropic.com/v1/messages");
-ok("chamada: modelo padrão e max_tokens", corpo.model === "claude-haiku-4-5" && corpo.max_tokens === 500 && corpo.messages[0].content === "pedido", corpo);
+ok("chamada: modelo padrão e max_tokens", corpo.model === "claude-haiku-5-5" && corpo.max_tokens === 500 && corpo.messages[0].content === "pedido", corpo);
 ok("chamada: texto e tokens", r.texto === "# Resumo" && r.entrada === 1200 && r.saida === 340);
 Deno.env.set("IA_MODELO", "claude-sonnet-4-5");
 chamadas = []; respostas = [resposta("x")]; await ia.chamarClaude("p", 10);
