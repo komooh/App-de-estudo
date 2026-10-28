@@ -92,7 +92,7 @@
     const porDisc = (t, cols) => ids.length ? sb.from(t).select(cols).in("disciplina_id", ids) : vazio;
     const [temas, provas, notas, mats, res, mapas, pref, fac, hor, cal, ev, ligas, horas, uso, facs] = await Promise.all([
       porDisc("temas", "*"), porDisc("provas", "*"), porDisc("notas", "disciplina_id,campo,valor"),
-      sb.from("materiais").select("id,nome,status,tema_id,disciplina_id,mime,fonte_id"),
+      sb.from("materiais").select("id,nome,status,tema_id,disciplina_id,mime,fonte_id").eq("ignorado", false),
       sb.from("resumos").select("tema_id"), sb.from("mapas").select("tema_id"),
       sb.from("preferencias").select("*").eq("aluno_id", H.P.id).maybeSingle(),
       sb.from("faculdades").select("nome,regra_notas").eq("id", sem?.faculdade_id || H.P.faculdade_id || 0).maybeSingle(),
@@ -161,7 +161,7 @@
         <div class="bar" style="margin-top:10px;height:7px"><i style="width:${p}%;background:var(--terra)"></i></div>
         <div class="tgrid">${ts.length ? ts.map((t) => `<div class="topic">${t.prova ? `<span class="chip ${/prát|prat/i.test(t.prova) ? "pv-pr" : "pv-te"}" style="align-self:flex-start">${esc(t.prova)}</span>` : ""}
           <div class="topic-h"><h3>${esc(t.nome)}</h3>${ui.confDel == t.id ? `<span class="row" style="gap:4px;align-items:center;flex-wrap:nowrap"><button class="btn" data-a="delTopic" data-id="${t.id}" style="padding:2px 8px;font-size:12px;color:var(--bad);border-color:var(--bad)">Apagar</button><button class="btn ghost" data-a="cancelDel" style="padding:2px 6px;font-size:12px">Não</button></span>` : `<button class="x" title="Remover tema" aria-label="Remover ${esc(t.nome)}" data-a="askDel" data-id="${t.id}">×</button>`}</div>
-          ${ui.confDel == t.id && t.origem === "drive" ? `<span class="tref">Se o arquivo continuar na pasta do Drive, o tema volta na próxima leitura.</span>` : ""}
+          ${ui.confDel == t.id && matsDe(t.id).some((m) => !enviado(m)) ? `<span class="tref">Os arquivos do Drive deste tema ficam ocultos e não voltam na próxima leitura (dá para restaurar em Configurações → Meu Google Drive).</span>` : ""}
           <div class="tbtns"><button class="btn" data-a="openRes" data-id="${t.id}">Resumo${S.resIds.has(t.id) ? " ✓" : ""}</button><button class="btn" data-a="openMapa" data-id="${t.id}">Mapa mental</button></div>
           ${Array.isArray(t.itens) && t.itens.length ? `<div class="lams">${t.itens.map((i) => `<span>${esc(i)}</span>`).join("")}</div>` : ""}${matInfo(t)}
           ${[["aula", "Aula assistida"], ["resumo_ok", "Resumo / revisão"], ["questoes_ok", "Questões feitas"]].map(([k, l]) => `<label class="check ${t[k] ? "on" : ""}"><input type="checkbox" data-a="tick" data-id="${t.id}" data-k="${k}" ${t[k] ? "checked" : ""}><span>${l}</span></label>`).join("")}
@@ -190,8 +190,8 @@
       <ul class="drv-lista">${ms.map((m) => { const [cls, txt] = MAT_ST[m.status] || ["s-warn", m.status];
         return `<li><span class="drv-nome"><span>${esc(m.nome)}</span>${nomeTema(m) ? `<span class="tref" style="display:block">Tema: ${esc(nomeTema(m))}</span>` : ""}</span>
         <span class="row" style="gap:6px;align-items:center;flex-wrap:nowrap"><span class="chip ${enviado(m) ? "s-ok" : "s-warn"}" title="${enviado(m) ? "Enviado por você" : "Da pasta do Google Drive"}">${enviado(m) ? "enviado" : "drive"}</span><span class="chip ${cls}">${esc(txt)}</span>
-        ${!enviado(m) ? "" : ui.confMat === m.id ? `<button class="btn" data-a="delMat" data-id="${m.id}" style="padding:2px 8px;font-size:12px;color:var(--bad);border-color:var(--bad)">Apagar</button><button class="btn ghost" data-a="cancelDel" style="padding:2px 6px;font-size:12px">Não</button>`
-          : `<button class="x" data-a="askMat" data-id="${m.id}" aria-label="Apagar ${esc(m.nome)}">×</button>`}</span></li>`; }).join("")}</ul></details>`;
+        ${ui.confMat === m.id ? `<button class="btn" data-a="delMat" data-id="${m.id}" style="padding:2px 8px;font-size:12px;color:var(--bad);border-color:var(--bad)">${enviado(m) ? "Apagar" : "Ocultar"}</button><button class="btn ghost" data-a="cancelDel" style="padding:2px 6px;font-size:12px">Não</button>`
+            : `<button class="x" data-a="askMat" data-id="${m.id}" aria-label="${enviado(m) ? "Apagar" : "Ocultar"} ${esc(m.nome)}">×</button>`}</span></li>`; }).join("")}</ul></details>`;
   }
   const MAT_ST = { ok: ["s-ok", "lido"], pendente: ["s-ok", "pronto"], sem_texto: ["s-warn", "sem texto"], grande_demais: ["s-warn", "grande demais"], erro: ["s-bad", "erro"] };
   const UP_ST = { fila: ["", "na fila"], rodando: ["s-warn", "lendo"], ok: ["s-ok", "enviado"], sem_texto: ["s-warn", "sem texto"], erro: ["s-bad", "erro"] };
@@ -263,15 +263,15 @@
   let recargaT = 0;
   function recarregarLogo(ms = 1500) { clearTimeout(recargaT); recargaT = setTimeout(() => { if (ativo()) recarregar(); }, ms); }
   async function apagarMaterial(id) {
-    const m = S.mats.find((x) => x.id == id); if (!m || !enviado(m)) return;
-    if (!(await del("materiais", m.id))) return;
+    const m = S.mats.find((x) => x.id == id); if (!m) return;
+    if (!(await del("materiais", m.id, !enviado(m)))) return;
     S.mats = S.mats.filter((x) => x.id !== m.id);
     // o tema que nasceu só deste arquivo (sem resumo e sem outros materiais) sai junto
     const t = temaById(m.tema_id);
     if (t && t.origem === "upload" && !matsDe(t.id).length && !S.resIds.has(t.id) && !S.mapaIds.has(t.id) && !t.aula && !t.resumo_ok && !t.questoes_ok) {
       if (await del("temas", t.id)) S.temas = S.temas.filter((x) => x.id !== t.id);
     }
-    render(); toast("Arquivo apagado");
+    render(); toast(enviado(m) ? "Arquivo apagado" : "Arquivo oculto: não volta na próxima leitura do Drive");
   }
 
   /* ================= IMPORTAR O CALENDÁRIO DE PROVAS (PDF ou foto) ================= */
@@ -1311,7 +1311,14 @@
     const { error } = await sb.from(tabela).update(campos).eq("id", id);
     if (error) { toast((msgErro || "Não consegui salvar: ") + error.message); return false; } return true;
   }
-  async function del(tabela, id) { const { error } = await sb.from(tabela).delete().eq("id", id); if (error) { toast("Não consegui apagar: " + error.message); return false; } return true; }
+  // Apaga no banco e confere que apagou mesmo (a regra de acesso pode não deixar sem dar erro: aí avisa,
+  // em vez de sumir só da tela e voltar ao entrar de novo). Arquivo do Drive não some: fica oculto.
+  async function del(tabela, id, oculta = false) {
+    const { data, error } = await sb.from(tabela).delete().eq("id", id).select("id");
+    if (error) { toast("Não consegui apagar: " + error.message); return false; }
+    if (!oculta && !(data || []).length) { toast("Não consegui apagar: o servidor não deixou (confira se seu acesso está em dia)."); return false; }
+    return true;
+  }
   function tickTema(t, campos) { Object.assign(t, campos); render(); upd("temas", t.id, campos); }
 
   async function onClick(e) {
@@ -1362,7 +1369,7 @@
       case "resetModelo": if (await salvarPref({ modelo_resumo: null })) { render(); toast("Modelo padrão restaurado"); } break;
       case "pickDisc": ui.disc = +id; ui.confDel = null; render(); break;
       case "tick": { const t = temaById(id); if (t) tickTema(t, { [b.dataset.k]: b.checked }); break; }
-      case "delTopic": { ui.confDel = null; if (await del("temas", id)) { S.temas = S.temas.filter((t) => t.id != id); S.mats.forEach((m) => { if (m.tema_id == id) m.tema_id = null; }); render(); toast("Tema apagado"); } break; }
+      case "delTopic": { ui.confDel = null; if (await del("temas", id)) { S.temas = S.temas.filter((t) => t.id != id); S.mats = S.mats.filter((m) => !(m.tema_id == id && !enviado(m))); S.mats.forEach((m) => { if (m.tema_id == id) m.tema_id = null; }); render(); toast("Tema apagado"); } break; }
       case "delDisc": { ui.confDisc = null; if (await del("disciplinas", id)) { await recarregar(); toast("Matéria removida"); } break; }
       case "qMode": ui.qMode = b.dataset.m; ui.qIdx = 0; ui.qAns = null; ui.qst = null; ui.genMsg = ""; render(); break;
       case "answer": { const q = qPool()[ui.qIdx]; if (!q) break; const i = +b.dataset.i; ui.qAns = i; ui.qAnsId = q.id; qRecord(q, i === q.correta); break; }

@@ -383,7 +383,7 @@ async function varrerFonte(admin: SupabaseClient, f: Fonte, inicio: number, r: R
     const [{ data: materias, error: e1 }, { data: temas, error: e2 }, { data: existentes, error: e3 }] = await Promise.all([
       consultaMaterias,
       admin.from("temas").select("id,disciplina_id,nome").eq("aluno_id", f.aluno_id),
-      admin.from("materiais").select("id,fonte_id,drive_file_id,modificado_em,status,tema_id,disciplina_id").eq("aluno_id", f.aluno_id),
+      admin.from("materiais").select("id,fonte_id,drive_file_id,modificado_em,status,tema_id,disciplina_id,ignorado").eq("aluno_id", f.aluno_id),
     ]);
     if (e1 || e2 || e3) throw new Error("banco: " + (e1 || e2 || e3)!.message);
     const atuais = new Set((materias || []).map((m) => m.id));
@@ -402,7 +402,7 @@ async function varrerFonte(admin: SupabaseClient, f: Fonte, inicio: number, r: R
     });
     const novosTemas = new Map<string, { aluno_id: string; disciplina_id: number; nome: string; origem: string }>();
     for (const l of linhas) {
-      if (!l.disciplina_id || l.antigo) continue;
+      if (!l.disciplina_id || l.antigo || l.velho?.ignorado) continue; // oculto pelo aluno: não recria o tema
       if (l.velho?.tema_id && temaIds.has(l.velho.tema_id) && l.velho.disciplina_id === l.disciplina_id) continue;
       const k = `${l.disciplina_id}|${chaveTema(l.temaNome)}`;
       if (!temaPorChave.has(k) && !novosTemas.has(k)) novosTemas.set(k, { aluno_id: f.aluno_id, disciplina_id: l.disciplina_id, nome: l.temaNome, origem: "drive" });
@@ -416,7 +416,7 @@ async function varrerFonte(admin: SupabaseClient, f: Fonte, inicio: number, r: R
     // 2) grava a lista de arquivos (o texto vem depois)
     const mudou: Record<string, unknown>[] = [], igual: Record<string, unknown>[] = [];
     for (const l of linhas) {
-      const tema_id = !l.disciplina_id ? null
+      const tema_id = !l.disciplina_id || l.velho?.ignorado ? null
         : (l.velho?.tema_id && temaIds.has(l.velho.tema_id) && l.velho.disciplina_id === l.disciplina_id) ? l.velho.tema_id
         : temaPorChave.get(`${l.disciplina_id}|${chaveTema(l.temaNome)}`) ?? null;
       const base = {
@@ -451,7 +451,7 @@ async function varrerFonte(admin: SupabaseClient, f: Fonte, inicio: number, r: R
 
     // 4) lê o texto dos arquivos novos ou alterados, até acabar o tempo
     const { data: fila, error: e4 } = await admin.from("materiais")
-      .select("id,drive_file_id,mime,nome,tamanho,tentativas").eq("fonte_id", f.id).eq("status", "pendente")
+      .select("id,drive_file_id,mime,nome,tamanho,tentativas").eq("fonte_id", f.id).eq("status", "pendente").eq("ignorado", false)
       // Só os leves (Google Docs/Slides e textos) são lidos na varredura. PDF, Word e PowerPoint
       // pesam demais para o limite de CPU da função: ficam "pendente" e são lidos quando o aluno pedir o resumo.
       .in("mime", LEVES).order("id");

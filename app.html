@@ -501,12 +501,14 @@
   function quando(t) { return t ? new Date(t).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "nunca"; }
   async function driveTela(disc) {
     const box = document.getElementById("drv"); if (!box) return;
-    const [{ data: fontes, error: e1 }, { data: mats, error: e2 }] = await Promise.all([
+    let [{ data: fontes, error: e1 }, { data: mats, error: e2 }] = await Promise.all([
       sb.from("drive_fontes").select("id,tipo,pasta_id,pasta_nome,status,erro,ultima_varredura").order("criado_em"),
-      sb.from("materiais").select("id,nome,status,disciplina_id,caminho,erro,fonte_id").not("fonte_id", "is", null).order("nome"),
+      sb.from("materiais").select("id,nome,status,disciplina_id,caminho,erro,fonte_id,ignorado").not("fonte_id", "is", null).order("nome"),
     ]);
     if (!document.getElementById("drv")) return;
     if (e1 || e2) { box.innerHTML = `<div class="msg bad" style="margin:0">Não consegui carregar a parte do Drive: ${esc((e1 || e2).message)}</div>`; return; }
+    const ocultos = (mats || []).filter((m) => m.ignorado);
+    mats = (mats || []).filter((m) => !m.ignorado);
     const F = { compartilhada: (fontes || []).find((f) => f.tipo === "compartilhada"), google: (fontes || []).find((f) => f.tipo === "google") };
     if (DRV.volta) { if (VOLTA_MSG[DRV.volta]) toast(VOLTA_MSG[DRV.volta]); DRV.aba = "google"; DRV.volta = ""; }
     if (!DRV.aba) DRV.aba = F.google && !F.compartilhada ? "google" : "compartilhada";
@@ -549,7 +551,9 @@
         <div>${grupos.map((x) => `<details class="drv-grupo" ${abrir ? "open" : ""}><summary><b>${esc(x.nome)}</b> <span class="muted">· ${x.itens.length} ${x.itens.length === 1 ? "arquivo" : "arquivos"}</span></summary>
           ${x.sem ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Para ligar à matéria, coloque o arquivo numa subpasta com o nome dela (ex.: "${esc((disc || [])[0]?.nome || "Farmacologia 2")}").</p>` : ""}
           <ul class="drv-lista">${x.itens.map((m) => { const [cls, txt] = MAT_STATUS[m.status] || ["s-warn", m.status];
-            return `<li><span class="drv-nome" title="${esc(m.caminho || "")}">${esc(m.nome)}</span><span class="chip ${cls}" ${m.erro ? `title="${esc(m.erro)}"` : ""}>${esc(txt)}</span></li>`; }).join("")}</ul></details>`).join("")}</div>`;
+            return `<li><span class="drv-nome" title="${esc(m.caminho || "")}">${esc(m.nome)}</span><span class="row" style="gap:6px;align-items:center;flex-wrap:nowrap"><span class="chip ${cls}" ${m.erro ? `title="${esc(m.erro)}"` : ""}>${esc(txt)}</span><button class="x" data-drv="ocultar" data-id="${m.id}" aria-label="Ocultar ${esc(m.nome)}" title="Ocultar (não volta na próxima leitura)">×</button></span></li>`; }).join("")}</ul></details>`).join("")}</div>`;
+    const listaOcultos = ocultos.length ? `<details class="drv-grupo" id="drvOcultos"><summary><b>Ocultos (${ocultos.length})</b> <span class="muted">· arquivos que você apagou ou cujo tema apagou; não voltam na leitura da pasta</span></summary>
+        <ul class="drv-lista">${ocultos.map((m) => `<li><span class="drv-nome" title="${esc(m.caminho || "")}">${esc(m.nome)}</span><button class="btn" data-drv="restaurar" data-id="${m.id}">Restaurar</button></li>`).join("")}</ul></details>` : "";
 
     box.innerHTML = `<div class="stack">${status}
       <div class="row" role="tablist" aria-label="Como ligar a pasta">
@@ -558,7 +562,7 @@
       <div class="stack" role="tabpanel">${DRV.aba === "google" ? abaGoogle : abaComp}</div>
       <p class="muted" style="margin:0;font-size:13.5px">Dica: deixe uma subpasta para cada matéria, com o nome parecido com o do painel (ex.: "Farmacologia 2"). O site lê PDF, Word, PowerPoint, Google Docs, Google Slides e textos.</p>
       <div id="drvProg">${DRV.msg ? `<div class="msg ${DRV.msg.bad ? "bad" : ""}" style="margin:0">${esc(DRV.msg.t)}</div>` : ""}</div>
-      ${lista}</div>`;
+      ${lista}${listaOcultos}</div>`;
 
     box.onsubmit = (e) => {
       e.preventDefault(); if (DRV.ocupado) return;
@@ -575,6 +579,17 @@
         catch (_) { const r = document.createRange(); r.selectNodeContents(box.querySelector(".drv-mail")); getSelection().removeAllRanges(); getSelection().addRange(r); toast("Selecione e copie o e-mail"); }
       }
       if (a === "varrer") return varrer(disc);
+      if (a === "ocultar") {
+        const { data, error } = await sb.from("materiais").delete().eq("id", b.dataset.id).select("id"); // o banco só oculta (08_tarefas.sql)
+        if (error) toast("Não consegui ocultar: " + error.message); else { toast("Arquivo oculto: não volta na próxima leitura"); window.Painel?.aoMudarDrive(); }
+        void data; return driveTela(disc);
+      }
+      if (a === "restaurar") {
+        const { error } = await sb.rpc("restaurar_material", { p_id: +b.dataset.id });
+        if (error) toast("Não consegui restaurar: " + error.message);
+        else { toast("Restaurado: volta na próxima leitura da pasta"); await varrer(disc); }
+        return driveTela(disc);
+      }
       if (a === "google") {
         b.disabled = true; b.textContent = "Abrindo o Google…";
         try { const { url } = await chamar("drive-oauth", { acao: "url" }); location.href = url; }
@@ -582,8 +597,10 @@
       }
       if (a === "desligar") {
         if (!confirm("Desligar esta pasta? Os materiais importados dela saem do painel. Os temas que você já tem continuam.")) return;
-        const { error } = await sb.from("drive_fontes").delete().eq("id", b.dataset.id);
+        const { data: apag, error: e0 } = await sb.from("drive_fontes").delete().eq("id", b.dataset.id).select("id");
+        const error = e0 || (!(apag || []).length ? { message: "o servidor não deixou." } : null);
         DRV.msg = error ? { bad: true, t: "Não consegui desligar: " + error.message } : null;
+        if (!error) window.Painel?.aoMudarDrive();
         if (!error) toast("Pasta desligada"); driveTela(disc);
       }
       if (a === "desconectar") {
@@ -751,7 +768,8 @@
         const l = L.find((x) => x.id == b.dataset.id);
         if (!confirm(`Apagar "${l?.titulo || "este livro"}"? O texto guardado dele sai do painel.`)) return;
         b.disabled = true;
-        const { error } = await sb.from("livros").delete().eq("id", b.dataset.id);
+        const { data: apag, error: e0 } = await sb.from("livros").delete().eq("id", b.dataset.id).select("id");
+        const error = e0 || (!(apag || []).length ? { message: "o servidor não deixou." } : null);
         LIV.msg = error ? { bad: true, t: "Não consegui apagar: " + error.message } : null; LIV.res = null;
         if (!error) toast("Livro apagado"); livrosTela();
       }

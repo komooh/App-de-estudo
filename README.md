@@ -154,3 +154,8 @@ O que fazer (uma vez, nesta ordem):
    3. Supabase → **Authentication → Emails → SMTP Settings** → ligue **Enable custom SMTP**: Host `smtp.resend.com`, Port `465`, User `resend`, Password = a chave do Resend, Sender email = um endereço do domínio verificado (ex.: `nao-responda@seudominio.com`), Sender name `Painel de Estudos`. Salve.
    4. Em **Authentication → Emails → Templates**, troque os textos de **Reauthentication** e **Change Email Address** pelos de `docs/emails-ptbr.md`.
 5. Mais nada: o site atualiza sozinho com o `git push`.
+
+### 11. Apagar fica apagado (Etapa 6)
+Antes, um tema que veio do Drive voltava na próxima leitura da pasta (o arquivo continua lá). Agora, apagar um tema ou um arquivo do Drive deixa o arquivo **oculto**: a leitura da pasta não cria o tema de novo nem lê o texto dele. O aluno vê e restaura em **Configurações → Meu Google Drive → Ocultos**. Todas as exclusões do site conferem no banco que apagou mesmo; se o banco não deixar, aparece um aviso (nada some só da tela).
+
+O que fazer: o `08_tarefas.sql` (parte 10) já traz isso. **Republique a `drive-varrer`** (Edge Functions → drive-varrer → Code → cole `supabase/functions/drive-varrer/index.ts` → Deploy).

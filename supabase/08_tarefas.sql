@@ -133,3 +133,57 @@ end $$;
 drop trigger if exists email_no_perfil on auth.users;
 create trigger email_no_perfil after update of email on auth.users
   for each row execute function public.email_no_perfil();
+
+-- ---------- Apagar fica apagado: arquivos do Drive "ocultos" ----------
+-- Antes: o aluno apagava um tema (ou um arquivo) do Drive e a próxima leitura da pasta criava de novo,
+-- porque o arquivo continua lá. Agora o arquivo fica marcado como ignorado: a leitura (drive-varrer)
+-- não cria tema para ele e não lê o texto. O aluno restaura em Configurações → Meu Google Drive → Ocultos.
+alter table public.materiais add column if not exists ignorado boolean not null default false;
+create index if not exists materiais_ignorados on public.materiais(aluno_id) where ignorado;
+
+-- é o próprio aluno apagando (pelo site)? (o servidor, com a chave de serviço, apaga de verdade)
+create or replace function public.pedido_do_aluno() returns boolean
+language sql stable set search_path = public as $$
+  select session_user = 'authenticator'
+     and coalesce(current_setting('request.jwt.claims', true)::jsonb->>'role', '') <> 'service_role'
+$$;
+
+-- apagar um arquivo do Drive pelo site = ocultar (a linha fica, marcada; senão a leitura traz de volta)
+create or replace function public.materiais_apagar() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  -- (desligar a pasta apaga os arquivos dela em cascata: aí a pasta já não existe e apaga de verdade)
+  if old.origem = 'drive' and public.pedido_do_aluno() and exists (select 1 from public.drive_fontes where id = old.fonte_id) then
+    update public.materiais set ignorado = true, tema_id = null where id = old.id;
+    return null;  -- não apaga
+  end if;
+  return old;
+end $$;
+drop trigger if exists materiais_apagar on public.materiais;
+create trigger materiais_apagar before delete on public.materiais
+  for each row execute function public.materiais_apagar();
+
+-- apagar um tema pelo site: os arquivos do Drive dele ficam ocultos (não recriam o tema).
+-- Quando a matéria inteira é apagada, não marca nada (a matéria já não existe).
+create or replace function public.temas_apagar() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if public.pedido_do_aluno() and exists (select 1 from public.disciplinas where id = old.disciplina_id) then
+    update public.materiais set ignorado = true where tema_id = old.id and origem = 'drive';
+  end if;
+  return old;
+end $$;
+drop trigger if exists temas_apagar on public.temas;
+create trigger temas_apagar before delete on public.temas
+  for each row execute function public.temas_apagar();
+
+-- restaurar um arquivo oculto (volta na próxima leitura da pasta)
+create or replace function public.restaurar_material(p_id bigint) returns boolean
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or not public.acesso_ok() then raise exception 'Acesso não liberado'; end if;
+  update public.materiais set ignorado = false where id = p_id and aluno_id = auth.uid() and ignorado;
+  return found;
+end $$;
+revoke all on function public.restaurar_material(bigint) from public, anon;
+grant execute on function public.restaurar_material(bigint) to authenticated;
