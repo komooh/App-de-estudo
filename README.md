@@ -118,7 +118,7 @@ O que fazer (uma vez, nesta ordem):
 
 Limites de IA por mês (cada aluno): **60 resumos**, **400 questões** e **60 mapas mentais**. Quando passa, aparece "Você chegou ao limite do mês" e renova no dia 1º. Você vê o uso e muda o limite de cada aluno na página de **Administração** (coluna "IA no mês"; mude o número e clique em Salvar).
 
-Custo estimado com o Claude Haiku 4.5 (1 dólar por milhão de tokens de entrada e 5 por milhão de saída): um resumo custa cerca de **2 a 6 centavos de dólar** (mais caro quando o material do professor é grande); 10 questões, cerca de **3 a 5 centavos**; um mapa mental, cerca de **1 a 2 centavos**. Um aluno que usa o limite inteiro do mês gasta no máximo uns 5 a 6 dólares; o uso normal deve ficar bem abaixo disso. Acompanhe em console.anthropic.com → **Usage**.
+Custo estimado com o Claude Haiku 4.5 (1 dólar por milhão de tokens de entrada e 5 por milhão de saída): um resumo custa cerca de **2 a 6 centavos de dólar** (mais caro quando o material do professor é grande); 10 questões, cerca de **3 a 5 centavos**; um mapa mental, cerca de **1 a 2 centavos**. Um aluno que usa o limite inteiro do mês gasta no máximo uns 6 a 7 dólares; o uso normal deve ficar bem abaixo disso. Acompanhe em console.anthropic.com → **Usage**.
 
 ## Configuração pública
 `assets/config.js` tem só a URL do projeto e a chave **publishable** do Supabase, que podem ficar no navegador. A chave secreta (service_role) e a chave da API do Claude **nunca** entram neste repositório.
