@@ -269,19 +269,23 @@
     if (man && /encryption-data/.test(man)) throw erro("senha");
     const xml = await z.texto("content.xml"); if (!xml) throw erro("corrompido");
     prog(0.5, "Lendo o texto…");
-    const out = []; let pagina = 0, pular = 0;
-    const re = /<(\/?)([A-Za-z][\w.-]*:[\w.-]+)([^>]*?)(\/?)>|([^<]+)/g;
+    const out = []; let pagina = 0, pular = 0, celula = 0;
+    // tags com prefixo (text:p, table:table-cell...); o resto (<?xml?>, comentários) é ignorado
+    const re = /<(\/?)([A-Za-z][\w.-]*:[\w.-]+)([^>]*?)(\/?)>|<[^>]*>|([^<]+)/g;
     let m, letras = 0;
     while ((m = re.exec(xml)) && letras < LIM.letras) {
+      if (m[2] === undefined && m[5] === undefined) continue;
       if (m[5] !== undefined) { if (!pular) { const s = desfazEntidades(m[5]); out.push(s); letras += s.length; } continue; }
       const fecha = m[1] === "/", nome = m[2], vazio = m[4] === "/";
-      if (nome === "text:tracked-changes" || nome === "office:annotation") { if (!vazio) pular += fecha ? -1 : 1; if (pular < 0) pular = 0; continue; }
+      if (nome === "text:tracked-changes" || nome === "office:annotation" || nome === "text:page-number" || nome === "text:page-count") { if (!vazio) pular += fecha ? -1 : 1; if (pular < 0) pular = 0; continue; }
       if (pular) continue;
       if (fecha) {
-        if (nome === "text:p" || nome === "text:h" || nome === "table:table-row") out.push("\n");
-        else if (nome === "table:table-cell" || nome === "table:covered-table-cell") out.push("\t");
+        if (nome === "text:p" || nome === "text:h") out.push(celula ? " " : "\n");
+        else if (nome === "table:table-row") out.push("\n");
+        else if (nome === "table:table-cell" || nome === "table:covered-table-cell") { celula = Math.max(0, celula - 1); out.push("\t"); }
         continue;
       }
+      if ((nome === "table:table-cell" || nome === "table:covered-table-cell")) { if (vazio) out.push("\t"); else celula++; continue; }
       if (nome === "text:s") out.push(" ".repeat(Math.min(50, +(atributo(m[3], "text:c") || 1) || 1)));
       else if (nome === "text:tab") out.push("\t");
       else if (nome === "text:line-break") out.push("\n");
@@ -289,8 +293,8 @@
       else if (nome === "presentation:notes") out.push("\nNotas: ");
       else if (nome === "table:table" && !/presentation/.test(m[3])) { const nm = atributo(m[3], "table:name"); if (nm && !pagina) out.push(`\nPlanilha: ${nm}\n`); }
     }
-    let t = out.join("").replace(/\t+\n/g, "\n").replace(/Notas: \s*(?=\n\nSlide|\s*$)/g, "");
-    return { texto: t, paginas: pagina || null };
+    const t = out.join("").replace(/\nNotas: \s*(?=\n\nSlide|\s*$)/g, "").replace(/ +\t/g, "\t").replace(/\t+\n/g, "\n").replace(/[ \t]+$/gm, "");
+    return { texto: t.replace(/^\s+/, ""), paginas: pagina || null };
   }
   async function doZip(u8, op, prog) {
     const JSZip = await op.carregarJSZip();
@@ -511,13 +515,13 @@
       if (c === 0x15) { if (pilha.length && pilha.pop() === 1) codigo--; continue; }
       if (codigo > 0) continue;
       if (c === 0x0D || c === 0x0B || c === 0x0C) out += "\n";
-      else if (c === 0x07) out += "\t";
+      else if (c === 0x07) out += "\u0007"; // fim de célula; dois seguidos = fim da linha da tabela
       else if (c === 0x09) out += "\t";
       else if (c === 0x1E) out += "-";
-      else if (c < 0x20 || c === 0xF8 && false) { /* objetos, notas, imagens: fora */ }
+      else if (c < 0x20) { /* objetos, notas, imagens: fora */ }
       else out += s[i];
     }
-    return out.replace(/\t\n/g, "\n");
+    return out.replace(/\u0007\u0007/g, "\n").replace(/\u0007/g, "\t").replace(/\t\n/g, "\n");
   }
   /** Último recurso: trechos legíveis do arquivo (quando a tabela de peças falha ou é Word 6/95). */
   function trechosLegiveis(u8) {

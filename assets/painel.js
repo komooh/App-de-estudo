@@ -143,10 +143,10 @@
 
   /* ================= DISCIPLINAS ================= */
   const CAI = (d) => ["", "P1", "P2", "Final", ...(d.tem_pratica ? ["P1 teórica", "P1 prática", "P2 teórica", "P2 prática", "Final teórica", "Final prática"] : [])];
-  const MAT_LER = /pdf|presentationml|wordprocessingml|google-apps\.(document|presentation)|text\//;
+
   function matInfo(t) {
     const ms = matsDe(t.id); if (!ms.length) return "";
-    const falta = ms.filter((m) => m.status === "pendente" && MAT_LER.test(m.mime || "")).length;
+    const falta = ms.filter((m) => m.status === "pendente" && tipoMat(m)).length;
     return `<span class="tref">Material: ${ms.slice(0, 4).map((m) => esc(m.nome)).join(" · ")}${ms.length > 4 ? ` e mais ${ms.length - 4}` : ""}${falta ? ` <span class="muted">(${falta} será${falta > 1 ? "ão" : ""} lido${falta > 1 ? "s" : ""} ao pedir o resumo)</span>` : ""}</span>`;
   }
   function vDisc() {
@@ -290,8 +290,8 @@
     return html + `<div id="upProg">${vUpProg()}</div>
       <p class="muted" style="margin:0;font-size:13px">${esc(UP_FORMATOS)} O arquivo não é guardado no site: ele é lido aqui no seu aparelho e só o texto é guardado. ${S.mats.filter(enviado).length} de 400 arquivos enviados.</p></div>`;
   }
-  const UP_ACCEPT = ".pdf,.pptx,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/jpeg,image/png,image/webp";
-  const UP_FORMATOS = "Material: PDF, PowerPoint (.pptx), Word (.docx) e texto (.txt, .md). Documento da faculdade: PDF ou foto.";
+  const UP_ACCEPT = Extrair.ACCEPT + ",image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp";
+  const UP_FORMATOS = `Material: ${Extrair.FORMATOS_TEXTO}. Documento da faculdade: PDF ou foto. Vídeo, áudio e foto de slide não têm texto para ler.`;
   /** Põe os arquivos escolhidos na fila do navegador (um trabalho por arquivo). */
   async function enviarArquivos() {
     const u = ui.up; if (!u.files.length) return;
@@ -308,19 +308,21 @@
   async function trabalhoUpload(job, prog) {
     const f = job.arquivo, { disc, nome } = job.dados;
     if (!f) throw Object.assign(new Error("O arquivo não ficou guardado neste aparelho. Escolha de novo."), { st: "erro" });
-    const tp = Leitor.tipoDoArquivo(nome, f.type);
-    if (!tp) throw Object.assign(new Error(/\.(ppt|doc)$/i.test(nome) ? "Formato antigo (.ppt/.doc): abra no PowerPoint/Word, salve como .pptx/.docx e envie de novo." : "Tipo de arquivo não aceito. Use PDF, PowerPoint (.pptx), Word (.docx) ou texto (.txt)."), { st: "erro" });
+    const tp = Extrair.tipoDoArquivo(nome, f.type);
+    if (!tp || tp.semTexto) throw Object.assign(new Error(Extrair.naoAceito(nome, f.type)), { st: tp ? "sem_texto" : "erro" });
     if (f.size > 80 * 1024 * 1024) throw Object.assign(new Error("Arquivo grande demais (mais de 80 MB)."), { st: "erro" });
     prog(0, "Abrindo…");
-    const r = await lerArquivo(tp.tipo, new Uint8Array(await f.arrayBuffer()), (frac, msg) => prog(frac, msg));
+    let r;
+    try { r = await lerArquivo(tp.tipo, new Uint8Array(await f.arrayBuffer()), (frac, msg) => prog(frac, msg), nome); }
+    catch (e) { throw Object.assign(new Error(e.message || "Não consegui ler este arquivo."), { st: "erro" }); }
     const texto = limparTexto(r.texto), letras = texto.replace(/\s+/g, "").length;
-    if (letras < 20) throw Object.assign(new Error(tp.tipo === "pdf" ? "Sem texto: este PDF parece escaneado (as páginas são imagens). Use um PDF em que dá para selecionar as palavras." : "Não achei texto neste arquivo."), { st: "sem_texto" });
+    if (letras < 20) throw Object.assign(new Error(r.formato === "pdf" ? "Sem texto: este PDF parece escaneado (as páginas são imagens). Use um PDF em que dá para selecionar as palavras." : "Sem texto: não achei texto neste arquivo (slides só com imagens não têm texto para ler)."), { st: "sem_texto" });
     prog(null, "Guardando…");
     const tema = job.dados.tema || Leitor.nomeDoTema(nome);
     const { data, error } = await sb.rpc("enviar_material", { p_disciplina_id: disc, p_tema_nome: tema, p_nome: nome.slice(0, 300), p_mime: tp.mime, p_texto: texto, p_paginas: r.paginas ?? null });
     if (error) throw Object.assign(new Error(/function .*enviar_material|Could not find/i.test(error.message) ? "O envio de arquivos ainda não foi ativado no banco (falta rodar o 07_uploads.sql)." : /Matéria não encontrada/i.test(error.message) ? "A matéria deste arquivo foi apagada." : error.message), { st: "erro", pararTipo: /limite|07_uploads|Acesso/i.test(error.message) });
     recarregarLogo();
-    return `${data?.tema_novo ? "Tema novo" : "No tema"}: ${tema}${data?.truncado ? " (arquivo muito longo: guardei as primeiras 300 mil letras)" : ""}${tp.tipo === "pdf" && r.paginas && letras < r.paginas * 15 ? ". Pouco texto: algumas páginas parecem imagem." : ""}`;
+    return `${data?.tema_novo ? "Tema novo" : "No tema"}: ${tema}${data?.truncado ? " (arquivo muito longo: guardei as primeiras 300 mil letras)" : ""}${r.formato === "pdf" && r.paginas && letras < r.paginas * 15 ? ". Pouco texto: algumas páginas parecem imagem." : ""}${r.aviso ? ". " + r.aviso : ""}`;
   }
   // depois de cada envio, o painel se atualiza (junta vários envios seguidos numa recarga só)
   let recargaT = 0;
@@ -1219,14 +1221,9 @@
 
   /* ================= MATERIAL DO PROFESSOR: lido no navegador quando falta ================= */
   const limparTexto = (t) => String(t || "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, " ").replace(/[ \t]+\n/g, "\n").replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim().slice(0, 300000);
-  function desfazXml(s) { return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16))).replace(/&amp;/g, "&"); }
-  function textoDoXml(xml, tag, par) {
-    const linhas = [], pre = tag.split(":")[0];
-    const reT = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}>|<${pre}:tab\\s*/>|<${pre}:br\\s*/>`, "g");
-    for (const p of xml.split(new RegExp(`</${par}>`))) { let l = ""; for (const m of p.matchAll(reT)) l += m[1] !== undefined ? desfazXml(m[1]) : m[0].includes("tab") ? "\t" : "\n"; if (l.trim()) linhas.push(l.trimEnd()); }
-    return linhas.join("\n");
-  }
-  const tipoMat = (m) => /pdf/.test(m.mime || "") || /\.pdf$/i.test(m.nome) ? "pdf" : /presentationml/.test(m.mime || "") ? "pptx" : /wordprocessingml/.test(m.mime || "") ? "docx" : /google-apps\.(document|presentation)|^text\//.test(m.mime || "") ? "txt" : null;
+  // Que leitura cada material pede (assets/extrair.js). Google Docs/Slides/Planilhas: o servidor exporta como texto.
+  // Imagens, vídeos e áudios: sem texto (null).
+  function tipoMat(m) { const t = Extrair.tipoDoArquivo(m.nome, m.mime); return t && !t.semTexto ? t.tipo : null; }
   async function baixarMaterial(id) {
     const { data, error } = await sb.functions.invoke("drive-arquivo", { body: { material_id: id } });
     if (error) { let j = null; try { j = await error.context.json(); } catch (_) { } const e = new Error(j?.erro || "O servidor não entregou o arquivo."); e.status = j?.status; throw e; }
@@ -1236,30 +1233,12 @@
     if (data?.erro) throw new Error(data.erro);
     throw new Error("Resposta inesperada do servidor.");
   }
-  /** Texto de um PDF, PowerPoint (.pptx), Word (.docx) ou texto: usado no material do Drive e nos arquivos enviados. */
-  async function lerArquivo(tipo, bytes, prog = () => { }) {
-    if (tipo === "txt") return { texto: new TextDecoder().decode(bytes), paginas: null };
-    if (tipo === "pdf") {
-      const lib = await H.carregarPdfjs();
-      let doc;
-      try { doc = await lib.getDocument({ data: bytes, isEvalSupported: false, disableFontFace: true }).promise; }
-      catch (e) { throw new Error(/password/i.test(e?.name + e?.message) ? "Esse PDF tem senha. Tire a senha e tente de novo." : "Não consegui abrir esse PDF."); }
-      const partes = [], n = doc.numPages;
-      try { for (let i = 1; i <= n; i++) { const pg = await doc.getPage(i); const tc = await pg.getTextContent(); partes.push(tc.items.map((it) => (it.str || "") + (it.hasEOL ? "\n" : " ")).join("")); pg.cleanup(); if (i % 3 === 0 || i === n) prog(i / n, `Lendo a página ${i} de ${n}…`); } }
-      finally { try { doc.destroy(); } catch (_) { } }
-      return { texto: partes.join("\n\n"), paginas: n };
-    }
-    const JSZip = await H.carregarJSZip(); let zip;
-    try { zip = await JSZip.loadAsync(bytes); } catch (_) { throw new Error("Não consegui abrir esse arquivo (está corrompido ou não é .pptx/.docx)."); }
-    if (tipo === "pptx") {
-      const slides = Object.keys(zip.files).map((n) => ({ n, m: n.match(/^ppt\/slides\/slide(\d+)\.xml$/) })).filter((x) => x.m).sort((a, b) => +a.m[1] - +b.m[1]);
-      const out = []; for (let i = 0; i < slides.length; i++) { const s = slides[i]; const t = textoDoXml(await zip.file(s.n).async("string"), "a:t", "a:p"); if (t.trim()) out.push(`Slide ${s.m[1]}\n${t}`); prog((i + 1) / slides.length, `Lendo o slide ${i + 1} de ${slides.length}…`); }
-      return { texto: out.join("\n\n"), paginas: slides.length };
-    }
-    const doc = zip.file("word/document.xml"); prog(1, "Texto lido.");
-    return { texto: doc ? textoDoXml(await doc.async("string"), "w:t", "w:p") : "", paginas: null };
+  /** Texto de qualquer arquivo de estudo (PDF, PowerPoint, Word, OpenDocument, RTF, planilhas, HTML, texto): assets/extrair.js.
+   *  Usado no material do Drive e nos arquivos enviados. Erros já vêm com a mensagem para o aluno. */
+  async function lerArquivo(tipo, bytes, prog = () => { }, nome = "") {
+    return Extrair.extrair(bytes, { tipo, nome, carregarJSZip: H.carregarJSZip, carregarPdfjs: H.carregarPdfjs, prog });
   }
-  const lerBytes = async (tipo, bytes) => (await lerArquivo(tipo, bytes)).texto;
+  const lerBytes = async (tipo, bytes, nome) => (await lerArquivo(tipo, bytes, () => { }, nome)).texto;
   /** Lê no navegador os arquivos do tema que o servidor não leu (PDF, Word, PowerPoint). Devolve avisos. */
   async function prepararMaterial(temaId, prog) {
     const lista = matsDe(temaId).filter((m) => m.status === "pendente" && tipoMat(m));
@@ -1269,7 +1248,7 @@
       prog(`Lendo o material do professor (${i + 1} de ${lista.length}): ${m.nome}…`);
       try {
         const bytes = await baixarMaterial(m.id);
-        const texto = limparTexto(await lerBytes(tipoMat(m), bytes));
+        const texto = limparTexto(await lerBytes(tipoMat(m), bytes, m.nome));
         const { data, error } = await sb.rpc("salvar_texto_material", { p_id: m.id, p_texto: texto });
         if (error) throw error;
         m.status = data || "ok";
@@ -1987,7 +1966,13 @@
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b)) return; const a = b.dataset.a;
     if (a === "upArq") {
       ui.up.docs = ui.up.docs || [];
-      for (const f of [...(b.files || [])]) (destinoPadrao(f) === "doc" ? ui.up.docs : ui.up.files).push(f);
+      const recusados = [];
+      for (const f of [...(b.files || [])]) {
+        const tp = Extrair.tipoDoArquivo(f.name, f.type);
+        if (!ehImagem(f) && (!tp || tp.semTexto)) { recusados.push(`${f.name}: ${Extrair.naoAceito(f.name, f.type)}`); continue; }
+        (destinoPadrao(f) === "doc" ? ui.up.docs : ui.up.files).push(f);
+      }
+      if (recusados.length) toast(recusados.length === 1 ? recusados[0] : `${recusados.length} arquivos sem texto ou de tipo não aceito. ${recusados[0]}`);
       ui.up.files = ui.up.files.slice(0, 30); ui.up.docs = ui.up.docs.slice(0, 10); b.value = "";
       if (ui.cal.doc || ui.cal.msg) { if (!ui.cal.doc) ui.cal.msg = null; }
       render(); return;

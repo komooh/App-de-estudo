@@ -89,7 +89,7 @@
   }
   /** Nome do tema a partir do nome do arquivo (o mesmo da função drive-varrer). */
   function nomeDoTema(arquivo) {
-    let s = String(arquivo || "").replace(/\.(pdf|pptx?|docx?|txt|md|key|odt|odp)$/i, "");
+    let s = String(arquivo || "").replace(/\.(pdf|pptx?|pptm|ppsx?|potx?|docx?|docm|dotx?|txt|md|key|odt|odp|ods|rtf|xlsx?|xlsm|csv|html?)$/i, "");
     s = s.replace(/_/g, " ").replace(/\s+[-–—]\s+/g, " - ").replace(/\s+/g, " ").trim();
     s = s.replace(/^(\d{1,3}|[a-z]\d{1,2})\s*[.)\-–:]?\s+(?=\S)/i, "");
     s = s.replace(/^[-–—.\s]+|[-–—.\s]+$/g, "");

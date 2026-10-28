@@ -37,13 +37,30 @@ const TIPOS: Record<string, string> = {
   "text/plain": "txt",
   "text/markdown": "txt",
   "text/x-markdown": "txt",
+  "application/vnd.google-apps.spreadsheet": "gsheets",
+  // lidos no navegador do aluno (assets/extrair.js): a função só entrega os bytes
+  "application/msword": "doc",
+  "application/vnd.ms-powerpoint": "ppt",
+  "application/vnd.ms-excel": "xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "application/vnd.openxmlformats-officedocument.presentationml.slideshow": "pptx",
+  "application/vnd.oasis.opendocument.presentation": "odp",
+  "application/vnd.oasis.opendocument.text": "odt",
+  "application/vnd.oasis.opendocument.spreadsheet": "ods",
+  "application/rtf": "rtf",
+  "text/rtf": "rtf",
+  "text/csv": "csv",
+  "text/html": "html",
 };
+const EXT_NAVEGADOR = /\.(pptx?|pps[xm]?|pot[xm]?|pptm|docx?|dot[xm]?|docm|xlsx?|xlsm|odp|odt|ods|rtf|csv|html?)$/i;
 export function tipoDoArquivo(mime: string, nome: string): string | null {
   if (TIPOS[mime]) return TIPOS[mime];
   if (/\.(md|txt)$/i.test(nome) && /^(text\/|application\/octet-stream$)/.test(mime)) return "txt";
   if (/\.pdf$/i.test(nome) && mime === "application/octet-stream") return "pdf";
+  if (/^(application\/octet-stream|application\/zip|application\/x-zip-compressed|)$/.test(mime) && EXT_NAVEGADOR.test(nome)) return String(nome.match(EXT_NAVEGADOR)![1]).toLowerCase();
   return null;
 }
+const exporta = (tipo: string) => tipo === "gdoc" || tipo === "gslides" || tipo === "gsheets";
 
 // ---------- base64url / criptografia (igual ao drive-oauth e drive-varrer) ----------
 const te = new TextEncoder();
@@ -153,9 +170,9 @@ Deno.serve(async (req) => {
     const fonteTipo = (m as any).drive_fontes?.tipo === "google" ? "google" : "compartilhada";
     const tk = fonteTipo === "google" ? await tokenAluno(admin, uid) : await tokenSA();
 
-    const u = new URL(`${DRIVE}/${encodeURIComponent(String(m.drive_file_id))}${tipo === "gdoc" || tipo === "gslides" ? "/export" : ""}`);
+    const u = new URL(`${DRIVE}/${encodeURIComponent(String(m.drive_file_id))}${exporta(tipo) ? "/export" : ""}`);
     u.searchParams.set("supportsAllDrives", "true");
-    if (tipo === "gdoc" || tipo === "gslides") u.searchParams.set("mimeType", "text/plain"); else u.searchParams.set("alt", "media");
+    if (exporta(tipo)) u.searchParams.set("mimeType", tipo === "gsheets" ? "text/csv" : "text/plain"); else u.searchParams.set("alt", "media");
     const r = await fetch(u, { headers: { Authorization: `Bearer ${tk}` }, signal: AbortSignal.timeout(60000) });
     if (!r.ok) {
       await r.body?.cancel();

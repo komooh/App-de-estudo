@@ -29,7 +29,7 @@ const MAX_TEXTO = 300_000;
 const MAX_PROFUNDIDADE = 6;
 const MAX_ARQUIVOS = 3000;
 const MAX_TENTATIVAS = 3;
-const LEVES = ["application/vnd.google-apps.document", "application/vnd.google-apps.presentation", "text/plain", "text/markdown"];
+const LEVES = ["application/vnd.google-apps.document", "application/vnd.google-apps.presentation", "application/vnd.google-apps.spreadsheet", "text/plain", "text/markdown"];
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -50,13 +50,28 @@ const TIPOS: Record<string, string> = {
   "text/plain": "txt",
   "text/markdown": "txt",
   "text/x-markdown": "txt",
-  // aparecem na lista, mas sem leitura do texto
-  "application/msword": "outro",
-  "application/vnd.ms-powerpoint": "outro",
+  "application/vnd.google-apps.spreadsheet": "gsheets",
+  // lidos só no navegador do aluno (assets/extrair.js), quando ele pede o resumo: aqui só entram na lista
+  "application/msword": "navegador",
+  "application/vnd.ms-powerpoint": "navegador",
+  "application/vnd.ms-excel": "navegador",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "navegador",
+  "application/vnd.openxmlformats-officedocument.presentationml.slideshow": "navegador",
+  "application/vnd.oasis.opendocument.presentation": "navegador",
+  "application/vnd.oasis.opendocument.text": "navegador",
+  "application/vnd.oasis.opendocument.spreadsheet": "navegador",
+  "application/rtf": "navegador",
+  "text/rtf": "navegador",
+  "text/csv": "navegador",
+  "text/html": "navegador",
 };
-function tipoDoArquivo(mime: string, nome: string): string | null {
+// o Drive às vezes não sabe o tipo (application/octet-stream): vale a extensão
+const EXT_NAVEGADOR = /\.(pptx?|pps[xm]?|pot[xm]?|pptm|docx?|dot[xm]?|docm|xlsx?|xlsm|odp|odt|ods|rtf|csv|html?)$/i;
+export function tipoDoArquivo(mime: string, nome: string): string | null {
   if (TIPOS[mime]) return TIPOS[mime];
   if (/\.(md|txt)$/i.test(nome) && /^(text\/|application\/octet-stream$)/.test(mime)) return "txt";
+  if (/^(application\/octet-stream|application\/zip|application\/x-zip-compressed|)$/.test(mime) && EXT_NAVEGADOR.test(nome)) return "navegador";
+  if (/\.pdf$/i.test(nome) && mime === "application/octet-stream") return "pdf";
   return null;
 }
 
@@ -140,7 +155,7 @@ function materiaDoCaminho(caminho: string[], materias: { id: number; nome: strin
 // <<< nomes das matérias
 /** Nome do tema a partir do nome do arquivo. */
 function nomeDoTema(arquivo: string): string {
-  let s = String(arquivo || "").replace(/\.(pdf|pptx?|docx?|txt|md|key|odt|odp)$/i, "");
+  let s = String(arquivo || "").replace(/\.(pdf|pptx?|pptm|ppsx?|potx?|docx?|docm|dotx?|txt|md|key|odt|odp|ods|rtf|xlsx?|xlsm|csv|html?)$/i, "");
   s = s.replace(/_/g, " ").replace(/\s+[-–—]\s+/g, " - ").replace(/\s+/g, " ").trim();
   s = s.replace(/^(\d{1,3}|[a-z]\d{1,2})\s*[.)\-–:]?\s+(?=\S)/i, "");   // "01 - ", "1. ", "03) "
   s = s.replace(/^[-–—.\s]+|[-–—.\s]+$/g, "");
@@ -327,11 +342,11 @@ async function listarTudo(token: string, raiz: { id: string; name: string }, fim
 }
 async function lerArquivo(token: string, m: { drive_file_id: string; mime: string; nome: string; tamanho: number | null }): Promise<{ status: string; texto: string | null; erro: string | null }> {
   const tipo = tipoDoArquivo(m.mime, m.nome);
-  if (!tipo || tipo === "outro") return { status: "sem_texto", texto: null, erro: null };
+  if (!tipo || tipo === "navegador") return { status: "sem_texto", texto: null, erro: null }; // (não acontece: só os LEVES são lidos aqui)
   if (m.tamanho && m.tamanho > MAX_BYTES) return { status: "grande_demais", texto: null, erro: null };
   let texto = "";
-  if (tipo === "gdoc" || tipo === "gslides") {
-    const r = await drive(token, `/${m.drive_file_id}/export`, { mimeType: "text/plain" }, 45000);
+  if (tipo === "gdoc" || tipo === "gslides" || tipo === "gsheets") {
+    const r = await drive(token, `/${m.drive_file_id}/export`, { mimeType: tipo === "gsheets" ? "text/csv" : "text/plain" }, 45000);
     if (r.status === 403) {
       const e = await r.json().catch(() => ({}));
       if (JSON.stringify(e).includes("exportSizeLimitExceeded")) return { status: "grande_demais", texto: null, erro: null };
