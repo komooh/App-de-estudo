@@ -563,7 +563,39 @@
   const QTIPOS = { mc: "Marcar X", vf: "Verdadeiro ou falso", rel: "Relacionar", dis: "Dissertativa" };
   const MAX_LOTE = { mc: 8, vf: 6, rel: 6, dis: 5 };
   const qTipo = (q) => QTIPOS[q.tipo] ? q.tipo : "mc";
-  function qPool() { let q = S.questoes || []; if (ui.qDisc) q = q.filter((x) => x.disciplina_id == ui.qDisc); if (ui.qMode === "rev") q = q.filter((x) => x.ultima === false || x.id === ui._keep); return q; }
+  /* ----- escolher os temas (Praticar, Revisar erros e Flash cards): cada tema com caixinha, lembrado por matéria nesta aba ----- */
+  // Grupo = o nome do tema (o do cadastro, se a questão/card estiver ligada a um tema; senão o texto do tema). Vazio = "Sem tema".
+  const SEM_TEMA = "~sem";
+  const grupoNome = (temaId, texto) => (temaId != null && temaById(temaId)?.nome) || String(texto || "").trim();
+  const grupoChave = (nome) => qNorm(nome) || SEM_TEMA;
+  const qChave = (q) => grupoChave(grupoNome(q.tema_id, q.tema));
+  /** Temas DESMARCADOS da matéria (o padrão é tudo marcado; um tema novo já entra marcado). */
+  function temasOff(ns, disc) { try { const v = JSON.parse(ss.get(`painel:${ns}Off:${disc}`) || "[]"); return new Set(Array.isArray(v) ? v.map(String) : []); } catch (_) { return new Set(); } }
+  const salvarOff = (ns, disc, set) => ss.set(`painel:${ns}Off:${disc}`, JSON.stringify([...set]));
+  /** Grupos da lista (na ordem dos temas da matéria; "Sem tema" no fim) com a contagem de cada um. */
+  function gruposDe(lista, chaveDe, nomeDe, disc) {
+    const ordem = new Map(temasDe(disc).map((t, i) => [grupoChave(t.nome), i])), m = new Map();
+    for (const x of lista) { const k = chaveDe(x); const g = m.get(k) || { k, nome: k === SEM_TEMA ? "Sem tema" : nomeDe(x), n: 0 }; g.n++; m.set(k, g); }
+    return [...m.values()].sort((a, b) => (a.k === SEM_TEMA) - (b.k === SEM_TEMA) || (ordem.get(a.k) ?? 1e6) - (ordem.get(b.k) ?? 1e6) || a.nome.localeCompare(b.nome, "pt-BR"));
+  }
+  /** Lista de temas com caixinhas, "Todas" / "Nenhuma" e o total selecionado. */
+  function vTemasSel(ns, disc, grupos, palavra) {
+    if (!disc) return `<p class="muted qtemas-dica">Escolha uma matéria para escolher os temas.</p>`;
+    if (!grupos.length) return "";
+    const off = temasOff(ns, disc), marcados = grupos.filter((g) => !off.has(g.k)), total = marcados.reduce((s, g) => s + g.n, 0);
+    const [um, varios] = palavra; // ex.: ["questão selecionada", "questões selecionadas"]
+    return `<fieldset class="qtemas"><legend class="mono">Temas</legend>
+      <div class="qtemas-top"><span class="tnum" aria-live="polite"><b>${total}</b> ${total === 1 ? um : varios}</span>
+        <span class="row" style="gap:4px"><button type="button" class="btn ghost qtemas-b" data-a="temasTodos" data-ns="${ns}" data-v="1" ${marcados.length === grupos.length ? "disabled" : ""}>Todas</button><button type="button" class="btn ghost qtemas-b" data-a="temasTodos" data-ns="${ns}" data-v="0" ${!marcados.length ? "disabled" : ""}>Nenhuma</button></span></div>
+      <div class="qtemas-lista">${grupos.map((g) => `<label class="check qtema ${off.has(g.k) ? "" : "on-q"}"><input type="checkbox" data-a="temaSel" data-ns="${ns}" data-k="${esc(g.k)}" ${off.has(g.k) ? "" : "checked"}><span>${esc(g.nome)} <span class="muted tnum">(${g.n})</span></span></label>`).join("")}</div></fieldset>`;
+  }
+  /** Os grupos que aparecem agora na lista de temas (para "Nenhuma"). */
+  function gruposAtuais(ns) { return gruposDe(qBase(), qChave, (q) => grupoNome(q.tema_id, q.tema), ui.qDisc); }
+  function qBase() { let q = S.questoes || []; if (ui.qDisc) q = q.filter((x) => x.disciplina_id == ui.qDisc); if (ui.qMode === "rev") q = q.filter((x) => x.ultima === false || x.id === ui._keep); return q; }
+  function qPool() {
+    const q = qBase(); if (!ui.qDisc) return q;
+    const off = temasOff("q", ui.qDisc); return off.size ? q.filter((x) => !off.has(qChave(x)) || x.id === ui._keep) : q;
+  }
   function temaStats() {
     const m = {}; (S.questoes || []).forEach((q) => { if (!q.acertos && !q.erros) return; const k = q.tema; m[k] = m[k] || { tema: k, disc: dname(q.disciplina_id), a: 0, e: 0 }; m[k].a += q.acertos; m[k].e += q.erros; });
     return Object.values(m).map((x) => ({ ...x, pct: Math.round(x.a / (x.a + x.e) * 100) })).sort((a, b) => b.pct - a.pct);
@@ -612,13 +644,14 @@
     const sel = `<select class="inp" data-a="qDisc" style="max-width:260px" aria-label="Filtrar disciplina"><option value="">Todas as disciplinas</option>${S.disc.map((d) => `<option value="${d.id}" ${ui.qDisc == d.id ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select>`;
     let main = "";
     if (ui.qMode === "prat" || ui.qMode === "rev") {
-      const pool = qPool();
-      if (!pool.length) main = `${sel}<div class="empty" style="margin-top:14px">${ui.qMode === "rev" ? "Nenhum erro para revisar aqui. Bom sinal." : "Sem questões para esta disciplina. Gere algumas na aba “Gerar com IA”."}</div>`;
+      const base = qBase(), pool = qPool();
+      const temas = vTemasSel("q", ui.qDisc, ui.qDisc ? gruposDe(base, qChave, (q) => grupoNome(q.tema_id, q.tema), ui.qDisc) : [], ["questão selecionada", "questões selecionadas"]);
+      if (!pool.length) main = `${sel}${temas}<div class="empty" style="margin-top:14px">${base.length ? "Nenhum tema marcado. Marque pelo menos um tema acima." : ui.qMode === "rev" ? "Nenhum erro para revisar aqui. Bom sinal." : "Sem questões para esta disciplina. Gere algumas na aba “Gerar com IA”."}</div>`;
       else {
-        if (ui.qIdx >= pool.length) ui.qIdx = 0;
+        if (ui.qIdx >= pool.length || ui.qIdx < 0) ui.qIdx = 0;
         const q = pool[ui.qIdx];
-        main = `<div class="row" style="justify-content:space-between;align-items:center">${sel}<span class="mono tnum">Questão ${ui.qIdx + 1} de ${pool.length}</span></div>
-          <p class="mono" style="margin:16px 0 4px">${esc(dname(q.disciplina_id))} · ${esc(q.tema)}<span class="qtipo">${QTIPOS[qTipo(q)]}</span></p>
+        main = `<div class="row" style="justify-content:space-between;align-items:center">${sel}<span class="mono tnum">Questão ${ui.qIdx + 1} de ${pool.length}</span></div>${temas}
+          <p class="mono" style="margin:16px 0 4px">${esc(dname(q.disciplina_id))} · ${esc(grupoNome(q.tema_id, q.tema) || "Sem tema")}<span class="qtipo">${QTIPOS[qTipo(q)]}</span></p>
           <h3 style="font-size:17px;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere">${esc(q.enunciado)}</h3>${qBody(q)}
           <div class="row" style="margin-top:14px;justify-content:space-between"><button class="btn ghost" data-a="delQ" data-id="${q.id}">Excluir questão</button><button class="btn solid" data-a="nextQ">Próxima</button></div>`;
       }
@@ -1617,6 +1650,14 @@
       case "delTopic": { ui.confDel = null; if (await del("temas", id)) { S.temas = S.temas.filter((t) => t.id != id); S.mats = S.mats.filter((m) => !(m.tema_id == id && !enviado(m))); S.mats.forEach((m) => { if (m.tema_id == id) m.tema_id = null; }); render(); toast("Tema apagado"); } break; }
       case "delDisc": { ui.confDisc = null; if (await del("disciplinas", id)) { await recarregar(); toast("Matéria removida"); } break; }
       case "qMode": ui.qMode = b.dataset.m; ui.qIdx = 0; ui.qAns = null; ui.qst = null; ui.genMsg = ""; render(); break;
+      case "temaSel": case "temasTodos": {
+        const ns = b.dataset.ns === "f" ? "f" : "q", disc = ns === "f" ? ui.fcDisc : ui.qDisc; if (!disc) break;
+        const off = temasOff(ns, disc);
+        if (a === "temaSel") { if (b.checked) off.delete(b.dataset.k); else off.add(b.dataset.k); }
+        else { off.clear(); if (b.dataset.v === "0") gruposAtuais(ns).forEach((g) => off.add(g.k)); }
+        salvarOff(ns, disc, off);
+        ui.qIdx = 0; ui.qAns = null; ui.qst = null; ui._keep = null;
+        render(); document.querySelector(a === "temaSel" ? `[data-a=temaSel][data-ns="${ns}"][data-k="${CSS.escape(b.dataset.k)}"]` : `[data-a=temasTodos][data-ns="${ns}"]:not([disabled])`)?.focus(); break; }
       case "answer": { const q = qPool()[ui.qIdx]; if (!q) break; const i = +b.dataset.i; ui.qAns = i; ui.qAnsId = q.id; qRecord(q, i === q.correta); break; }
       case "vfPick": { const q = qPool()[ui.qIdx]; if (!q) break; const st = qSt(q); if (st.done) break; st.vf[+b.dataset.i] = b.dataset.v === "1"; render(); break; }
       case "vfCheck": { const q = qPool()[ui.qIdx]; if (!q) break; const st = qSt(q); st.done = true; qRecord(q, (q.afirmativas || []).every((x, i) => st.vf[i] === !!x.v)); break; }

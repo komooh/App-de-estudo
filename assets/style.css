@@ -465,3 +465,12 @@ table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-to
 .imp-erros li{margin:2px 0}
 @media (max-width:640px){table.imp th{letter-spacing:0;padding:6px 3px;font-size:10px}table.imp td{padding:7px 3px}table.imp th:first-child,table.imp td:first-child{padding-left:0}}
 .upbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+/* Questões e flash cards: escolher os temas */
+.qtemas{border:1px solid var(--line);border-radius:10px;padding:8px 12px 10px;margin:12px 0 0;min-width:0;background:var(--card2)}
+.qtemas legend{padding:0 4px}
+.qtemas-top{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px}
+.qtemas-b{padding:3px 8px;font-size:12.5px}
+.qtemas-lista{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px;max-height:220px;overflow-y:auto}
+.qtemas .qtema{white-space:normal;font-size:13.5px;min-width:0;overflow-wrap:anywhere;align-items:flex-start}
+.qtemas .qtema input{margin-top:2px;flex:none}
+.qtemas-dica{margin:10px 0 0;font-size:13px}
