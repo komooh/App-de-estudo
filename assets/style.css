@@ -456,3 +456,11 @@ details.cfgcard{scroll-margin-top:72px}
 .caldia ul{margin:0;padding-left:18px;font-size:13.5px}
 .caldia .lnk{align-self:flex-start}
 @media (prefers-reduced-motion:reduce){details.cfgcard>summary::after{transition:none}}
+/* Importar dados do painel antigo (Configurações, só o administrador) */
+table.imp{min-width:0;font-size:13.5px}
+table.imp td,table.imp th{padding:7px 6px}
+table.imp td.tnum,table.imp th.n{text-align:right}
+table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-top:4px;accent-color:var(--terra)}
+.imp-erros{margin:8px 0 0;padding-left:18px;font-size:13px;overflow-wrap:anywhere}
+.imp-erros li{margin:2px 0}
+@media (max-width:640px){table.imp th{letter-spacing:0;padding:6px 3px;font-size:10px}table.imp td{padding:7px 3px}table.imp th:first-child,table.imp td:first-child{padding-left:0}}

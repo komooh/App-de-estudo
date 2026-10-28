@@ -31,6 +31,8 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `assets/tarefas.js` | Botão e painel Tarefas (o que está rodando e o que ficou pronto) |
 | `supabase/09_termos.sql` | Aceite dos termos de uso: versão atual, aceite de cada aluno e registro dos aceites |
 | `supabase/10_memoria_resumo.sql` | Memória do resumo (como o aluno quer os resumos, em texto livre) |
+| `assets/importar.js` | Configurações → Importar dados do painel antigo (só o administrador) |
+| `supabase/11_importar_painel.sql` | Função que grava os resumos, mapas e questões trazidos do painel antigo (só para o administrador) |
 | `termos.html`, `privacidade.html` | Termos de uso e política de privacidade (modelo; revisar com advogado) |
 
 ## Como colocar no ar (uma vez)
@@ -213,3 +215,35 @@ O que fazer (uma vez, nesta ordem):
 1. **Banco:** SQL Editor → cole todo o `supabase/10_memoria_resumo.sql` → **Run** (depois do 09). Pode rodar de novo.
 2. **Função `ia`:** Edge Functions → **ia** → Code → cole o novo `supabase/functions/ia/index.ts` → **Deploy**. **"Verify JWT" continua DESLIGADO.**
 3. Mais nada: o site atualiza sozinho com o `git push`. (Sem o passo 1, salvar a memória mostra "Falta rodar o 10_memoria_resumo.sql"; a função `ia` funciona com ou sem ele.)
+
+## Importar do painel antigo (Etapa 8)
+Para o administrador trazer os dados do painel pessoal antigo (o painel de um arquivo só) para a conta dele no site.
+
+1. No painel antigo: **Configurações → Baixar meus dados (para o site)**. Sai o arquivo `painel-dados-AAAA-MM-DD.json` com o semestre atual (versão 1). Não vão: dados do NotebookLM, chaves, fotos do laminário e semestres guardados.
+2. No site: **Configurações → Importar dados do painel antigo** (o cartão só aparece para quem é administrador). Escolha o arquivo. O site confere a versão, o tamanho (até 15 MB) e o limite de cada lista, e mostra a revisão com quantos itens de cada tipo há e quantos têm erro. Cada tipo tem uma caixinha (todas marcadas). **Nada é salvo antes de clicar em Importar.**
+3. Tudo vai para o **semestre atual** da conta: matérias (as que têm o mesmo nome são reaproveitadas), temas, resumos (aparecem em Disciplinas, com "Trazido do painel antigo" na ficha), mapas mentais, provas, notas, aulas, calendário acadêmico, eventos, ligas, horas complementares, questões (com acertos, erros e o histórico, para a IA não repetir) e o modelo dos resumos (se o site já tiver um, só troca se você marcar).
+4. Rodar de novo **não duplica**: cada coisa é comparada pelo nome, data, matéria ou enunciado, e o que já existe aparece como "já existiam". Itens com erro (texto grande demais, data inválida, campo faltando) são pulados; no fim há a lista de erros para baixar (.csv). Grava de 200 em 200.
+
+O que fazer (uma vez): SQL Editor → cole todo o `supabase/11_importar_painel.sql` → **Run** (depois do 10). Pode rodar de novo. Ele é necessário porque resumos, mapas e questões só o servidor grava; a função `importar_painel` recusa quem não é administrador e só grava na conta de quem chama. Sem ele, o resto é importado e esses três aparecem como "ignorados por erro" com o aviso.
+
+### Formato do arquivo (versão 1)
+Campos com os nomes das tabelas do site; `ref` é um apelido local (`d1`, `t1`…) para ligar temas, provas e questões à matéria e ao tema, sem os ids do painel antigo.
+
+```
+{ versao: 1, app, exportado_em,
+  perfil: { nome, semestre, turma },
+  disciplinas: [{ ref, nome, professor, tem_pratica, foco_resumo }],
+  temas: [{ ref, disciplina_ref, nome, prova, itens[], aula, resumo_ok, questoes_ok, ordem, resumo_texto, resumo_criado_em, resumo_truncado }],
+  provas: [{ disciplina_ref, tipo: P1|P2|Final|Seminário|Entrega|Outra, modalidade: teorica|pratica, titulo, data, hora, peso }],
+  notas: [{ disciplina_ref, campo: p1|p2|final|p1_pratica|p2_pratica|final_pratica|presenca|trabalhos, valor }],
+  horarios: [{ disciplina_ref | nome, professor, dia: 1-6, inicio, fim }],
+  calendario: [{ nome, tipo: feriado|parcial|pratica|final|aulas|outro, inicio, fim }],
+  vida_eventos: [{ nome, detalhe, data, status: pend|ins|conf|done }],
+  ligas: [{ nome, papel }],
+  horas_compl: [{ categoria, descricao, horas, certificado }],
+  mapas: [{ tema_ref, titulo, ramos, criado_em }],
+  questoes: [{ disciplina_ref, tema_ref, tema, tipo: mc|vf|rel|dis, enunciado, dados, explicacao, acertos, erros, ultima }],
+  preferencias: { modelo_resumo, horas_dia, horas_fds, dormir, horas_meta } }
+```
+Do arquivo, o site usa de `preferencias` só o `modelo_resumo`, e não muda o seu perfil (nome, semestre, turma).
+

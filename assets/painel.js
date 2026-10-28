@@ -195,7 +195,7 @@
   /* ---------- Configurações: cada cadastro tem o seu cartão (as abas do painel só mostram) ---------- */
   const CFG = { materias: "Matérias e semestres", conteudos: "Conteúdos e materiais", calendario: "Calendário e avaliações", aulas: "Aulas e horários",
     vida: "Vida acadêmica", lam: "Laminário", enviar: "Enviar arquivos", importar: "Importar documento", docs: "Documentos importados",
-    drive: "Meu Google Drive", livros: "Meus livros", agenda: "Ajustes da agenda", memoria: "Memória do resumo" };
+    drive: "Meu Google Drive", livros: "Meus livros", agenda: "Ajustes da agenda", memoria: "Memória do resumo", antigo: "Importar dados do painel antigo" };
   const cfgFechados = new Set((() => { try { return JSON.parse(ss.get("painel:cfgFechados") || "[]"); } catch (_) { return []; } })());
   /** Cartão de Configurações: janela que abre e fecha (o aluno recolhe o que não usa; fica lembrado nesta aba do navegador) */
   function cartao(k, corpo) {
@@ -444,9 +444,14 @@
   // Ordem: a base (matérias), os cadastros de cada aba, os arquivos, Drive e livros (montados à parte, em #pfixos)
   // e, no fim (#pcfg), os ajustes da agenda e a memória do resumo.
   const CFG_ORDEM = ["materias", "conteudos", "calendario", "aulas", "vida", "lam", "enviar", "importar", "docs", "drive", "livros", "agenda", "memoria"];
+  // "Importar dados do painel antigo": só o administrador vê (assets/importar.js). Quem não é admin também não
+  // conseguiria gravar resumos, mapas e questões: a função importar_painel do banco recusa.
+  const verAntigo = () => !!(H && H.P && H.P.is_admin && window.Importar);
+  const ctxImp = () => ({ get S() { return S; }, H, recarregar, carregarQuestoes });
   function vConfig() {
+    const ordem = verAntigo() ? [...CFG_ORDEM.slice(0, 9), "antigo", ...CFG_ORDEM.slice(9)] : CFG_ORDEM;
     return hero("Suas", "configurações", "var(--ink)")
-      + `<nav class="cfg-indice" aria-label="Partes das configurações"><p class="muted">Tudo o que você cadastra fica aqui. As abas do painel só mostram.</p><div class="cfg-chips">${CFG_ORDEM.map((k) => `<button class="mem-chip" data-a="goCfg" data-s="${k}">${esc(CFG[k])}</button>`).join("")}</div></nav>`
+      + `<nav class="cfg-indice" aria-label="Partes das configurações"><p class="muted">Tudo o que você cadastra fica aqui. As abas do painel só mostram.</p><div class="cfg-chips">${ordem.map((k) => `<button class="mem-chip" data-a="goCfg" data-s="${k}">${esc(CFG[k])}</button>`).join("")}</div></nav>`
       + cartao("materias", `<div class="win-body">${vSemestres()}</div>${vCfgMaterias()}`)
       + cartao("conteudos", vCfgConteudos())
       + cartao("calendario", vCfgCalendario())
@@ -455,7 +460,8 @@
       + cartao("lam", vCfgLam())
       + cartao("enviar", `<div class="win-body" id="upJanela">${vUpload()}</div>`)
       + cartao("importar", `<div class="win-body">${vImportCal()}</div>`)
-      + cartao("docs", `<div class="win-body">${vDocumentos()}</div>`);
+      + cartao("docs", `<div class="win-body">${vDocumentos()}</div>`)
+      + (verAntigo() ? cartao("antigo", `<div class="win-body" id="impBox">${Importar.html(ctxImp())}</div>`) : "");
   }
   function vConfigFim() {
     return cartao("agenda", vCfgAgenda()) + cartao("memoria", `<div class="win-body" id="memoriaBox">${vMemoria()}</div>`);
@@ -1300,7 +1306,7 @@
           ${(ui.resAvisos || []).length && !busy ? `<div class="fb bad" style="margin-bottom:12px">${ui.resAvisos.map(esc).join("<br>")}</div>` : ""}
           ${r && r.truncado && !busy ? `<div class="fb bad" style="margin-bottom:12px">O resumo ficou incompleto por limite de tamanho. Gere de novo.</div>` : ""}
           <article class="resumo">${body}</article>
-          ${r && r.texto && !busy && !escolha ? `<p class="mono" style="margin-top:14px">Escrito pelo Claude${modoTxt}${r.livros?.length ? ` · livros: ${esc(r.livros.map((l) => l.titulo).join(", "))}` : ""}</p>
+          ${r && r.texto && !busy && !escolha ? `<p class="mono" style="margin-top:14px">${r.modelo === "painel-antigo" ? "Trazido do painel antigo" : "Escrito pelo Claude"}${modoTxt}${r.livros?.length ? ` · livros: ${esc(r.livros.map((l) => l.titulo).join(", "))}` : ""}</p>
           <div class="exp-row"><span class="mono" style="font-size:11px">Baixar este resumo</span><div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn" data-a="expRes" data-fmt="pdf" data-id="${t.id}" ${ui.expBusy ? "disabled" : ""}>${ui.expBusy === "pdf" ? "Gerando PDF…" : "PDF"}</button><button class="btn" data-a="expRes" data-fmt="docx" data-id="${t.id}" ${ui.expBusy ? "disabled" : ""}>${ui.expBusy === "docx" ? "Gerando Word…" : "Word (.docx)"}</button></div></div>` : ""}
           ${!busy && !bgRes ? `<div class="res-extra">
             <p class="muted" style="margin:0;font-size:13px" id="memLinha">${S.pref.memoria_resumo ? "Usando sua memória do resumo" : "Formato padrão"} (<button class="lnk" data-a="editMemoria">editar</button>)</p>
@@ -1528,6 +1534,7 @@
     if (tab) { ui.tab = tab.dataset.tab; ss.set("painel:tab", ui.tab); try { history.replaceState(null, "", "#" + ui.tab); } catch (_) { } render(); window.scrollTo(0, 0); return; }
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b) || b.tagName === "SELECT" || (b.tagName === "INPUT" && b.type !== "checkbox")) return;
     const a = b.dataset.a, id = b.dataset.id;
+    if (a.startsWith("imp") && b.closest("#impBox")) { if (verAntigo()) await Importar.clique(a, ctxImp()); return; }
     switch (a) {
       case "goCfg": { const k = b.dataset.s; if (b.dataset.d && discById(b.dataset.d)) ui.cfgDisc = +b.dataset.d; if (b.dataset.m) ui.cvMode = b.dataset.m; irCfg(k); break; }
       case "goPerfil": H.perfilTela(); break;
@@ -1633,6 +1640,7 @@
       return;
     }
     if (guardarDoc(e.target)) return;
+    if (e.target.closest && e.target.closest("#impBox")) { if (verAntigo()) Importar.mudou(e.target, ctxImp()); return; }
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b)) return; const a = b.dataset.a;
     if (a === "upArq") { const fs = [...(b.files || [])]; if (fs.length) { ui.up.files = ui.up.files.concat(fs).slice(0, 30); } render(); return; }
     if (a === "upDisc") { ui.up.disc = +b.value; ui.up.modo = "arquivo"; ui.up.temaId = null; render(); return; }
