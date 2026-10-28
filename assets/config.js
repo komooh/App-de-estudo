@@ -12,7 +12,7 @@ window.APP_CONFIG = {
   CRIADOR: "Arthur Vinicius de Almeida",
   DESENVOLVIDO_COM: "Desenvolvido com Claude, da Anthropic",
   // Crédito de inspiração: preencha o nome e o @ do Instagram (só letras, números, ponto e _). Vazio = não aparece.
-  CREDITO_INSPIRACAO: { nome: "", instagram: "" },
+  CREDITO_INSPIRACAO: { nome: "emilys.med", instagram: "emilys.med" },
   // E-mail de leitura do site no Google Drive: o aluno compartilha a pasta com ele (não é segredo)
   DRIVE_EMAIL_LEITOR: "leitor-drive@painel-de-estudos-513000.iam.gserviceaccount.com",
 };
