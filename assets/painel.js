@@ -194,7 +194,7 @@
 
   /* ---------- Configurações: cada cadastro tem o seu cartão (as abas do painel só mostram) ---------- */
   const CFG = { materias: "Matérias e semestres", conteudos: "Conteúdos e materiais", calendario: "Calendário e avaliações", aulas: "Aulas e horários",
-    vida: "Vida acadêmica", lam: "Laminário", enviar: "Enviar arquivos", importar: "Importar documento", docs: "Documentos importados",
+    vida: "Vida acadêmica", lam: "Laminário", enviar: "Enviar arquivos e documentos", docs: "Documentos importados",
     drive: "Meu Google Drive", livros: "Meus livros", agenda: "Ajustes da agenda", memoria: "Memória do resumo", antigo: "Importar dados do painel antigo" };
   const cfgFechados = new Set((() => { try { return JSON.parse(ss.get("painel:cfgFechados") || "[]"); } catch (_) { return []; } })());
   /** Cartão de Configurações: janela que abre e fecha (o aluno recolhe o que não usa; fica lembrado nesta aba do navegador) */
@@ -234,28 +234,68 @@
       ${pend ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Pode usar o resto do site enquanto os arquivos são lidos. ${it.every((x) => x.persistente || !(x.st === "fila" || x.st === "rodando")) ? "Se fechar o site, continua quando você abrir de novo neste aparelho." : "Deixe o site aberto até terminar."}</p>` : ""}`;
   }
   function pintarUpProg() { const el = document.getElementById("upProg"); if (el) el.innerHTML = vUpProg(); }
-  /** Cartão "Enviar arquivos" (em Configurações; o link da matéria em Disciplinas já escolhe a matéria) */
+  /** Cartão unificado "Enviar arquivos" - detecta automaticamente o tipo de upload */
   function vUpload() {
     const u = ui.up;
     if (!S.disc.length) return `<div class="empty">Adicione uma matéria primeiro. ${SEM_MATERIA}</div>`;
     if (!discById(u.disc)) u.disc = discById(ui.disc) ? ui.disc : S.disc[0].id;
     const ts = temasDe(u.disc);
     if (u.modo === "existente" && !ts.some((t) => t.id == u.temaId)) { u.modo = "arquivo"; u.temaId = null; }
+
+    const c = ui.cal; // reutiliza o estado de documento importado
+    const temArquivos = u.files.length > 0;
+    const temDocumento = c.file != null;
+
     return `<div class="stack up">
-      <p style="margin:0">Mande os slides, PDFs e documentos do professor. Cada arquivo vira material do tema e é usado nos resumos, mapas e questões.</p>
+      <p style="margin:0">Envie qualquer arquivo: slides, PDFs, documentos do professor, calendários, cronogramas, horários. O sistema identifica automaticamente o que é e oferece as opções corretas.</p>
+
+      <div class="row" style="align-items:center;gap:12px">
+        <label class="btn solid" style="cursor:pointer">Escolher arquivo<input type="file" id="upArq" data-a="upArq" accept=".pdf,.pptx,.docx,.txt,.md,.ppt,.doc,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/msword,text/plain,image/jpeg,image/png,image/webp" hidden></label>
+        ${temArquivos ? `<span style="flex:1;min-width:0"><span class="drv-nome">${esc(u.files[0].name)}</span>${u.files.length > 1 ? ` <span class="muted">+${u.files.length - 1}</span>` : ""}</span>` : ""}
+        ${temDocumento ? `<span style="flex:1;min-width:0"><span class="drv-nome">${esc(c.file.name)}</span></span>` : ""}
+      </div>
+
+      ${temArquivos ? vUploadMaterial(u, ts) : ""}
+      ${temDocumento ? vUploadDocumento(c, u) : ""}
+
+      <div id="upProg">${vUpProg()}</div>
+      <p class="muted" style="margin:0;font-size:13px">
+        <b>Materiais:</b> slides (.pptx), documentos (.docx), PDFs, texto (.txt, .md) → viram temas e são usados nos resumos.<br>
+        <b>Documentos:</b> calendários, cronogramas, horários, regulamentos (PDF ou foto) → a IA lê e você confere antes de salvar.<br>
+        Arquivo não é guardado: é lido aqui no seu aparelho. ${S.mats.filter(enviado).length} de 400 materiais enviados.
+      </p>
+    </div>`;
+  }
+
+  /** Renderiza opções para material de estudo */
+  function vUploadMaterial(u, ts) {
+    return `<div class="stack" style="background:var(--bg-alt);padding:12px;border-radius:8px;border:1px solid var(--line)">
+      <h4 style="margin:0 0 10px">Material de estudo</h4>
       <div class="row">
         <label class="field" style="flex:1 1 200px"><span class="mono">Matéria</span><select data-a="upDisc">${S.disc.map((d) => `<option value="${d.id}" ${d.id == u.disc ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select></label>
         <label class="field" style="flex:1 1 220px"><span class="mono">Tema</span><select data-a="upTema">
-          <option value="arquivo" ${u.modo === "arquivo" ? "selected" : ""}>Um tema novo para cada arquivo (nome do arquivo)</option>
+          <option value="arquivo" ${u.modo === "arquivo" ? "selected" : ""}>Um tema novo para cada arquivo</option>
           <option value="novo" ${u.modo === "novo" ? "selected" : ""}>Um tema novo com o nome que eu escrever</option>
-          ${ts.length ? `<optgroup label="Temas que já existem">${ts.map((t) => `<option value="${t.id}" ${u.modo === "existente" && u.temaId == t.id ? "selected" : ""}>${esc(t.nome)}</option>`).join("")}</optgroup>` : ""}</select></label>
-        ${u.modo === "novo" ? `<label class="field" style="flex:1 1 200px"><span class="mono">Nome do tema</span><input id="upTemaNome" data-a="upTemaNome" maxlength="120" value="${esc(u.temaNome)}" placeholder="Ex.: Insuficiência cardíaca"></label>` : ""}
+          ${ts.length ? `<optgroup label="Temas existentes">${ts.map((t) => `<option value="${t.id}" ${u.modo === "existente" && u.temaId == t.id ? "selected" : ""}>${esc(t.nome)}</option>`).join("")}</optgroup>` : ""}</select></label>
+        ${u.modo === "novo" ? `<label class="field" style="flex:1 1 200px"><span class="mono">Nome</span><input id="upTemaNome" data-a="upTemaNome" maxlength="120" value="${esc(u.temaNome)}" placeholder="Ex.: Insuficiência cardíaca"></label>` : ""}
       </div>
-      <div class="row" style="align-items:center"><label class="btn solid" style="cursor:pointer">Escolher arquivos<input type="file" id="upArq" data-a="upArq" multiple accept=".pdf,.pptx,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" hidden></label>
-        ${u.files.length ? `<button class="btn solid" data-a="upEnviar">Ler e enviar (${u.files.length})</button><button class="btn ghost" data-a="upLimpar">Limpar</button>` : ""}</div>
-      ${u.files.length ? `<ul class="up-lista">${u.files.map((f, i) => `<li><span class="drv-nome">${esc(f.name)}</span><span class="row" style="gap:6px;align-items:center;flex-wrap:nowrap"><span class="muted tnum" style="font-size:12.5px">${(f.size / 1048576).toFixed(1).replace(".", ",")} MB</span><button class="x" data-a="upTirar" data-i="${i}" aria-label="Tirar ${esc(f.name)}">×</button></span></li>`).join("")}</ul>` : ""}
-      <div id="upProg">${vUpProg()}</div>
-      <p class="muted" style="margin:0;font-size:13px">PDF, PowerPoint (.pptx), Word (.docx) e texto (.txt, .md). O arquivo não é guardado no site: ele é lido aqui no seu aparelho e só o texto é guardado. PDF escaneado (páginas que são fotos) não tem texto. ${S.mats.filter(enviado).length} de 400 arquivos enviados.</p>
+      <div class="row" style="gap:8px">
+        <button class="btn solid" data-a="upEnviar">Enviar (${u.files.length})</button>
+        <button class="btn ghost" data-a="upLimpar">Limpar</button>
+      </div>
+      ${u.files.length > 1 ? `<ul class="up-lista">${u.files.map((f, i) => `<li><span class="drv-nome">${esc(f.name)}</span><button class="x" data-a="upTirar" data-i="${i}" aria-label="Tirar">×</button></li>`).join("")}</ul>` : ""}
+    </div>`;
+  }
+
+  /** Renderiza opções para documento institucional */
+  function vUploadDocumento(c, u) {
+    return `<div class="stack" style="background:var(--bg-alt);padding:12px;border-radius:8px;border:1px solid var(--line)">
+      <h4 style="margin:0 0 10px">Documento institucional</h4>
+      <div class="row" style="align-items:center;gap:8px">
+        <button class="btn solid" data-a="calLer" ${c.busy ? "disabled" : ""}>${c.busy ? "Lendo com IA…" : "Ler com IA"}</button>
+        <button class="btn ghost" data-a="upLimparDoc">Trocar arquivo</button>
+      </div>
+      <p class="muted" style="margin:6px 0 0;font-size:13px">A IA vai identificar: calendário, cronograma, horários, regulamento, etc. Você confere antes de salvar.</p>
     </div>`;
   }
   /** Põe os arquivos escolhidos na fila do navegador (um trabalho por arquivo). */
@@ -443,10 +483,32 @@
   /* ================= CONFIGURAÇÕES ================= */
   // Ordem: a base (matérias), os cadastros de cada aba, os arquivos, Drive e livros (montados à parte, em #pfixos)
   // e, no fim (#pcfg), os ajustes da agenda e a memória do resumo.
-  const CFG_ORDEM = ["materias", "conteudos", "calendario", "aulas", "vida", "lam", "enviar", "importar", "docs", "drive", "livros", "agenda", "memoria"];
+  const CFG_ORDEM = ["materias", "conteudos", "calendario", "aulas", "vida", "lam", "enviar", "docs", "drive", "livros", "agenda", "memoria"];
   // "Importar dados do painel antigo": só o administrador vê (assets/importar.js). Quem não é admin também não
   // conseguiria gravar resumos, mapas e questões: a função importar_painel do banco recusa.
   const verAntigo = () => !!(H && H.P && H.P.is_admin && window.Importar);
+
+  /** Detecta se o arquivo é material de estudo ou documento institucional */
+  function tipoDeUpload(nome, mime) {
+    const ext = nome.split('.').pop()?.toLowerCase() || '';
+    // Documentos institucionais (para IA processar): qualquer PDF/imagem pode ser
+    // Materiais de estudo: slides, documentos do professor
+    const slides = /\.pptx?$/i.test(nome) || /presentation/.test(mime || '');
+    const docs = /\.docx?$/i.test(nome) || /wordprocessing/.test(mime || '');
+    const texto = /\.(txt|md)$/i.test(nome) || /text\//.test(mime || '');
+    const pdf = /\.pdf$/i.test(nome) || /pdf/.test(mime || '');
+    const imagem = /\.(jpg|jpeg|png|webp)$/i.test(nome) || /image\//.test(mime || '');
+
+    // Heurística: slides e documentos Office são sempre materiais
+    if (slides || docs) return 'material';
+    // Texto é sempre material
+    if (texto) return 'material';
+    // PDF pode ser material (apostila) ou documento institucional (calendário, regulamento)
+    // Imagem é sempre documento institucional (foto de calendário)
+    if (imagem) return 'documento';
+    if (pdf) return 'ambos'; // pode ser qualquer um, deixa o aluno escolher
+    return 'outro';
+  }
   const ctxImp = () => ({ get S() { return S; }, H, recarregar, carregarQuestoes });
   function vConfig() {
     const ordem = verAntigo() ? [...CFG_ORDEM.slice(0, 9), "antigo", ...CFG_ORDEM.slice(9)] : CFG_ORDEM;
@@ -459,7 +521,6 @@
       + cartao("vida", vCfgVida())
       + cartao("lam", vCfgLam())
       + cartao("enviar", `<div class="win-body" id="upJanela">${vUpload()}</div>`)
-      + cartao("importar", `<div class="win-body">${vImportCal()}</div>`)
       + cartao("docs", `<div class="win-body">${vDocumentos()}</div>`)
       + (verAntigo() ? cartao("antigo", `<div class="win-body" id="impBox">${Importar.html(ctxImp())}</div>`) : "");
   }
@@ -905,7 +966,7 @@
         <label class="field" style="flex:0 1 150px"><span class="mono">Início</span><input name="inicio" type="date" required value="${ui.calDate}"></label>
         <label class="field" style="flex:0 1 150px"><span class="mono">Fim (opcional)</span><input name="fim" type="date"></label><button class="btn solid">Adicionar</button></form>
       ${rows ? `<div class="evlist">${rows}</div>` : `<p class="muted" style="margin:10px 0 0;font-size:13.5px">Nada pela frente no calendário acadêmico.</p>`}
-      <p class="muted" style="margin:12px 0 0;font-size:13px">Tem o PDF ou a foto do calendário da faculdade? Use ${`<button class="lnk" data-a="goCfg" data-s="importar">Importar documento</button>`}: a IA lê e você confere antes de salvar.</p></div>`;
+      <p class="muted" style="margin:12px 0 0;font-size:13px">Tem o PDF ou a foto do calendário da faculdade? Use ${`<button class="lnk" data-a="goCfg" data-s="enviar">Enviar calendário, cronograma ou horário</button>`}: a IA lê e você confere antes de salvar.</p></div>`;
   }
   function vCal() {
     const up = S.provas.filter((p) => p.data && daysTo(p.data) >= 0).sort((a, b) => a.data.localeCompare(b.data) || String(a.hora || "").localeCompare(String(b.hora || "")));
@@ -1642,10 +1703,27 @@
     if (guardarDoc(e.target)) return;
     if (e.target.closest && e.target.closest("#impBox")) { if (verAntigo()) Importar.mudou(e.target, ctxImp()); return; }
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b)) return; const a = b.dataset.a;
-    if (a === "upArq") { const fs = [...(b.files || [])]; if (fs.length) { ui.up.files = ui.up.files.concat(fs).slice(0, 30); } render(); return; }
+    if (a === "upArq") {
+      const fs = [...(b.files || [])];
+      if (fs.length) {
+        const f = fs[0];
+        const tipo = tipoDeUpload(f.name, f.type);
+        if (tipo === "documento" || tipo === "ambos") {
+          // Arquivo é documento institucional ou ambíguo
+          ui.cal = { file: f, busy: false, msg: null, provas: null, doc: null };
+          ui.up.files = [];
+        } else {
+          // Arquivo é material de estudo
+          ui.up.files = ui.up.files.concat(fs).slice(0, 30);
+          ui.cal = { file: null, busy: false, msg: null, provas: null, doc: null };
+        }
+      }
+      render();
+      return;
+    }
     if (a === "upDisc") { ui.up.disc = +b.value; ui.up.modo = "arquivo"; ui.up.temaId = null; render(); return; }
     if (a === "upTema") { if (b.value === "arquivo" || b.value === "novo") { ui.up.modo = b.value; ui.up.temaId = null; } else { ui.up.modo = "existente"; ui.up.temaId = +b.value; } render(); if (ui.up.modo === "novo") document.getElementById("upTemaNome")?.focus(); return; }
-    if (a === "calArq") { const f = b.files?.[0]; if (f) { ui.cal = { file: f, busy: false, msg: null, provas: null, doc: null }; render(); } return; }
+    if (a === "upLimparDoc") { ui.cal = { file: null, busy: false, msg: null, provas: null, doc: null }; render(); return; }
     if (a === "relPick") { const q = qPool()[ui.qIdx]; if (q) { qSt(q).rel[+b.dataset.i] = b.value; render(); } return; }
     if (a === "lamTema") { ui.lamTema = b.value; ui.lamCur = null; render(); return; }
     if (a === "lamWrong") { ui.lamOnlyWrong = b.checked; ui.lamCur = null; render(); return; }
