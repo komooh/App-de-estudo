@@ -418,12 +418,27 @@ export function limparCalendario(out: Record<string, unknown> | null, materias: 
   return res.sort((a, b) => a.data.localeCompare(b.data));
 }
 
+/** O modelo disse em texto que não achou a linha do aluno (em vez de devolver o JSON). */
+export function naoAchouLinha(texto: string): boolean {
+  const s = semAcento(texto);
+  return /nao (encontrei|achei|ha |existe|consta|aparece|foi possivel (encontrar|localizar|achar))|no (encontre|existe|hay |aparece)|not (found|present|listed)|(nenhuma|ninguna) (linha|fila|turma)/.test(s);
+}
+/** Aviso amigável quando não há provas da turma do aluno no documento. */
+export function avisoSemLinha(semestre: number | null, turma: string | null): string {
+  if (!semestre) return "Não achei as provas da sua turma neste calendário. Confira seu semestre e turma em Configurações.";
+  return `Não achei a linha do ${semestre}º semestre${turma ? ` turma ${turma.toUpperCase()}` : ""} neste calendário. Confira seu semestre e turma em Configurações.`;
+}
+
 // ======================= chamada ao Claude =======================
 export type Conteudo = string | Record<string, unknown>[];
-export async function chamarClaude(prompt: Conteudo, maxTokens: number, prazoMs = PRAZO_MS): Promise<{ texto: string; parou: string; entrada: number; saida: number }> {
+export type Opcoes = { system?: string; historico?: { role: "user" | "assistant"; content: Conteudo }[] };
+export async function chamarClaude(prompt: Conteudo, maxTokens: number, prazoMs = PRAZO_MS, opcoes: Opcoes = {}): Promise<{ texto: string; parou: string; entrada: number; saida: number }> {
   const chave = Deno.env.get("ANTHROPIC_API_KEY") || "";
   if (!chave) throw new ErroIA("A IA ainda não foi configurada. Avise o administrador.", 503);
+  if (prazoMs < 5_000) throw new ErroIA("A IA demorou demais para responder. Tente de novo.", 504);
   const inicio = Date.now();
+  const corpo: Record<string, unknown> = { model: modelo(), max_tokens: maxTokens, messages: opcoes.historico || [{ role: "user", content: prompt }] };
+  if (opcoes.system) corpo.system = opcoes.system;
   for (let tentativa = 0; tentativa < 2; tentativa++) {
     const resta = prazoMs - (Date.now() - inicio);
     let r: Response;
@@ -431,7 +446,7 @@ export async function chamarClaude(prompt: Conteudo, maxTokens: number, prazoMs 
       r = await fetch(API_ANTHROPIC, {
         method: "POST",
         headers: { "x-api-key": chave, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-        body: JSON.stringify({ model: modelo(), max_tokens: maxTokens, messages: [{ role: "user", content: prompt }] }),
+        body: JSON.stringify(corpo),
         signal: AbortSignal.timeout(Math.max(5_000, resta)),
       });
     } catch (e) {
@@ -445,25 +460,70 @@ export async function chamarClaude(prompt: Conteudo, maxTokens: number, prazoMs 
       const texto = (Array.isArray(d?.content) ? d.content : []).filter((b: Q) => b?.type === "text").map((b: Q) => String(b.text || "")).join("");
       return { texto, parou: String(d?.stop_reason || ""), entrada: +(d?.usage?.input_tokens || 0), saida: +(d?.usage?.output_tokens || 0) };
     }
-    const corpo = await r.json().catch(() => ({}));
+    const erroCorpo = await r.json().catch(() => ({}));
     const passageiro = r.status === 429 || r.status === 529 || r.status >= 500;
     if (passageiro && tentativa === 0 && Date.now() - inicio < prazoMs / 2) {
       const espera = Math.min(8, Math.max(1, Number(r.headers.get("retry-after")) || 2));
       await new Promise((ok) => setTimeout(ok, espera * 1000));
       continue;
     }
-    console.error("anthropic:", r.status, JSON.stringify(corpo?.error || {}).slice(0, 300));
+    console.error("anthropic:", r.status, JSON.stringify(erroCorpo?.error || {}).slice(0, 300));
     if (r.status === 401 || r.status === 403) throw new ErroIA("A chave da IA não foi aceita. Avise o administrador.", 503);
-    if (r.status === 404 || (r.status === 400 && /model/i.test(JSON.stringify(corpo)))) throw new ErroIA("O modelo de IA configurado não existe. Avise o administrador.", 503);
+    if (r.status === 404 || (r.status === 400 && /model/i.test(JSON.stringify(erroCorpo)))) throw new ErroIA("O modelo de IA configurado não existe. Avise o administrador.", 503);
     if (passageiro) throw new ErroIA("A IA está muito ocupada agora. Espere um minuto e tente de novo.", 503);
     throw new ErroIA("Não consegui gerar agora. Tente de novo em instantes.", 502);
   }
   throw new ErroIA("Não consegui gerar agora. Tente de novo em instantes.", 502);
 }
 
+/** Gasto de tokens de um pedido (somado em todas as chamadas, também nas que falham depois). */
+export type Gasto = { entrada: number; saida: number };
+const somar = (g: Gasto, r: { entrada: number; saida: number }) => { g.entrada += r.entrada; g.saida += r.saida; };
+
+export const SISTEMA_JSON = "Você responde SEMPRE e SOMENTE com um único objeto JSON válido: começa com { e termina com }, sem texto antes ou depois, sem ``` e sem comentários. Se não houver nada para devolver, devolva o JSON no formato pedido com a lista vazia (e o motivo no campo \"aviso\", quando ele existir).";
+const REPARO = "Sua resposta anterior não veio em JSON. Responda agora SOMENTE com o objeto JSON no formato pedido, sem nenhum texto antes ou depois.";
+function logFalhaJSON(rotulo: string, r: { texto: string; parou: string }) {
+  // só o começo da resposta (para entender o erro); nada de chaves ou dados do aluno além disso
+  console.error(`${rotulo}: resposta sem JSON válido`, JSON.stringify({ stop_reason: r.parou, letras: r.texto.length, inicio: r.texto.slice(0, 300) }));
+}
+export type RespostaJSON = { out: Record<string, unknown> | null; texto: string; parou: string; cortada: boolean };
+/**
+ * Pede um JSON ao Claude, à prova das falhas comuns:
+ * - instrução de sistema "só JSON" (o prefill da resposta não é aceito nos modelos novos);
+ * - resposta cortada (stop_reason "max_tokens"): tenta de novo uma vez com mais espaço;
+ * - resposta em texto: registra o começo no log e pede uma vez para reescrever em JSON
+ *   (a não ser que pularReparo diga que o texto já é a resposta, ex.: "não achei a turma").
+ * As tentativas extras só acontecem se ainda houver tempo (prazoFim).
+ */
+export async function pedirJSON(conteudo: Conteudo, maxTokens: number, rotulo: string, gasto: Gasto, prazoFim: number,
+  pularReparo: (texto: string) => boolean = () => false): Promise<RespostaJSON> {
+  const resta = () => prazoFim - Date.now();
+  let r = await chamarClaude(conteudo, maxTokens, resta(), { system: SISTEMA_JSON }); somar(gasto, r);
+  if (r.parou === "max_tokens" && maxTokens < TETO_TOKENS && resta() > 30_000) {
+    console.error(`${rotulo}: resposta cortada com ${maxTokens} tokens; tentando de novo com ${Math.min(TETO_TOKENS, maxTokens * 2)}`);
+    try { const r2 = await chamarClaude(conteudo, Math.min(TETO_TOKENS, maxTokens * 2), resta(), { system: SISTEMA_JSON }); somar(gasto, r2); r = r2; }
+    catch (e) { console.error(`${rotulo}: segunda tentativa falhou:`, (e as Error).message); }
+  }
+  let out = extrairJSON(r.texto);
+  if (!out) {
+    logFalhaJSON(rotulo, r);
+    if (r.parou !== "max_tokens" && r.texto.trim() && !pularReparo(r.texto) && resta() > 30_000) {
+      try {
+        const r2 = await chamarClaude(conteudo, maxTokens, resta(), { system: SISTEMA_JSON, historico: [
+          { role: "user", content: conteudo }, { role: "assistant", content: r.texto.trim().slice(0, 6000) }, { role: "user", content: REPARO }] });
+        somar(gasto, r2);
+        const o2 = extrairJSON(r2.texto);
+        if (o2) { out = o2; r = r2; } else logFalhaJSON(`${rotulo} (reparo)`, r2);
+      } catch (e) { console.error(`${rotulo}: reparo falhou:`, (e as Error).message); }
+    }
+  }
+  return { out, texto: r.texto, parou: r.parou, cortada: r.parou === "max_tokens" };
+}
+
 // ======================= banco =======================
-const NOMES_LIMITE: Record<string, [string, string]> = { resumos: ["limite_resumos_mes", "resumos"], questoes: ["limite_questoes_mes", "questões"], mapas: ["limite_mapas_mes", "mapas mentais"], calendarios: ["limite_calendarios_mes", "importações de calendário"] };
-async function reservar(admin: SupabaseClient, uid: string, tipo: "resumos" | "questoes" | "mapas" | "calendarios", n: number, perfil: Record<string, unknown>) {
+type TipoUso = "resumos" | "questoes" | "mapas" | "calendarios";
+const NOMES_LIMITE: Record<TipoUso, [string, string]> = { resumos: ["limite_resumos_mes", "resumos"], questoes: ["limite_questoes_mes", "questões"], mapas: ["limite_mapas_mes", "mapas mentais"], calendarios: ["limite_calendarios_mes", "importações de calendário"] };
+async function reservar(admin: SupabaseClient, uid: string, tipo: TipoUso, n: number, perfil: Record<string, unknown>) {
   const { data, error } = await admin.rpc("ia_uso", { p_aluno: uid, p_tipo: tipo, p_delta: n, p_checar: true });
   if (error) { console.error("ia_uso:", error.message); throw new ErroIA("Não consegui conferir seu limite agora. Tente de novo.", 500); }
   if (data !== true) {
@@ -472,6 +532,7 @@ async function reservar(admin: SupabaseClient, uid: string, tipo: "resumos" | "q
   }
 }
 async function registrar(admin: SupabaseClient, uid: string, tipo: string, delta: number, entrada = 0, saida = 0) {
+  if (!delta && !entrada && !saida) return;
   const { error } = await admin.rpc("ia_uso", { p_aluno: uid, p_tipo: tipo, p_delta: delta, p_tokens_entrada: entrada, p_tokens_saida: saida });
   if (error) console.error("ia_uso registrar:", error.message);
 }
@@ -483,6 +544,12 @@ async function carregarTema(admin: SupabaseClient, uid: string, temaId: unknown)
   if (error) { console.error("tema:", error.message); throw new ErroIA("Não consegui ler o tema. Tente de novo.", 500); }
   if (!data) throw new ErroIA("Tema não encontrado.", 404);
   return data as unknown as { id: number; nome: string; prova: string | null; itens: unknown; disciplina_id: number; disciplinas: { nome: string; professor: string | null; foco_resumo: string | null } };
+}
+async function carregarDisciplina(admin: SupabaseClient, uid: string, discId: unknown) {
+  const id = Number(discId);
+  const { data } = await admin.from("disciplinas").select("id,nome,professor").eq("id", Number.isSafeInteger(id) ? id : -1).eq("aluno_id", uid).maybeSingle();
+  if (!data) throw new ErroIA("Matéria não encontrada.", 404);
+  return data as { id: number; nome: string; professor: string | null };
 }
 async function materialDoTema(admin: SupabaseClient, uid: string, temaId: number, limite: number) {
   const { data, error } = await admin.from("materiais").select("nome,texto").eq("aluno_id", uid).eq("tema_id", temaId).eq("status", "ok").order("nome");
@@ -504,11 +571,326 @@ export async function trechosDosLivros(usuario: SupabaseClient, tema: string, li
   return [];
 }
 const itensDe = (x: unknown) => (Array.isArray(x) ? x : []).map((i) => String(i)).filter(Boolean).slice(0, 40);
+function paraBase64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+// ======================= o pedido: validar → reservar → executar =======================
+// O mesmo caminho serve para o pedido "na hora" (o site espera a resposta) e para a tarefa em
+// segundo plano (tabela tarefas, 08_tarefas.sql): o aluno pode sair do site e a tarefa continua.
+// deno-lint-ignore no-explicit-any
+type Perfil = Record<string, any>;
+export type Ctx = { admin: SupabaseClient; usuario: SupabaseClient | null; uid: string; P: Perfil; hoje: string; fim: number };
+export type TipoTarefa = "resumo" | "mapa" | "questoes" | "calendario";
+export type Plano = { tipo: TipoTarefa; titulo: string; entrada: Record<string, unknown>; reserva: { tipo: TipoUso; n: number } };
+export type Feito = { resposta: Record<string, unknown>; resultado: Record<string, unknown>; usadas: number };
+export const TIPOS_QUESTAO_ORDEM = ["mc", "vf", "rel", "dis"] as const;
+export const MAX_QUESTOES = { porTipo: 20, total: 40 };
+const RE_CAMINHO_IMG = (uid: string) => new RegExp(`^${uid}/[A-Za-z0-9._-]{1,80}\\.(jpe?g|png|webp)$`);
+const MIME_IMG: Record<string, string> = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
+
+/** Confere o pedido (o que é do aluno, tamanhos, tipos) e devolve só os parâmetros validados. Não gasta nada. */
+export async function validar(ctx: Ctx, b: Record<string, unknown>, fundo: boolean): Promise<Plano> {
+  const { admin, uid } = ctx;
+  if (b.acao === "resumo") {
+    const t = await carregarTema(admin, uid, b.tema_id);
+    return { tipo: "resumo", titulo: `Resumo: ${t.nome}`, entrada: { tema_id: t.id, modo: b.modo === "livros" ? "livros" : "professor" }, reserva: { tipo: "resumos", n: 1 } };
+  }
+  if (b.acao === "mapa") {
+    const t = await carregarTema(admin, uid, b.tema_id);
+    return { tipo: "mapa", titulo: `Mapa mental: ${t.nome}`, entrada: { tema_id: t.id }, reserva: { tipo: "mapas", n: 1 } };
+  }
+  if (b.acao === "questoes") {
+    // na hora: um lote de um tipo {tipo, n}; em segundo plano: a mistura toda {mix:{mc,vf,rel,dis}}
+    const mix: Record<string, number> = {};
+    if (b.mix && typeof b.mix === "object" && fundo) {
+      for (const k of TIPOS_QUESTAO_ORDEM) {
+        const v = Number((b.mix as Record<string, unknown>)[k] ?? 0);
+        if (!Number.isInteger(v) || v < 0 || v > MAX_QUESTOES.porTipo) throw new ErroIA(`Peça de 0 a ${MAX_QUESTOES.porTipo} questões de cada tipo.`, 400);
+        if (v) mix[k] = v;
+      }
+    } else {
+      const tipo = String(b.tipo || "");
+      if (!TIPOS_QUESTAO[tipo]) throw new ErroIA("Tipo de questão inválido.", 400);
+      const n = Math.floor(Number(b.n));
+      if (!Number.isInteger(n) || n < 1 || n > MAX_POR_LOTE[tipo]) throw new ErroIA(`Peça de 1 a ${MAX_POR_LOTE[tipo]} questões por vez.`, 400);
+      mix[tipo] = n;
+    }
+    const total = Object.values(mix).reduce((s, v) => s + v, 0);
+    if (!total) throw new ErroIA("Escolha pelo menos uma questão.", 400);
+    if (total > MAX_QUESTOES.total) throw new ErroIA(`O máximo é ${MAX_QUESTOES.total} questões por vez.`, 400);
+    const tema = String(b.tema || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    if (!tema) throw new ErroIA("Escreva o conteúdo das questões.", 400);
+    const disc = await carregarDisciplina(admin, uid, b.disciplina_id);
+    let temaId: number | null = null;
+    if (b.tema_id != null && b.tema_id !== "") { const t = await carregarTema(admin, uid, b.tema_id); if (t.disciplina_id !== disc.id) throw new ErroIA("Tema de outra matéria.", 400); temaId = t.id; }
+    return { tipo: "questoes", titulo: `${total} ${total === 1 ? "questão" : "questões"}: ${tema}`, entrada: { disciplina_id: disc.id, tema, tema_id: temaId, mix }, reserva: { tipo: "questoes", n: total } };
+  }
+  if (b.acao === "calendario") {
+    const texto = typeof b.texto === "string" ? b.texto.replace(/\u0000/g, " ").trim().slice(0, LIMITE_CALENDARIO) : "";
+    const img = b.imagem && typeof b.imagem === "object" ? b.imagem as Record<string, unknown> : null;
+    const caminho = typeof b.imagem_caminho === "string" ? b.imagem_caminho : "";
+    const entrada: Record<string, unknown> = {};
+    if (caminho) {
+      if (!RE_CAMINHO_IMG(uid).test(caminho)) throw new ErroIA("Imagem inválida.", 400);
+      entrada.imagem_caminho = caminho;
+    } else if (img) {
+      if (fundo) throw new ErroIA("Envie a foto pelo site de novo.", 400); // em segundo plano a foto vai pelo Storage
+      const mime = String(img.mime || ""), b64 = String(img.base64 || "");
+      if (!/^image\/(jpeg|png|webp)$/.test(mime) || !b64 || b64.length > MAX_IMAGEM_B64 || !/^[A-Za-z0-9+/=]+$/.test(b64)) throw new ErroIA("Imagem inválida ou grande demais.", 400);
+      entrada.imagem = { mime, base64: b64 };
+    } else if (texto) {
+      if (texto.length < 30) throw new ErroIA("Não achei texto nesse arquivo.", 400);
+      entrada.texto = texto;
+    } else throw new ErroIA("Mande o PDF ou a foto do calendário.", 400);
+    // a configuração (semestre novo ainda não salvo) manda semestre, turma e matérias; senão vale o semestre atual
+    const num = Number(b.semestre);
+    if (Number.isInteger(num) && num >= 1 && num <= 12) entrada.semestre = num;
+    const turma = typeof b.turma === "string" ? b.turma.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2) : "";
+    if (turma) entrada.turma = turma;
+    if (Array.isArray(b.materias)) entrada.materias = (b.materias as unknown[]).map((x) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean).slice(0, 40);
+    return { tipo: "calendario", titulo: "Calendário de provas", entrada, reserva: { tipo: "calendarios", n: 1 } };
+  }
+  throw new ErroIA("Ação desconhecida.", 400);
+}
+
+/** Faz o trabalho da IA e grava o resultado (resumos, mapas, questoes) ou devolve as provas lidas. */
+export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () => Promise<unknown> = async () => {}): Promise<Feito> {
+  const { admin, usuario, uid, P, hoje } = ctx, e = plano.entrada;
+  const ctxBase = { semestre: P.semestre ?? null, faculdade: P.faculdades?.nome ?? null };
+  const resta = () => ctx.fim - Date.now();
+
+  if (plano.tipo === "resumo") {
+    const t = await carregarTema(admin, uid, e.tema_id);
+    const modo = e.modo === "livros" ? "livros" : "professor";
+    const [mat, pref, livros] = await Promise.all([
+      materialDoTema(admin, uid, t.id, LIMITE_MATERIAL.resumo),
+      admin.from("preferencias").select("modelo_resumo").eq("aluno_id", uid).maybeSingle(),
+      usuario ? trechosDosLivros(usuario, t.nome) : Promise.resolve([] as Trecho[]),
+    ]);
+    const c: Contexto = { ...ctxBase, materia: t.disciplinas.nome, professor: t.disciplinas.professor, tema: t.nome, prova: t.prova, itens: itensDe(t.itens), foco: t.disciplinas.foco_resumo };
+    const prompt = promptResumo(c, pref.data?.modelo_resumo ?? null, mat.texto, livros, modo);
+    let r = await chamarClaude(prompt, MAX_TOKENS.resumo, resta()); somar(gasto, r);
+    if (r.parou === "max_tokens" && resta() > 40_000) { // cortado: uma vez com mais espaço
+      console.error("resumo: cortado; tentando de novo com", TETO_TOKENS);
+      try { const r2 = await chamarClaude(prompt, TETO_TOKENS, resta()); somar(gasto, r2); if (r2.texto.trim().length >= 15) r = r2; }
+      catch (err) { console.error("resumo: segunda tentativa falhou:", (err as Error).message); }
+    }
+    const texto = r.texto.trim();
+    if (texto.length < 15) throw new ErroIA("A IA devolveu um resumo vazio. Tente de novo.", 502);
+    const usadosLivros = juntarLivros(livros, LIMITE_LIVROS).usados;
+    const linha = {
+      tema_id: t.id, aluno_id: uid, texto, modelo: modelo(), modo: usadosLivros.length ? modo : null,
+      com_fonte: mat.usados > 0, livros: livrosCitados(usadosLivros), truncado: r.parou === "max_tokens", criado_em: new Date().toISOString(),
+    };
+    const { error } = await admin.from("resumos").upsert(linha, { onConflict: "tema_id" });
+    if (error) { console.error("salvar resumo:", error.message); throw new ErroIA("O resumo ficou pronto, mas não consegui salvar. Tente de novo.", 500); }
+    return { resposta: { resumo: linha }, resultado: { tema_id: t.id, disciplina_id: t.disciplina_id, tema: t.nome, truncado: linha.truncado }, usadas: 1 };
+  }
+
+  if (plano.tipo === "mapa") {
+    const t = await carregarTema(admin, uid, e.tema_id);
+    const { data: res } = await admin.from("resumos").select("texto").eq("tema_id", t.id).eq("aluno_id", uid).maybeSingle();
+    let base = res?.texto ? String(res.texto).slice(0, LIMITE_MATERIAL.mapa) : "";
+    const deResumo = !!base;
+    if (!base) base = (await materialDoTema(admin, uid, t.id, LIMITE_MATERIAL.mapa)).texto;
+    const c: Contexto = { ...ctxBase, materia: t.disciplinas.nome, tema: t.nome, prova: t.prova, itens: itensDe(t.itens) };
+    const r = await pedirJSON(promptMapa(c, base, deResumo), MAX_TOKENS.mapa, "mapa", gasto, ctx.fim);
+    const ramos = (Array.isArray(r.out?.ramos) ? r.out!.ramos as Q[] : []).map((x) => limparNo(x, 1)).filter(Boolean).slice(0, 8);
+    if (!ramos.length) throw new ErroIA("A IA não devolveu um mapa válido. Tente de novo.", 502);
+    const linha = { tema_id: t.id, aluno_id: uid, dados: { titulo: t.nome, ramos }, base: deResumo ? "resumo" : base ? "material" : "livros", criado_em: new Date().toISOString() };
+    const { error } = await admin.from("mapas").upsert(linha, { onConflict: "tema_id" });
+    if (error) { console.error("salvar mapa:", error.message); throw new ErroIA("O mapa ficou pronto, mas não consegui salvar. Tente de novo.", 500); }
+    return { resposta: { mapa: linha }, resultado: { tema_id: t.id, disciplina_id: t.disciplina_id, tema: t.nome }, usadas: 1 };
+  }
+
+  if (plano.tipo === "questoes") {
+    const disc = await carregarDisciplina(admin, uid, e.disciplina_id);
+    const t = e.tema_id != null ? await carregarTema(admin, uid, e.tema_id) : null;
+    const tema = String(e.tema), mix = e.mix as Record<string, number>;
+    const chaveTema = qNorm(tema);
+    const [{ data: hist }, mat] = await Promise.all([
+      admin.from("questoes_historico").select("tema_chave,enunciado,chave").eq("aluno_id", uid).eq("disciplina_id", disc.id).order("criado_em", { ascending: false }).limit(500),
+      t ? materialDoTema(admin, uid, t.id, LIMITE_MATERIAL.questoes) : Promise.resolve({ texto: "", usados: 0, cortado: false }),
+    ]);
+    const evitar = (hist || []).filter((h) => h.tema_chave === chaveTema).slice(0, 40).map((h) => String(h.enunciado));
+    const c: Contexto = { ...ctxBase, materia: disc.nome, professor: disc.professor, tema, prova: t?.prova, itens: itensDe(t?.itens) };
+    const chaves = (hist || []).map((h) => String(h.chave));
+    // lotes de até MAX_POR_LOTE de cada tipo; até 4 ao mesmo tempo (o tempo total da função é curto)
+    const lotes: [string, number][] = [];
+    for (const tp of TIPOS_QUESTAO_ORDEM) { let n = mix[tp] || 0; while (n > 0) { const k = Math.min(MAX_POR_LOTE[tp], n); lotes.push([tp, k]); n -= k; } }
+    const pedidas = lotes.reduce((s, [, k]) => s + k, 0);
+    const salvas: Q[] = []; let repetidas = 0, ultimoErro: Error | null = null, parar = false;
+    const umLote = async (tp: string, k: number) => {
+      const r = await pedirJSON(promptQuestoes(c, tp, k, evitar, mat.texto), MAX_TOKENS.questoes, `questoes ${tp}`, gasto, ctx.fim);
+      const brutas = Array.isArray(r.out?.questoes) ? r.out!.questoes as Q[] : r.cortada ? objetosDaLista(r.texto, "questoes") : [];
+      const novas: Q[] = [];
+      for (const q of brutas.map((x) => limparQuestao(tp, x)).filter(Boolean) as Q[]) {
+        if (novas.length >= k) break;
+        const ch = chaveQuestao(tp, q);
+        if (repetida(ch, chaves)) { repetidas++; continue; }
+        chaves.push(ch); novas.push({ ...q, _k: ch });
+      }
+      if (!novas.length) return;
+      const { data, error } = await admin.from("questoes").insert(novas.map((q) => ({
+        aluno_id: uid, disciplina_id: disc.id, tema_id: t?.id ?? null, tema, tipo: tp, enunciado: q.enunciado, dados: q.dados, explicacao: q.explicacao || null,
+      }))).select("*");
+      if (error) { console.error("salvar questões:", error.message); throw new ErroIA("As questões ficaram prontas, mas não consegui salvar. Tente de novo.", 500); }
+      salvas.push(...(data || []));
+      const { error: eh } = await admin.from("questoes_historico").insert(novas.map((q) => ({
+        aluno_id: uid, disciplina_id: disc.id, tema_chave: chaveTema, enunciado: String(q.enunciado).replace(/\s+/g, " ").slice(0, 170), chave: q._k,
+      })));
+      if (eh) console.error("histórico:", eh.message);
+    };
+    const trabalhador = async () => {
+      while (lotes.length && !parar) {
+        if (resta() < 45_000) { parar = true; break; } // sem tempo para mais um lote
+        const [tp, k] = lotes.shift()!;
+        try { await umLote(tp, k); await sinal(); }
+        catch (err) { ultimoErro = err as Error; if (err instanceof ErroIA && err.status === 503) parar = true; }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, lotes.length) }, trabalhador));
+    if (!salvas.length && ultimoErro) throw ultimoErro;
+    const aviso = salvas.length < pedidas ? (repetidas && !ultimoErro ? `${repetidas} repetida${repetidas > 1 ? "s" : ""} descartada${repetidas > 1 ? "s" : ""}` : "vieram menos que o pedido; gere de novo para completar") : "";
+    return {
+      resposta: { questoes: salvas, repetidas, pedidas },
+      resultado: { disciplina_id: disc.id, tema, tema_id: t?.id ?? null, salvas: salvas.length, pedidas, repetidas, aviso },
+      usadas: salvas.length,
+    };
+  }
+
+  // ---------------- CALENDÁRIO DE PROVAS (só lê; quem salva é o site depois da revisão do aluno) ----------------
+  const { data: sem } = await admin.from("semestres").select("id,numero,turma").eq("aluno_id", uid).eq("atual", true).maybeSingle();
+  let qd = admin.from("disciplinas").select("id,nome").eq("aluno_id", uid).order("ordem").order("id");
+  if (sem) qd = qd.eq("semestre_id", sem.id);
+  const { data: discs } = await qd;
+  const materias = ((discs || []) as { id: number; nome: string }[]).slice(0, 40);
+  const listaSite = Array.isArray(e.materias) ? e.materias as string[] : null;
+  const cc: CtxCalendario = {
+    semestre: (e.semestre as number) ?? sem?.numero ?? P.semestre ?? null,
+    turma: (e.turma as string) ?? sem?.turma ?? P.turma ?? null,
+    materias: listaSite ?? materias.map((m) => m.nome), hoje,
+  };
+  let img = e.imagem as { mime: string; base64: string } | undefined;
+  if (e.imagem_caminho) {
+    const caminho = String(e.imagem_caminho);
+    const { data: blob, error } = await admin.storage.from("tarefas").download(caminho);
+    if (error || !blob) { console.error("tarefas download:", error?.message); throw new ErroIA("Não achei a foto do calendário. Mande a foto de novo.", 404); }
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    if (bytes.length > MAX_IMAGEM_B64 * 0.75) throw new ErroIA("Imagem grande demais.", 400);
+    img = { mime: MIME_IMG[caminho.split(".").pop()!.toLowerCase()] || "image/jpeg", base64: paraBase64(bytes) };
+  }
+  const prompt = promptCalendario(cc, !img);
+  const conteudo: Conteudo = img
+    ? [{ type: "image", source: { type: "base64", media_type: img.mime, data: img.base64 } }, { type: "text", text: prompt }]
+    : prompt + String(e.texto) + "\n</calendario>";
+  const r = await pedirJSON(conteudo, MAX_TOKENS.calendario, "calendario", gasto, ctx.fim, naoAchouLinha);
+  // resposta cortada: aproveita as provas que vieram completas
+  const out = r.out ?? (r.cortada ? { provas: objetosDaLista(r.texto, "provas") } : null);
+  // com a lista da configuração, as matérias ainda não têm id: o site casa pelo nome
+  const provas = limparCalendario(out, listaSite ? listaSite.map((nome) => ({ id: -1, nome })) : materias, hoje)
+    .map((p) => listaSite ? { ...p, disciplina_id: null } : p);
+  let aviso = String(out?.aviso || "").slice(0, 300);
+  if (!provas.length) {
+    // não achou a turma (em JSON ou em texto) ou não deu para ler: aviso amigável, sem gastar a importação
+    if (!out && !naoAchouLinha(r.texto)) console.error("calendario: sem provas e sem JSON");
+    aviso = avisoSemLinha(cc.semestre, cc.turma);
+  } else if (r.cortada && !r.out) aviso = "O calendário é grande e a leitura veio incompleta: confira se faltou alguma prova.";
+  const res = { provas, semestre: cc.semestre, turma: cc.turma, aviso };
+  return { resposta: res, resultado: res, usadas: provas.length ? 1 : 0 };
+}
+
+// ======================= tarefas em segundo plano =======================
+declare const EdgeRuntime: { waitUntil(p: Promise<unknown>): void } | undefined;
+/** Deixa o trabalho rodando depois da resposta (Supabase: EdgeRuntime.waitUntil). Fora do Supabase, espera terminar. */
+export async function emSegundoPlano(p: Promise<unknown>) {
+  if (typeof EdgeRuntime !== "undefined" && EdgeRuntime?.waitUntil) EdgeRuntime.waitUntil(p);
+  else await p;
+}
+const MSG_PAROU = "A tarefa parou no meio (o servidor reiniciou). Tente de novo.";
+export const TRAVADA_MIN = 3;          // o site mostra "Tentar de novo" depois disso (minhas_tarefas)
+const DEVOLVER_MIN = 7;                // depois disso a reserva de uma tarefa que morreu é devolvida
+export const MAX_RODANDO = 4;          // tarefas da IA ao mesmo tempo por aluno
+
+/** Fecha a tarefa (pronta/erro) e acerta o limite do mês. Só quem tira a "reserva" acerta o limite (uma vez). */
+async function fecharTarefa(ctx: Ctx, id: number, campos: Record<string, unknown>, reserva: { tipo: TipoUso; n: number }, usadas: number, gasto: Gasto) {
+  const { admin, uid } = ctx;
+  const { data, error } = await admin.from("tarefas").update({ ...campos, reserva: null }).eq("id", id).not("reserva", "is", null).select("id");
+  if (error) console.error("fechar tarefa:", error.message);
+  const minha = !!data?.length;
+  if (!minha && Object.keys(campos).length) await admin.from("tarefas").update(campos).eq("id", id); // a limpeza já devolveu a reserva
+  await registrar(admin, uid, reserva.tipo, minha ? usadas - reserva.n : 0, gasto.entrada, gasto.saida);
+}
+export async function rodarTarefa(ctx: Ctx, id: number, plano: Plano) {
+  const { admin } = ctx, gasto: Gasto = { entrada: 0, saida: 0 };
+  const sinal = async () => { await admin.from("tarefas").update({ status: "rodando" }).eq("id", id); }; // "ainda estou vivo"
+  try {
+    await sinal();
+    const f = await executar(ctx, plano, gasto, sinal);
+    await fecharTarefa(ctx, id, { status: "pronta", resultado: f.resultado, erro: null }, plano.reserva, f.usadas, gasto);
+    if (plano.entrada.imagem_caminho) await admin.storage.from("tarefas").remove([String(plano.entrada.imagem_caminho)]);
+  } catch (e) {
+    const msg = e instanceof ErroIA ? e.message : "Algo deu errado. Tente de novo em instantes.";
+    if (!(e instanceof ErroIA)) console.error("tarefa", id, (e as Error)?.message?.slice(0, 300));
+    await fecharTarefa(ctx, id, { status: "erro", erro: msg.slice(0, 500) }, plano.reserva, 0, gasto);
+  }
+}
+/** Tarefas que morreram (devolve a reserva), fotos de calendário esquecidas e tarefas com mais de 30 dias. */
+export async function limparRestos(ctx: Ctx) {
+  const { admin, uid } = ctx, agora = Date.now();
+  const { data: mortas } = await admin.from("tarefas").select("id,status,reserva,entrada").eq("aluno_id", uid)
+    .not("reserva", "is", null).lt("atualizado_em", new Date(agora - DEVOLVER_MIN * 60_000).toISOString()).limit(20);
+  for (const t of mortas || []) {
+    const ativa = t.status === "na_fila" || t.status === "rodando";
+    await fecharTarefa(ctx, t.id, ativa ? { status: "erro", erro: MSG_PAROU } : {}, t.reserva, 0, { entrada: 0, saida: 0 });
+  }
+  const { data: fotos } = await admin.from("tarefas").select("id,entrada").eq("aluno_id", uid).eq("tipo", "calendario")
+    .in("status", ["erro", "vista"]).not("entrada->>imagem_caminho", "is", null).lt("atualizado_em", new Date(agora - 86_400_000).toISOString()).limit(20);
+  for (const t of fotos || []) {
+    const { imagem_caminho, ...resto } = t.entrada || {};
+    await admin.storage.from("tarefas").remove([String(imagem_caminho)]);
+    await admin.from("tarefas").update({ entrada: resto }).eq("id", t.id);
+  }
+  await admin.from("tarefas").delete().eq("aluno_id", uid).lt("criado_em", new Date(agora - 30 * 86_400_000).toISOString());
+}
+const travada = (t: { status: string; atualizado_em: string }) =>
+  (t.status === "na_fila" || t.status === "rodando") && Date.parse(t.atualizado_em) < Date.now() - TRAVADA_MIN * 60_000;
+
+/** Cria a tarefa e responde na hora; a IA roda depois da resposta. */
+async function criarTarefa(ctx: Ctx, plano: Plano): Promise<Response> {
+  const { admin, uid, P } = ctx;
+  const { data: ativas, error: eAt } = await admin.from("tarefas").select("id,tipo,status,entrada,titulo,atualizado_em").eq("aluno_id", uid).in("status", ["na_fila", "rodando"]);
+  if (eAt) {
+    console.error("tarefas:", eAt.message);
+    throw new ErroIA(/relation|schema cache|does not exist/i.test(eAt.message) ? "Falta rodar o 08_tarefas.sql no Supabase." : "Não consegui criar a tarefa. Tente de novo.", 500);
+  }
+  const vivas = (ativas || []).filter((t) => !travada(t));
+  // o mesmo resumo/mapa já está sendo feito: devolve a tarefa que existe (dois cliques não gastam duas vezes)
+  const igual = vivas.find((t) => (plano.tipo === "resumo" || plano.tipo === "mapa") && t.tipo === plano.tipo && Number(t.entrada?.tema_id) === plano.entrada.tema_id);
+  if (igual) return json({ tarefa_id: igual.id, titulo: igual.titulo, ja_existia: true });
+  if (vivas.length >= MAX_RODANDO) throw new ErroIA(`Você já tem ${MAX_RODANDO} tarefas da IA rodando. Espere uma terminar.`, 429);
+  await reservar(admin, uid, plano.reserva.tipo, plano.reserva.n, P);
+  const { data, error } = await admin.from("tarefas").insert({ aluno_id: uid, tipo: plano.tipo, titulo: plano.titulo.slice(0, 200), entrada: plano.entrada, reserva: plano.reserva, status: "na_fila" }).select("id").single();
+  if (error || !data) {
+    console.error("criar tarefa:", error?.message);
+    await registrar(admin, uid, plano.reserva.tipo, -plano.reserva.n);
+    throw new ErroIA("Não consegui criar a tarefa. Tente de novo.", 500);
+  }
+  await emSegundoPlano(Promise.all([
+    rodarTarefa(ctx, data.id, plano),
+    limparRestos(ctx).catch((e) => console.error("limpar:", (e as Error).message)),
+  ]));
+  return json({ tarefa_id: data.id, titulo: plano.titulo });
+}
 
 // ======================= entrada =======================
-Deno.serve(async (req) => {
+export async function atender(req: Request): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ erro: "Método não permitido" }, 405);
+  const inicio = Date.now();
   const URL_SB = Deno.env.get("SUPABASE_URL")!;
   const admin = createClient(URL_SB, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!, { auth: { persistSession: false } });
 
@@ -517,8 +899,7 @@ Deno.serve(async (req) => {
   const { data: quem, error: eQuem } = await admin.auth.getUser(token);
   if (eQuem || !quem?.user) return json({ erro: "Sessão inválida. Faça login de novo." }, 401);
   const uid = quem.user.id;
-  const { data: perfil } = await admin.from("perfis")
-    .select("*, faculdades(nome)").eq("id", uid).maybeSingle();
+  const { data: perfil } = await admin.from("perfis").select("*, faculdades(nome)").eq("id", uid).maybeSingle();
   const hoje = new Date().toISOString().slice(0, 10);
   if (!perfil?.ativo || (perfil.vence_em && perfil.vence_em < hoje)) return json({ erro: "Seu acesso não está liberado ou venceu." }, 403);
 
@@ -529,152 +910,40 @@ Deno.serve(async (req) => {
 
   const anon = Deno.env.get("SUPABASE_ANON_KEY") || "";
   const usuario = anon ? createClient(URL_SB, anon, { auth: { persistSession: false }, global: { headers: { Authorization: `Bearer ${token}` } } }) : null;
-  // deno-lint-ignore no-explicit-any
-  const P = perfil as any;
-  const ctxBase = { semestre: P.semestre ?? null, faculdade: P.faculdades?.nome ?? null };
+  // a função toda (também o que roda depois da resposta) tem ~150 s
+  const ctx: Ctx = { admin, usuario, uid, P: perfil, hoje, fim: inicio + 140_000 };
 
-  let reservado: { tipo: string; n: number } | null = null;
+  let reservado: Plano["reserva"] | null = null;
   try {
-    // ---------------- RESUMO ----------------
-    if (b.acao === "resumo") {
-      const t = await carregarTema(admin, uid, b.tema_id);
-      const modo = b.modo === "livros" ? "livros" : "professor";
-      await reservar(admin, uid, "resumos", 1, P); reservado = { tipo: "resumos", n: 1 };
-      const [mat, pref, livros] = await Promise.all([
-        materialDoTema(admin, uid, t.id, LIMITE_MATERIAL.resumo),
-        admin.from("preferencias").select("modelo_resumo").eq("aluno_id", uid).maybeSingle(),
-        usuario ? trechosDosLivros(usuario, t.nome) : Promise.resolve([] as Trecho[]),
-      ]);
-      const c: Contexto = { ...ctxBase, materia: t.disciplinas.nome, professor: t.disciplinas.professor, tema: t.nome, prova: t.prova, itens: itensDe(t.itens), foco: t.disciplinas.foco_resumo };
-      const prompt = promptResumo(c, pref.data?.modelo_resumo ?? null, mat.texto, livros, modo);
-      const r = await chamarClaude(prompt, MAX_TOKENS.resumo);
-      const texto = r.texto.trim();
-      if (texto.length < 15) throw new ErroIA("A IA devolveu um resumo vazio. Tente de novo.", 502);
-      const usadosLivros = juntarLivros(livros, LIMITE_LIVROS).usados;
-      const linha = {
-        tema_id: t.id, aluno_id: uid, texto, modelo: modelo(), modo: usadosLivros.length ? modo : null,
-        com_fonte: mat.usados > 0, livros: livrosCitados(usadosLivros), truncado: r.parou === "max_tokens", criado_em: new Date().toISOString(),
-      };
-      const { error } = await admin.from("resumos").upsert(linha, { onConflict: "tema_id" });
-      if (error) { console.error("salvar resumo:", error.message); throw new ErroIA("O resumo ficou pronto, mas não consegui salvar. Tente de novo.", 500); }
-      reservado = null;
-      await registrar(admin, uid, "resumos", 0, r.entrada, r.saida);
-      return json({ resumo: linha });
+    // ---------------- TENTAR DE NOVO uma tarefa que deu erro ou travou ----------------
+    if (b.acao === "repetir") {
+      const id = Number(b.tarefa_id);
+      const { data: t } = await admin.from("tarefas").select("*").eq("id", Number.isSafeInteger(id) ? id : -1).eq("aluno_id", uid).maybeSingle();
+      if (!t) throw new ErroIA("Tarefa não encontrada.", 404);
+      if (t.status !== "erro" && !travada(t)) throw new ErroIA(t.status === "pronta" || t.status === "vista" ? "Essa tarefa já terminou." : "Essa tarefa ainda está rodando.", 409);
+      if (t.reserva) await fecharTarefa(ctx, t.id, { status: "erro", erro: MSG_PAROU }, t.reserva, 0, { entrada: 0, saida: 0 });
+      const plano = await validar(ctx, { ...t.entrada, acao: t.tipo }, true);
+      const r = await criarTarefa(ctx, plano);
+      await admin.from("tarefas").update({ status: "vista" }).eq("id", t.id);
+      return r;
     }
-
-    // ---------------- MAPA MENTAL ----------------
-    if (b.acao === "mapa") {
-      const t = await carregarTema(admin, uid, b.tema_id);
-      await reservar(admin, uid, "mapas", 1, P); reservado = { tipo: "mapas", n: 1 };
-      const { data: res } = await admin.from("resumos").select("texto").eq("tema_id", t.id).eq("aluno_id", uid).maybeSingle();
-      let base = res?.texto ? String(res.texto).slice(0, LIMITE_MATERIAL.mapa) : "", deResumo = !!base;
-      if (!base) base = (await materialDoTema(admin, uid, t.id, LIMITE_MATERIAL.mapa)).texto;
-      const c: Contexto = { ...ctxBase, materia: t.disciplinas.nome, tema: t.nome, prova: t.prova, itens: itensDe(t.itens) };
-      const r = await chamarClaude(promptMapa(c, base, deResumo), MAX_TOKENS.mapa);
-      const out = extrairJSON(r.texto);
-      const ramos = (Array.isArray(out?.ramos) ? out!.ramos as Q[] : []).map((x) => limparNo(x, 1)).filter(Boolean).slice(0, 8);
-      if (!ramos.length) { await registrar(admin, uid, "mapas", 0, r.entrada, r.saida); throw new ErroIA("A IA não devolveu um mapa válido. Tente de novo.", 502); }
-      const dados = { titulo: t.nome, ramos };
-      const linha = { tema_id: t.id, aluno_id: uid, dados, base: deResumo ? "resumo" : base ? "material" : "livros", criado_em: new Date().toISOString() };
-      const { error } = await admin.from("mapas").upsert(linha, { onConflict: "tema_id" });
-      if (error) { console.error("salvar mapa:", error.message); throw new ErroIA("O mapa ficou pronto, mas não consegui salvar. Tente de novo.", 500); }
+    const fundo = b.fundo === true;
+    const plano = await validar(ctx, b, fundo);
+    if (fundo) return await criarTarefa(ctx, plano);
+    // ---------------- na hora (o site espera a resposta) ----------------
+    await reservar(admin, uid, plano.reserva.tipo, plano.reserva.n, perfil); reservado = plano.reserva;
+    const gasto: Gasto = { entrada: 0, saida: 0 };
+    try {
+      const f = await executar(ctx, plano, gasto);
       reservado = null;
-      await registrar(admin, uid, "mapas", 0, r.entrada, r.saida);
-      return json({ mapa: linha });
-    }
-
-    // ---------------- QUESTÕES (um lote de um tipo; o site chama vários lotes) ----------------
-    if (b.acao === "questoes") {
-      const tipo = String(b.tipo || "");
-      if (!TIPOS_QUESTAO[tipo]) throw new ErroIA("Tipo de questão inválido.", 400);
-      const n = Math.floor(Number(b.n));
-      if (!Number.isInteger(n) || n < 1 || n > MAX_POR_LOTE[tipo]) throw new ErroIA(`Peça de 1 a ${MAX_POR_LOTE[tipo]} questões por vez.`, 400);
-      const discId = Number(b.disciplina_id);
-      const tema = String(b.tema || "").replace(/\s+/g, " ").trim().slice(0, 200);
-      if (!tema) throw new ErroIA("Escreva o conteúdo das questões.", 400);
-      const { data: disc } = await admin.from("disciplinas").select("id,nome,professor").eq("id", Number.isSafeInteger(discId) ? discId : -1).eq("aluno_id", uid).maybeSingle();
-      if (!disc) throw new ErroIA("Matéria não encontrada.", 404);
-      let t: Awaited<ReturnType<typeof carregarTema>> | null = null;
-      if (b.tema_id != null && b.tema_id !== "") { t = await carregarTema(admin, uid, b.tema_id); if (t.disciplina_id !== disc.id) throw new ErroIA("Tema de outra matéria.", 400); }
-      await reservar(admin, uid, "questoes", n, P); reservado = { tipo: "questoes", n };
-      const chaveTema = qNorm(tema);
-      const [{ data: hist }, mat] = await Promise.all([
-        admin.from("questoes_historico").select("tema_chave,enunciado,chave").eq("aluno_id", uid).eq("disciplina_id", disc.id).order("criado_em", { ascending: false }).limit(500),
-        t ? materialDoTema(admin, uid, t.id, LIMITE_MATERIAL.questoes) : Promise.resolve({ texto: "", usados: 0, cortado: false }),
-      ]);
-      const evitar = (hist || []).filter((h) => h.tema_chave === chaveTema).slice(0, 40).map((h) => String(h.enunciado));
-      const c: Contexto = { ...ctxBase, materia: disc.nome, professor: disc.professor, tema, prova: t?.prova, itens: itensDe(t?.itens) };
-      const r = await chamarClaude(promptQuestoes(c, tipo, n, evitar, mat.texto), MAX_TOKENS.questoes);
-      const out = extrairJSON(r.texto);
-      const lista = (Array.isArray(out?.questoes) ? out!.questoes as Q[] : []).map((q) => limparQuestao(tipo, q)).filter(Boolean) as Q[];
-      const chaves = (hist || []).map((h) => String(h.chave));
-      const novas: Q[] = []; let repetidas = 0;
-      for (const q of lista) {
-        if (novas.length >= n) break;
-        const k = chaveQuestao(tipo, q);
-        if (repetida(k, chaves)) { repetidas++; continue; }
-        chaves.push(k); novas.push({ ...q, _k: k });
-      }
-      let salvas: Q[] = [];
-      if (novas.length) {
-        const { data, error } = await admin.from("questoes").insert(novas.map((q) => ({
-          aluno_id: uid, disciplina_id: disc.id, tema_id: t?.id ?? null, tema, tipo, enunciado: q.enunciado, dados: q.dados, explicacao: q.explicacao || null,
-        }))).select("*");
-        if (error) { console.error("salvar questões:", error.message); throw new ErroIA("As questões ficaram prontas, mas não consegui salvar. Tente de novo.", 500); }
-        salvas = data || [];
-        const { error: eh } = await admin.from("questoes_historico").insert(novas.map((q) => ({
-          aluno_id: uid, disciplina_id: disc.id, tema_chave: chaveTema, enunciado: String(q.enunciado).replace(/\s+/g, " ").slice(0, 170), chave: q._k,
-        })));
-        if (eh) console.error("histórico:", eh.message);
-      }
-      reservado = null;
-      await registrar(admin, uid, "questoes", salvas.length - n, r.entrada, r.saida); // devolve o que não veio
-      return json({ questoes: salvas, repetidas, pedidas: n });
-    }
-
-
-    // ---------------- CALENDÁRIO DE PROVAS (só lê; quem salva é o site depois da revisão) ----------------
-    if (b.acao === "calendario") {
-      const texto = typeof b.texto === "string" ? b.texto.replace(/\u0000/g, " ").trim().slice(0, LIMITE_CALENDARIO) : "";
-      const img = b.imagem && typeof b.imagem === "object" ? b.imagem as Record<string, unknown> : null;
-      const mime = String(img?.mime || ""), b64 = String(img?.base64 || "");
-      if (!texto && !img) throw new ErroIA("Mande o PDF ou a foto do calendário.", 400);
-      if (img && (!/^image\/(jpeg|png|webp)$/.test(mime) || !b64 || b64.length > MAX_IMAGEM_B64 || !/^[A-Za-z0-9+/=]+$/.test(b64))) throw new ErroIA("Imagem inválida ou grande demais.", 400);
-      if (!img && texto.length < 30) throw new ErroIA("Não achei texto nesse arquivo.", 400);
-      // semestre, turma e matérias: do semestre atual do aluno; o site pode mandar os da configuração (semestre novo ainda não salvo)
-      const { data: sem } = await admin.from("semestres").select("id,numero,turma").eq("aluno_id", uid).eq("atual", true).maybeSingle();
-      let qd = admin.from("disciplinas").select("id,nome").eq("aluno_id", uid).order("ordem").order("id");
-      if (sem) qd = qd.eq("semestre_id", sem.id);
-      const { data: discs } = await qd;
-      const materias = ((discs || []) as { id: number; nome: string }[]).slice(0, 40);
-      const listaSite = Array.isArray(b.materias) ? (b.materias as unknown[]).map((x) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean).slice(0, 40) : null;
-      const numSite = Number(b.semestre);
-      const c: CtxCalendario = {
-        semestre: Number.isInteger(numSite) && numSite >= 1 && numSite <= 12 ? numSite : (sem?.numero ?? P.semestre ?? null),
-        turma: typeof b.turma === "string" && b.turma.trim() ? b.turma.trim().slice(0, 10) : (sem?.turma ?? P.turma ?? null),
-        materias: listaSite ?? materias.map((m) => m.nome), hoje,
-      };
-      await reservar(admin, uid, "calendarios", 1, P); reservado = { tipo: "calendarios", n: 1 };
-      const prompt = promptCalendario(c, !img);
-      const conteudo: Conteudo = img
-        ? [{ type: "image", source: { type: "base64", media_type: mime, data: b64 } }, { type: "text", text: prompt }]
-        : prompt + texto + "\n</calendario>";
-      const r = await chamarClaude(conteudo, MAX_TOKENS.calendario);
-      const out = extrairJSON(r.texto);
-      // com a lista do site, as matérias ainda não têm id: o site casa pelo nome
-      const provas = limparCalendario(out, listaSite ? listaSite.map((nome) => ({ id: -1, nome })) : materias, hoje)
-        .map((p) => listaSite ? { ...p, disciplina_id: null } : p);
-      await registrar(admin, uid, "calendarios", 0, r.entrada, r.saida);
-      if (!out) throw new ErroIA("A IA não conseguiu ler esse calendário. Tente de novo ou mande uma foto mais nítida.", 502); // devolve a importação
-      reservado = null;
-      return json({ provas, semestre: c.semestre, turma: c.turma, aviso: String(out.aviso || "").slice(0, 300) });
-    }
-
-    return json({ erro: "Ação desconhecida." }, 400);
+      await registrar(admin, uid, plano.reserva.tipo, f.usadas - plano.reserva.n, gasto.entrada, gasto.saida); // devolve o que não foi usado
+      return json(f.resposta);
+    } catch (e) { await registrar(admin, uid, plano.reserva.tipo, 0, gasto.entrada, gasto.saida); throw e; }
   } catch (e) {
     if (reservado) await registrar(admin, uid, reservado.tipo, -reservado.n);
     if (e instanceof ErroIA) return json({ erro: e.message, ...e.extra }, e.status);
     console.error("ia:", (e as Error)?.message?.slice(0, 300));
     return json({ erro: "Algo deu errado. Tente de novo em instantes." }, 500);
   }
-});
+}
+Deno.serve(atender);
