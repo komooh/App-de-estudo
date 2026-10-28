@@ -30,6 +30,7 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `assets/fila.js` | Fila do navegador (ler e enviar arquivos e livros; continua neste aparelho) |
 | `assets/tarefas.js` | Botão e painel Tarefas (o que está rodando e o que ficou pronto) |
 | `supabase/09_termos.sql` | Aceite dos termos de uso: versão atual, aceite de cada aluno e registro dos aceites |
+| `supabase/10_memoria_resumo.sql` | Memória do resumo (como o aluno quer os resumos, em texto livre) |
 | `termos.html`, `privacidade.html` | Termos de uso e política de privacidade (modelo; revisar com advogado) |
 
 ## Como colocar no ar (uma vez)
@@ -200,3 +201,15 @@ Na próxima entrada, todos aceitam de novo. Cada aceite fica registrado em `term
 - Lei e foro: em `termos.html` (item 13) e `privacidade.html` (item 12), troque `[PAÍS]` e `[CIDADE/PAÍS]`.
 - Crédito de inspiração no rodapé: em `assets/config.js`, `CREDITO_INSPIRACAO: { nome: "Nome", instagram: "usuario" }` (só letras, números, ponto e _; sem o @). Vazio, a linha não aparece. As linhas `CRIADOR` e `DESENVOLVIDO_COM` também somem se ficarem `""`.
 - **Peça para um advogado (Brasil e Paraguai) revisar `termos.html` e `privacidade.html` antes de vender o acesso.** Os textos são um modelo escrito para bater com o que o site faz de verdade, não uma revisão jurídica.
+
+## Memória do resumo (Etapa 7)
+Cada aluno escreve, em **Configurações → Memória do resumo**, como quer os resumos (ex.: tabelas comparativas, frases curtas, mnemônicos, doses em negrito, ordem das seções, idioma). Vazio = formato padrão (resumo ativo). Há 4 exemplos para inserir com um toque, contador (até 1500 letras), **Salvar** e **Limpar e voltar ao padrão**. O antigo "Modelo dos resumos" (que ficava em Agenda → Ajustes) agora está no mesmo cartão, em **Avançado: modelo completo**.
+
+Na ficha do resumo aparece "Usando sua memória do resumo (editar)" ou "Formato padrão (editar)" e o campo fechado **Pedido só para este resumo** (até 500 letras), que vale só para o próximo resumo daquele tema.
+
+No servidor, a memória e o pedido entram no pedido à IA como **preferências de estilo** (dados, não comandos): mudam formato, ênfase, ordem e idioma, mas não as regras (só o material, marcas de professor e livros, sem inventar dados nem citações). Em conflito: pedido só para este resumo, depois a memória, depois o modelo completo, depois o padrão. Sem memória e sem pedido, o texto enviado à IA é exatamente o mesmo de antes. Vale só para resumos (não para questões nem mapas).
+
+O que fazer (uma vez, nesta ordem):
+1. **Banco:** SQL Editor → cole todo o `supabase/10_memoria_resumo.sql` → **Run** (depois do 09). Pode rodar de novo.
+2. **Função `ia`:** Edge Functions → **ia** → Code → cole o novo `supabase/functions/ia/index.ts` → **Deploy**. **"Verify JWT" continua DESLIGADO.**
+3. Mais nada: o site atualiza sozinho com o `git push`. (Sem o passo 1, salvar a memória mostra "Falta rodar o 10_memoria_resumo.sql"; a função `ia` funciona com ou sem ele.)

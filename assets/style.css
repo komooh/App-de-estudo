@@ -428,3 +428,10 @@ details.mats .drv-lista li{align-items:flex-start}
 .gate-acoes .btn.solid:disabled{opacity:.45;cursor:not-allowed}
 .gate-recusar{background:none;border:0;padding:6px 2px;color:var(--muted);text-decoration:underline;font-size:14px}
 .gate-falta{font-size:13px;color:var(--muted);margin:10px 0 0}
+/* ---------- Memória do resumo ---------- */
+.mem-chips{display:flex;flex-wrap:wrap;gap:6px;min-width:0}
+.mem-chip{border:1px dashed var(--line);background:var(--card2);color:var(--ink);border-radius:8px;padding:4px 9px;font-size:12.5px}
+.mem-chip:hover{border-color:var(--muted)}
+#memInp,#resExtra{resize:vertical;min-height:70px}
+.res-extra{margin-top:18px;padding-top:12px;border-top:1px solid var(--line)}
+.res-extra details.cfg{margin-top:8px}

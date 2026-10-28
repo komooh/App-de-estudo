@@ -418,7 +418,38 @@
       + janela("Enviar arquivos", `<div class="win-body">${vUpload()}</div>`)
       + janela("Importar documento", `<div class="win-body">${vImportCal()}</div>`)
       + janela("Documentos importados", `<div class="win-body">${vDocumentos()}</div>`)
-      + janela("Semestres", `<div class="win-body">${vSemestres()}</div>`);
+      + janela("Semestres", `<div class="win-body">${vSemestres()}</div>`)
+      + janela("Memória do resumo", `<div class="win-body" id="memoriaBox">${vMemoria()}</div>`);
+  }
+  /* ---------- Memória do resumo: como o aluno quer os resumos (texto livre) + o modelo completo (avançado) ---------- */
+  const MEM_MAX = 1500, EXTRA_MAX = 500;
+  const MEM_EXEMPLOS = [
+    ["Tabelas comparativas", "Use tabelas comparativas sempre que houver dois ou mais fármacos, classes ou doenças."],
+    ["Frases curtas", "Frases bem curtas: no máximo uma linha por tópico."],
+    ["Mnemônicos", "No fim de cada seção, crie um mnemônico para decorar."],
+    ["Doses e valores", "Destaque em negrito doses, valores de referência e números importantes."],
+  ];
+  const memAtual = () => ui.memDraft ?? (S.pref.memoria_resumo || "");
+  function vMemoria() {
+    const v = memAtual(), salvo = S.pref.memoria_resumo || "";
+    return `<p style="margin:0">Escreva como você quer seus resumos. Se deixar vazio, usamos o formato padrão: resumo ativo, com tópicos diretos.</p>
+      <p class="muted" style="margin:6px 0 12px;font-size:13px">Vale para todos os resumos novos. A IA segue o seu jeito no formato e no estilo, mas continua usando só o seu material, marcando o que vem do professor e dos livros, e sem inventar dados.</p>
+      <label class="field"><span class="mono">Como eu quero meus resumos</span>
+        <textarea id="memInp" class="inp" rows="6" maxlength="${MEM_MAX}" aria-describedby="memCont" style="width:100%" placeholder="Ex.: quero tabelas comparativas entre as classes, frases curtas, um mnemônico no fim de cada seção, doses e valores em negrito, começar pelas pegadinhas de prova e colocar o nome em espanhol entre parênteses.">${esc(v)}</textarea></label>
+      <div class="row" style="justify-content:space-between;align-items:center;margin-top:6px"><div class="mem-chips" role="group" aria-label="Exemplos para inserir">${MEM_EXEMPLOS.map(([t], i) => `<button type="button" class="mem-chip" data-a="memEx" data-i="${i}">+ ${esc(t)}</button>`).join("")}</div>
+        <span class="mono tnum" id="memCont" aria-live="polite">${v.length}/${MEM_MAX}</span></div>
+      <div class="row" style="margin-top:12px"><button class="btn solid" data-a="memSalvar">Salvar</button><button class="btn ghost" data-a="memLimpar" ${!salvo && !v ? "disabled" : ""}>Limpar e voltar ao padrão</button></div>
+      <p class="muted" style="margin:10px 0 0;font-size:13px" id="memStatus">${salvo ? "Seus resumos novos usam esta memória." : "Agora: formato padrão."}</p>
+      <details class="cfg" id="modeloBox" style="margin-top:18px" ${ui.modeloOpen ? "open" : ""}><summary>Avançado: modelo completo</summary>
+        <p class="muted" style="font-size:13px;margin:8px 0">Esta é a estrutura que a IA segue em todo resumo (formato resumo ativo: tópicos diretos, sem texto corrido). Cole aqui o seu modelo, se tiver um. Se a memória acima pedir outra coisa, vale a memória.</p>
+        <textarea id="agModelo" class="inp" rows="12" maxlength="4000" style="width:100%;font-family:var(--f-mono);font-size:12.5px" aria-label="Modelo completo do resumo">${esc(S.pref.modelo_resumo || MODELO_PADRAO)}</textarea>
+        <div class="row" style="margin-top:8px"><button class="btn solid" data-a="saveModelo">Salvar modelo</button><button class="btn ghost" data-a="resetModelo">Voltar ao padrão</button></div></details>`;
+  }
+  async function salvarMemoria(valor) {
+    const v = String(valor || "").replace(/\r\n?/g, "\n").trim().slice(0, MEM_MAX) || null;
+    const { error } = await sb.from("preferencias").upsert({ aluno_id: H.P.id, memoria_resumo: v, atualizado_em: new Date().toISOString() });
+    if (error) { toast(/memoria_resumo/.test(error.message) ? "Falta rodar o 10_memoria_resumo.sql no Supabase." : "Não consegui salvar: " + error.message); return false; }
+    S.pref.memoria_resumo = v; ui.memDraft = null; return true;
   }
   /** Semestre atual (número, turma e faculdade) e a turma dos semestres anteriores */
   function vSemestres() {
@@ -965,10 +996,7 @@
         <label class="field" style="flex:0 1 150px"><span class="mono">Horas (sáb e dom)</span><input id="agFds" type="number" min="0" max="16" step="0.5" value="${c.fds}"></label>
         <label class="field" style="flex:0 1 150px"><span class="mono">Hora de dormir</span><input id="agDormir" type="number" min="18" max="27" step="0.5" value="${c.dormir}"></label>
         <button class="btn solid" data-a="saveAg">Salvar</button></div>
-        <details style="margin-top:16px"><summary class="muted" style="cursor:pointer">Modelo dos resumos</summary>
-        <p class="muted" style="font-size:13px;margin:8px 0">Esta é a estrutura que a IA segue em todo resumo (formato resumo ativo: tópicos diretos, sem texto corrido). Cole aqui o seu modelo, se tiver um.</p>
-        <textarea id="agModelo" class="inp" rows="12" maxlength="4000" style="width:100%;font-family:var(--f-mono);font-size:12.5px">${esc(S.pref.modelo_resumo || MODELO_PADRAO)}</textarea>
-        <div class="row" style="margin-top:8px"><button class="btn solid" data-a="saveModelo">Salvar modelo</button><button class="btn ghost" data-a="resetModelo">Voltar ao padrão</button></div></details></div>`);
+        <p class="muted" style="margin:14px 0 0;font-size:13px">O jeito dos seus resumos fica em <button class="lnk" data-a="editMemoria">Configurações → Memória do resumo</button>.</p></div>`);
   }
 
   /* ================= MATERIAL DO PROFESSOR: lido no navegador quando falta ================= */
@@ -1085,7 +1113,8 @@
   async function gerarResumo(id, modo) {
     const t = temaById(id); if (!t) return;
     ui.escolha = null; ui.resErr = ""; ui.resAvisos = []; ui.resBusy = id; ui.resEtapa = "Mandando para a IA…"; renderSheet();
-    try { await pedirIA({ acao: "resumo", tema_id: id, modo }, id, `Ler o material e resumir: ${t.nome}`); }
+    const extra = String(ui.resExtra || "").trim().slice(0, EXTRA_MAX);
+    try { await pedirIA({ acao: "resumo", tema_id: id, modo, ...(extra ? { instrucao_extra: extra } : {}) }, id, `Ler o material e resumir: ${t.nome}`); ui.resExtra = ""; ui.extraOpen = false; }
     catch (e) { ui.resErr = e.message || "Não consegui pedir o resumo agora. Tente de novo em instantes."; }
     finally { ui.resBusy = false; renderSheet(); }
   }
@@ -1173,6 +1202,12 @@
           <article class="resumo">${body}</article>
           ${r && r.texto && !busy && !escolha ? `<p class="mono" style="margin-top:14px">Escrito pelo Claude${modoTxt}${r.livros?.length ? ` · livros: ${esc(r.livros.map((l) => l.titulo).join(", "))}` : ""}</p>
           <div class="exp-row"><span class="mono" style="font-size:11px">Baixar este resumo</span><div class="row" style="gap:8px;flex-wrap:wrap"><button class="btn" data-a="expRes" data-fmt="pdf" data-id="${t.id}" ${ui.expBusy ? "disabled" : ""}>${ui.expBusy === "pdf" ? "Gerando PDF…" : "PDF"}</button><button class="btn" data-a="expRes" data-fmt="docx" data-id="${t.id}" ${ui.expBusy ? "disabled" : ""}>${ui.expBusy === "docx" ? "Gerando Word…" : "Word (.docx)"}</button></div></div>` : ""}
+          ${!busy && !bgRes ? `<div class="res-extra">
+            <p class="muted" style="margin:0;font-size:13px" id="memLinha">${S.pref.memoria_resumo ? "Usando sua memória do resumo" : "Formato padrão"} (<button class="lnk" data-a="editMemoria">editar</button>)</p>
+            <details class="cfg" id="extraBox" style="margin-top:8px" ${ui.extraOpen || ui.resExtra ? "open" : ""}><summary>Pedido só para este resumo</summary>
+              <textarea id="resExtra" class="inp" rows="3" maxlength="${EXTRA_MAX}" style="width:100%;margin-top:8px" aria-describedby="resExtraCont" aria-label="Pedido só para este resumo" placeholder="Ex.: foque só no mecanismo de ação, bem curto.">${esc(ui.resExtra || "")}</textarea>
+              <span class="mono tnum" id="resExtraCont">${(ui.resExtra || "").length}/${EXTRA_MAX}</span>
+              <p class="muted" style="margin:4px 0 0;font-size:12.5px">Vale só para o próximo resumo deste tema. Para todos, use a memória do resumo.</p></details></div>` : ""}
           <details class="cfg" id="focoBox" style="margin-top:20px" ${focoAberto ? "open" : ""}><summary>Ajustar o foco dos resumos de ${esc(d.nome)}</summary>
             <textarea id="focoInp" class="inp" rows="4" maxlength="2000" style="width:100%;margin-top:8px">${esc(d.foco_resumo || focoPadrao(d.nome))}</textarea>
             <button class="btn" data-a="saveFoco" data-id="${d.id}" style="margin-top:8px">Salvar foco</button></details>
@@ -1441,6 +1476,12 @@
         if (await salvarPref(c)) { render(); toast("Agenda recalculada"); } break; }
       case "saveModelo": { const v = document.getElementById("agModelo").value.trim().slice(0, 4000); if (await salvarPref({ modelo_resumo: v && v !== MODELO_PADRAO ? v : null })) { render(); toast("Modelo salvo"); } break; }
       case "resetModelo": if (await salvarPref({ modelo_resumo: null })) { render(); toast("Modelo padrão restaurado"); } break;
+      case "memSalvar": { const el = document.getElementById("memInp"); if (el && await salvarMemoria(el.value)) { render(); toast(S.pref.memoria_resumo ? "Memória do resumo salva" : "Formato padrão"); } break; }
+      case "memLimpar": if (await salvarMemoria(null)) { render(); toast("Memória apagada. Voltou ao formato padrão."); document.getElementById("memInp")?.focus(); } break;
+      case "memEx": { const el = document.getElementById("memInp"), ex = MEM_EXEMPLOS[+b.dataset.i]; if (!el || !ex) break;
+        const novo = (el.value.trim() ? el.value.trim() + "\n" : "") + ex[1]; if (novo.length > MEM_MAX) { toast(`A memória pode ter até ${MEM_MAX} letras.`); break; }
+        el.value = novo; ui.memDraft = novo; contarMem(); el.focus(); break; }
+      case "editMemoria": abrirTela("config"); setTimeout(() => { const m = document.getElementById("memoriaBox"); m?.closest(".win")?.scrollIntoView({ block: "start" }); document.getElementById("memInp")?.focus({ preventScroll: true }); }, 50); break;
       case "pickDisc": ui.disc = +id; ui.confDel = null; render(); break;
       case "tick": { const t = temaById(id); if (t) tickTema(t, { [b.dataset.k]: b.checked }); break; }
       case "delTopic": { ui.confDel = null; if (await del("temas", id)) { S.temas = S.temas.filter((t) => t.id != id); S.mats = S.mats.filter((m) => !(m.tema_id == id && !enviado(m))); S.mats.forEach((m) => { if (m.tema_id == id) m.tema_id = null; }); render(); toast("Tema apagado"); } break; }
@@ -1522,8 +1563,11 @@
     if (guardarDoc(e.target)) return;
     if (e.target && e.target.id === "disTxt" && ui.qst && ui.qst.id == e.target.dataset.qid) ui.qst.txt = e.target.value;
     if (e.target && e.target.id === "upTemaNome") ui.up.temaNome = e.target.value;
+    if (e.target && e.target.id === "memInp") { ui.memDraft = e.target.value; contarMem(); }
+    if (e.target && e.target.id === "resExtra") { ui.resExtra = e.target.value; const c = document.getElementById("resExtraCont"); if (c) c.textContent = `${e.target.value.length}/${EXTRA_MAX}`; }
   }
-  function onToggle(e) { if (e.target?.id === "cfg") ui.cfgOpen = e.target.open; if (e.target?.id === "lamGer") ui.lamGer = e.target.open; }
+  function contarMem() { const el = document.getElementById("memInp"), c = document.getElementById("memCont"); if (el && c) c.textContent = `${el.value.length}/${MEM_MAX}`; }
+  function onToggle(e) { if (e.target?.id === "cfg") ui.cfgOpen = e.target.open; if (e.target?.id === "modeloBox") ui.modeloOpen = e.target.open; if (e.target?.id === "extraBox") ui.extraOpen = e.target.open; if (e.target?.id === "lamGer") ui.lamGer = e.target.open; }
   async function onSubmit(e) {
     if (!ativo()) return;
     const f = e.target.closest("form[data-form]"); if (!f || !noPainel(f)) return; e.preventDefault();
