@@ -17,7 +17,7 @@
 create table if not exists public.tarefas (
   id            bigint generated always as identity primary key,
   aluno_id      uuid not null references public.perfis(id) on delete cascade,
-  tipo          text not null check (tipo in ('resumo','mapa','questoes','calendario')),
+  tipo          text not null,
   status        text not null default 'na_fila' check (status in ('na_fila','rodando','pronta','erro','vista')),
   titulo        text not null default '' check (char_length(titulo) <= 200),
   entrada       jsonb not null default '{}'::jsonb check (pg_column_size(entrada) < 200000),  -- só os parâmetros já conferidos
@@ -27,6 +27,8 @@ create table if not exists public.tarefas (
   criado_em     timestamptz not null default now(),
   atualizado_em timestamptz not null default now()
 );
+alter table public.tarefas drop constraint if exists tarefas_tipo_check;
+alter table public.tarefas add constraint tarefas_tipo_check check (tipo in ('resumo','mapa','questoes','documento','calendario'));
 create index if not exists tarefas_aluno on public.tarefas(aluno_id, criado_em desc);
 create index if not exists tarefas_ativas on public.tarefas(aluno_id, atualizado_em) where status in ('na_fila','rodando') or reserva is not null;
 
@@ -187,3 +189,51 @@ begin
 end $$;
 revoke all on function public.restaurar_material(bigint) from public, anon;
 grant execute on function public.restaurar_material(bigint) to authenticated;
+
+-- ---------- Importar documento: o que a IA leu e o aluno guardou ----------
+-- Qualquer documento da faculdade (calendário acadêmico, cronograma de provas, horário, regulamento, aviso).
+-- O site só grava depois que o aluno confere. Fica o registro (resumo e notas) em "Documentos importados".
+create table if not exists public.documentos (
+  id         bigint generated always as identity primary key,
+  aluno_id   uuid not null default auth.uid() references public.perfis(id) on delete cascade,
+  nome       text not null default '' check (char_length(nome) <= 200),
+  tipo       text not null default 'outro' check (tipo in ('calendario_geral','cronograma_provas','horario_aulas','programa_materia','regulamento','aviso','outro')),
+  titulo     text check (titulo is null or char_length(titulo) <= 200),
+  resumo     text check (resumo is null or char_length(resumo) <= 800),
+  notas      jsonb not null default '[]'::jsonb check (jsonb_typeof(notas) = 'array' and pg_column_size(notas) < 60000),
+  criado_em  timestamptz not null default now()
+);
+create index if not exists documentos_aluno on public.documentos(aluno_id, criado_em desc);
+alter table public.documentos enable row level security;
+drop policy if exists dono_tudo on public.documentos;
+create policy dono_tudo on public.documentos for all to authenticated
+  using (aluno_id = auth.uid() and public.acesso_ok()) with check (aluno_id = auth.uid() and public.acesso_ok());
+drop policy if exists admin_ler on public.documentos;
+create policy admin_ler on public.documentos for select to authenticated using (public.is_admin());
+grant select, insert, update, delete on public.documentos to authenticated;
+revoke all on public.documentos from anon;
+-- no máximo 200 documentos por aluno
+create or replace function public.documentos_limite() returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if (select count(*) from public.documentos where aluno_id = new.aluno_id) >= 200 then raise exception 'Limite de 200 documentos. Apague alguns antigos.'; end if;
+  return new;
+end $$;
+drop trigger if exists documentos_limite on public.documentos;
+create trigger documentos_limite before insert on public.documentos for each row execute function public.documentos_limite();
+
+-- eventos do calendário acadêmico: vários dias (fim, já existe), descrição e de qual documento vieram
+alter table public.calendario add column if not exists descricao text;
+alter table public.calendario drop constraint if exists calendario_descricao_tamanho;
+alter table public.calendario add constraint calendario_descricao_tamanho check (descricao is null or char_length(descricao) <= 300);
+alter table public.calendario add column if not exists documento_id bigint references public.documentos(id) on delete set null;
+alter table public.calendario drop constraint if exists calendario_nome_check;
+alter table public.calendario add constraint calendario_nome_check check (char_length(nome) between 1 and 160);
+-- a mesma data com o mesmo nome não entra duas vezes (importar de novo o mesmo calendário)
+-- (antes, tira as repetidas que já existam: fica a mais antiga)
+delete from public.calendario c using public.calendario d
+ where c.aluno_id = d.aluno_id and lower(c.nome) = lower(d.nome) and c.inicio = d.inicio and c.id > d.id;
+create unique index if not exists calendario_sem_repetir on public.calendario(aluno_id, lower(nome), inicio);
+-- horário de aulas: sala
+alter table public.horarios add column if not exists sala text;
+alter table public.horarios drop constraint if exists horarios_sala_tamanho;
+alter table public.horarios add constraint horarios_sala_tamanho check (sala is null or char_length(sala) <= 60);

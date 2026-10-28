@@ -6,7 +6,10 @@
 //   POST {acao:"resumo",   tema_id, modo:"professor"|"livros"}  -> {resumo}
 //   POST {acao:"mapa",     tema_id}                              -> {mapa}
 //   POST {acao:"questoes", disciplina_id, tema, tema_id?, tipo:"mc"|"vf"|"rel"|"dis", n} -> {questoes, repetidas}
-//   POST {acao:"calendario", texto? | imagem?:{mime,base64}, semestre?, turma?, materias?} -> {provas, semestre, turma}
+//   POST {acao:"documento" (ou "calendario"), texto? e/ou imagem_caminhos?:[...] | imagem?:{mime,base64}, semestre?, turma?, materias?, nome?}
+//        -> {tipo, titulo, resumo, provas, eventos, horarios, materias, notas, aviso, semestre, turma}
+//        (lê qualquer documento da faculdade; NADA é salvo aqui: o aluno revisa e confirma no site)
+//   Com fundo:true, qualquer ação vira uma tarefa no servidor (tabela tarefas) e a resposta é {tarefa_id}.
 //        (lê o calendário oficial de provas; NADA é salvo aqui: o aluno revisa e confirma no site)
 //
 // O texto que vai para a IA é montado AQUI, no servidor, com o material do professor (tabela
@@ -378,7 +381,7 @@ export function casarMateria(nome: string, materias: string[]): number {
   });
   return nota >= 0.55 ? melhor : -1;
 }
-function dataValida(s: unknown, hoje: string): string | null {
+export function dataValida(s: unknown, hoje: string): string | null {
   const m = String(s ?? "").trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/); if (!m) return null;
   const [y, mo, d] = [+m[1], +m[2], +m[3]];
   const dt = new Date(Date.UTC(y, mo - 1, d));
@@ -428,6 +431,126 @@ export function avisoSemLinha(semestre: number | null, turma: string | null): st
   if (!semestre) return "Não achei as provas da sua turma neste calendário. Confira seu semestre e turma em Configurações.";
   return `Não achei a linha do ${semestre}º semestre${turma ? ` turma ${turma.toUpperCase()}` : ""} neste calendário. Confira seu semestre e turma em Configurações.`;
 }
+
+// ======================= importar documento (calendário geral, grade de provas, horário, avisos...) =======================
+export const TIPOS_DOC = ["calendario_geral", "cronograma_provas", "horario_aulas", "programa_materia", "regulamento", "aviso", "material_de_estudo", "outro"] as const;
+export const NOMES_TIPO_DOC: Record<string, string> = { calendario_geral: "Calendário acadêmico", cronograma_provas: "Cronograma de provas", horario_aulas: "Horário de aulas",
+  programa_materia: "Programa de matéria", regulamento: "Regulamento", aviso: "Aviso", material_de_estudo: "Material de estudo", outro: "Documento" };
+const CATEGORIAS = ["feriado", "prova", "matricula", "aula", "recesso", "prazo", "outro"];
+export const LIMITE_DOCUMENTO = 120_000;     // letras do texto (até 3 partes de 40 mil)
+export const PARTE_DOCUMENTO = 40_000;
+export const MAX_IMAGENS_DOC = 10;
+
+export function promptDocumento(c: CtxCalendario, oQueVai: string, parte?: { i: number; n: number }): string {
+  const ord = c.semestre && ORDINAIS[c.semestre] ? ORDINAIS[c.semestre] : "";
+  const turma = (c.turma || "").trim().toUpperCase();
+  const aluno = c.semestre ? `${c.semestre}º semestre${turma ? `, turma ${turma}` : ""}${ord ? ` (no documento: "${ord} SEMESTRE${turma ? ` ${turma}` : ""}")` : ""}` : "semestre e turma não informados";
+  return `Você lê documentos de uma faculdade de medicina (Paraguai; em espanhol ou português) e coloca no painel de estudo de UM aluno o que for útil para ele.
+Aluno: ${aluno}. Hoje é ${c.hoje}.
+${parte && parte.n > 1 ? `Este é o pedaço ${parte.i} de ${parte.n} do documento: devolva só o que aparece neste pedaço.\n` : ""}
+1) CLASSIFIQUE o documento em "tipo":
+- "calendario_geral": calendário acadêmico/anual da faculdade, igual para todos (períodos, feriados, matrícula, recesso, semanas de provas, exames finais, prazos).
+- "cronograma_provas": grade de provas com linhas por semestre/turma (ex.: "SEXTO SEMESTRE F") e colunas por data.
+- "horario_aulas": horário semanal de aulas.
+- "programa_materia": programa/plano de uma matéria (conteúdo, bibliografia, avaliação).
+- "regulamento": regras, normas, resoluções, instruções.
+- "aviso": comunicado, edital, informativo.
+- "material_de_estudo": slides, aula, apostila, livro, resumo de conteúdo médico. Nesse caso NÃO extraia nada: devolva as listas vazias.
+- "outro".
+2) EXTRAIA tudo que servir ao aluno:
+- "eventos": datas do calendário (feriados, matrícula, início/fim de aulas, recesso, semanas de provas parciais e finais, prazos, atividades). Um calendário GERAL vale para todos: importe TODAS as datas dele como eventos, sem procurar turma. Período de vários dias: data_ini e data_fim.
+- "provas": só provas de matéria com data (P1/P2/Final). Numa grade por semestre/turma use SÓ a linha do aluno (semestre e turma exatos; nomes podem ocupar 2 ou 3 linhas: junte). Se a linha dele não existir no documento, deixe "provas" vazia e explique em "aviso" (mas devolva os outros itens). Num calendário geral, semanas de provas são eventos (categoria "prova"), não provas.
+- "horarios": aulas semanais (dia_semana 1=segunda ... 6=sábado; hora_ini e hora_fim HH:MM; sala se houver). Numa grade por turma, só a turma do aluno.
+- "materias": matérias citadas com professor (se houver), só quando o documento lista as matérias do aluno.
+- "notas": regras, instruções, critérios de avaliação, prazos e avisos que valem guardar como texto (título curto + texto em tópicos, em português do Brasil, até 600 letras cada).
+Regras:
+- Datas AAAA-MM-DD. Descubra o ano pelo próprio documento (ano do calendário, período "2026 - Segunda convocatoria", datas próximas); se não houver ano, use o da próxima ocorrência a partir de hoje. Não invente datas.
+- "PRIMERA/1ª PARCIAL" = "P1"; "SEGUNDA/2ª PARCIAL" = "P2"; "FINAL"/"EXAMEN FINAL"/"EXTRAORDINARIO" = "Final". Modalidade "pratica" se disser PRÁCTICA, senão "teorica".
+- Matéria da prova/horário: se corresponder a uma destas do aluno, use EXATAMENTE o nome da lista; senão, o nome como está no documento.
+Matérias do aluno:
+${c.materias.length ? c.materias.map((m, i) => `${i + 1}. ${m}`).join("\n") : "(nenhuma cadastrada)"}
+- "titulo": nome curto do documento; "resumo": até 3 frases em português do Brasil dizendo o que é e o que tem.
+Responda SOMENTE com JSON:
+{"tipo":"...","titulo":"...","resumo":"...","provas":[{"materia":"...","tipo":"P1|P2|Final","modalidade":"teorica|pratica","data":"AAAA-MM-DD","hora":"HH:MM ou null"}],"eventos":[{"titulo":"...","data_ini":"AAAA-MM-DD","data_fim":"AAAA-MM-DD ou null","categoria":"${CATEGORIAS.join("|")}","descricao":"..."}],"horarios":[{"materia":"...","dia_semana":1,"hora_ini":"HH:MM","hora_fim":"HH:MM","sala":null}],"materias":[{"nome":"...","professor":null}],"notas":[{"titulo":"...","texto":"..."}],"aviso":""}
+
+${AVISO_FONTES} ${oQueVai}`;
+}
+/** Texto grande: até 3 pedaços (de preferência cortando entre páginas). Devolve também se sobrou texto de fora. */
+export function partesDoTexto(texto: string, tam = PARTE_DOCUMENTO, max = 3): { partes: string[]; cortado: boolean } {
+  const t = String(texto || ""); const partes: string[] = []; let i = 0;
+  while (i < t.length && partes.length < max) {
+    let fim = Math.min(t.length, i + tam);
+    if (fim < t.length) { const pag = t.lastIndexOf("--- página ---", fim); const nl = t.lastIndexOf("\n", fim); fim = pag > i + tam * 0.5 ? pag : nl > i + tam * 0.5 ? nl : fim; }
+    partes.push(t.slice(i, fim).trim()); i = fim;
+  }
+  return { partes: partes.filter(Boolean), cortado: i < t.length };
+}
+const HM = (s: unknown) => { const m = String(s ?? "").trim().match(/^([01]?\d|2[0-3])[:h.]([0-5]\d)$/); return m ? `${m[1].padStart(2, "0")}:${m[2]}` : null; };
+const DIAS_SEM: Record<string, number> = { lunes: 1, segunda: 1, martes: 2, terca: 2, miercoles: 3, quarta: 3, jueves: 4, quinta: 4, viernes: 5, sexta: 5, sabado: 6 };
+const diaSemana = (x: unknown) => { const n = Number(x); if (Number.isInteger(n) && n >= 1 && n <= 6) return n; const k = semAcento(String(x ?? "")).replace(/-feira/, "").trim(); return DIAS_SEM[k] ?? null; };
+const txt = (x: unknown, max: number) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+export type DocLido = {
+  tipo: string; titulo: string; resumo: string; provas: ProvaLida[];
+  eventos: { titulo: string; data_ini: string; data_fim: string | null; categoria: string; descricao: string }[];
+  horarios: { materia: string; disciplina_id: number | null; dia_semana: number; hora_ini: string; hora_fim: string; sala: string | null }[];
+  materias: { nome: string; professor: string | null; disciplina_id: number | null }[];
+  notas: { titulo: string; texto: string }[]; aviso: string;
+};
+/** Confere a resposta da IA: só itens completos e válidos, sem repetidos, com limites de quantidade. */
+export function limparDocumento(out: Record<string, unknown> | null, materias: { id: number; nome: string }[], hoje: string): DocLido {
+  const o = out || {};
+  const lista = (k: string) => (Array.isArray(o[k]) ? o[k] as Record<string, unknown>[] : []).filter((x) => x && typeof x === "object");
+  const tipo = (TIPOS_DOC as readonly string[]).includes(String(o.tipo)) ? String(o.tipo) : "outro";
+  const nomes = materias.map((m) => m.nome);
+  const idMateria = (nome: string) => { const ex = nomes.findIndex((n) => semAcento(n).trim() === semAcento(nome)); const i = ex >= 0 ? ex : casarMateria(nome, nomes); return i >= 0 ? materias[i].id : null; };
+  const vazio: DocLido = { tipo, titulo: txt(o.titulo, 160), resumo: txt(o.resumo, 600), provas: [], eventos: [], horarios: [], materias: [], notas: [], aviso: txt(o.aviso, 300) };
+  if (tipo === "material_de_estudo") return vazio;
+  vazio.provas = limparCalendario({ provas: lista("provas") }, materias, hoje);
+  const ev = new Set<string>();
+  for (const e of lista("eventos")) {
+    const titulo = txt(e.titulo, 120), ini = dataValida(e.data_ini ?? e.data, hoje); if (!titulo || !ini) continue;
+    let fim = dataValida(e.data_fim, hoje); if (fim && fim < ini) fim = null; if (fim === ini) fim = null;
+    const k = semAcento(titulo) + "|" + ini; if (ev.has(k)) continue; ev.add(k);
+    const cat = CATEGORIAS.includes(String(e.categoria)) ? String(e.categoria) : "outro";
+    vazio.eventos.push({ titulo, data_ini: ini, data_fim: fim, categoria: cat, descricao: txt(e.descricao, 300) });
+    if (vazio.eventos.length >= 120) break;
+  }
+  vazio.eventos.sort((a, b) => a.data_ini.localeCompare(b.data_ini));
+  const hr = new Set<string>();
+  for (const h of lista("horarios")) {
+    const materia = txt(h.materia, 120), dia = diaSemana(h.dia_semana), a = HM(h.hora_ini), b = HM(h.hora_fim);
+    if (!materia || !dia || !a || !b || b <= a) continue;
+    const k = `${semAcento(materia)}|${dia}|${a}`; if (hr.has(k)) continue; hr.add(k);
+    vazio.horarios.push({ materia, disciplina_id: idMateria(materia), dia_semana: dia, hora_ini: a, hora_fim: b, sala: txt(h.sala, 60) || null });
+    if (vazio.horarios.length >= 60) break;
+  }
+  const mt = new Set<string>();
+  for (const m of lista("materias")) {
+    const nome = txt(m.nome, 120); if (!nome || mt.has(semAcento(nome))) continue; mt.add(semAcento(nome));
+    vazio.materias.push({ nome, professor: txt(m.professor, 120) || null, disciplina_id: idMateria(nome) });
+    if (vazio.materias.length >= 30) break;
+  }
+  for (const n of lista("notas")) {
+    const titulo = txt(n.titulo, 120), texto = String(n.texto ?? "").trim().slice(0, 2000); if (!titulo || !texto) continue;
+    vazio.notas.push({ titulo, texto }); if (vazio.notas.length >= 20) break;
+  }
+  return vazio;
+}
+/** Junta as respostas dos pedaços de um documento grande. */
+export function juntarDocumentos(lidos: Record<string, unknown>[]): Record<string, unknown> {
+  const base: Record<string, unknown> = { tipo: "outro", titulo: "", resumo: "", provas: [], eventos: [], horarios: [], materias: [], notas: [], aviso: "" };
+  const avisos: string[] = [];
+  for (const o of lidos) {
+    if (base.tipo === "outro" && o.tipo) base.tipo = o.tipo;
+    if (!base.titulo && o.titulo) base.titulo = o.titulo;
+    if (!base.resumo && o.resumo) base.resumo = o.resumo;
+    for (const k of ["provas", "eventos", "horarios", "materias", "notas"]) if (Array.isArray(o[k])) (base[k] as unknown[]).push(...(o[k] as unknown[]));
+    if (o.aviso && !avisos.includes(String(o.aviso))) avisos.push(String(o.aviso));
+  }
+  base.aviso = avisos.join(" ");
+  return base;
+}
+const temItens = (d: DocLido) => d.provas.length + d.eventos.length + d.horarios.length + d.materias.length + d.notas.length > 0;
 
 // ======================= chamada ao Claude =======================
 export type Conteudo = string | Record<string, unknown>[];
@@ -522,7 +645,7 @@ export async function pedirJSON(conteudo: Conteudo, maxTokens: number, rotulo: s
 
 // ======================= banco =======================
 type TipoUso = "resumos" | "questoes" | "mapas" | "calendarios";
-const NOMES_LIMITE: Record<TipoUso, [string, string]> = { resumos: ["limite_resumos_mes", "resumos"], questoes: ["limite_questoes_mes", "questões"], mapas: ["limite_mapas_mes", "mapas mentais"], calendarios: ["limite_calendarios_mes", "importações de calendário"] };
+const NOMES_LIMITE: Record<TipoUso, [string, string]> = { resumos: ["limite_resumos_mes", "resumos"], questoes: ["limite_questoes_mes", "questões"], mapas: ["limite_mapas_mes", "mapas mentais"], calendarios: ["limite_calendarios_mes", "importações de documento"] };
 async function reservar(admin: SupabaseClient, uid: string, tipo: TipoUso, n: number, perfil: Record<string, unknown>) {
   const { data, error } = await admin.rpc("ia_uso", { p_aluno: uid, p_tipo: tipo, p_delta: n, p_checar: true });
   if (error) { console.error("ia_uso:", error.message); throw new ErroIA("Não consegui conferir seu limite agora. Tente de novo.", 500); }
@@ -583,7 +706,7 @@ function paraBase64(bytes: Uint8Array): string {
 // deno-lint-ignore no-explicit-any
 type Perfil = Record<string, any>;
 export type Ctx = { admin: SupabaseClient; usuario: SupabaseClient | null; uid: string; P: Perfil; hoje: string; fim: number };
-export type TipoTarefa = "resumo" | "mapa" | "questoes" | "calendario";
+export type TipoTarefa = "resumo" | "mapa" | "questoes" | "documento";
 export type Plano = { tipo: TipoTarefa; titulo: string; entrada: Record<string, unknown>; reserva: { tipo: TipoUso; n: number } };
 export type Feito = { resposta: Record<string, unknown>; resultado: Record<string, unknown>; usadas: number };
 export const TIPOS_QUESTAO_ORDEM = ["mc", "vf", "rel", "dis"] as const;
@@ -628,30 +751,32 @@ export async function validar(ctx: Ctx, b: Record<string, unknown>, fundo: boole
     if (b.tema_id != null && b.tema_id !== "") { const t = await carregarTema(admin, uid, b.tema_id); if (t.disciplina_id !== disc.id) throw new ErroIA("Tema de outra matéria.", 400); temaId = t.id; }
     return { tipo: "questoes", titulo: `${total} ${total === 1 ? "questão" : "questões"}: ${tema}`, entrada: { disciplina_id: disc.id, tema, tema_id: temaId, mix }, reserva: { tipo: "questoes", n: total } };
   }
-  if (b.acao === "calendario") {
-    const texto = typeof b.texto === "string" ? b.texto.replace(/\u0000/g, " ").trim().slice(0, LIMITE_CALENDARIO) : "";
+  // "documento" (calendário geral, grade de provas, horário, avisos...) e "calendario" (o nome antigo: igual)
+  if (b.acao === "documento" || b.acao === "calendario") {
+    const texto = typeof b.texto === "string" ? b.texto.replace(/\u0000/g, " ").trim().slice(0, LIMITE_DOCUMENTO + 20_000) : "";
     const img = b.imagem && typeof b.imagem === "object" ? b.imagem as Record<string, unknown> : null;
-    const caminho = typeof b.imagem_caminho === "string" ? b.imagem_caminho : "";
+    const caminhos = (Array.isArray(b.imagem_caminhos) ? b.imagem_caminhos : typeof b.imagem_caminho === "string" ? [b.imagem_caminho] : []).map(String);
     const entrada: Record<string, unknown> = {};
-    if (caminho) {
-      if (!RE_CAMINHO_IMG(uid).test(caminho)) throw new ErroIA("Imagem inválida.", 400);
-      entrada.imagem_caminho = caminho;
+    if (caminhos.length) {
+      if (caminhos.length > MAX_IMAGENS_DOC || caminhos.some((c) => !RE_CAMINHO_IMG(uid).test(c))) throw new ErroIA("Imagem inválida.", 400);
+      entrada.imagem_caminhos = caminhos;
     } else if (img) {
       if (fundo) throw new ErroIA("Envie a foto pelo site de novo.", 400); // em segundo plano a foto vai pelo Storage
       const mime = String(img.mime || ""), b64 = String(img.base64 || "");
       if (!/^image\/(jpeg|png|webp)$/.test(mime) || !b64 || b64.length > MAX_IMAGEM_B64 || !/^[A-Za-z0-9+/=]+$/.test(b64)) throw new ErroIA("Imagem inválida ou grande demais.", 400);
       entrada.imagem = { mime, base64: b64 };
-    } else if (texto) {
-      if (texto.length < 30) throw new ErroIA("Não achei texto nesse arquivo.", 400);
-      entrada.texto = texto;
-    } else throw new ErroIA("Mande o PDF ou a foto do calendário.", 400);
+    }
+    if (texto.length >= 30) entrada.texto = texto;
+    else if (!caminhos.length && !img) throw new ErroIA(texto ? "Não achei texto nesse arquivo." : "Mande o PDF ou a foto do documento.", 400);
     // a configuração (semestre novo ainda não salvo) manda semestre, turma e matérias; senão vale o semestre atual
     const num = Number(b.semestre);
     if (Number.isInteger(num) && num >= 1 && num <= 12) entrada.semestre = num;
     const turma = typeof b.turma === "string" ? b.turma.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2) : "";
     if (turma) entrada.turma = turma;
     if (Array.isArray(b.materias)) entrada.materias = (b.materias as unknown[]).map((x) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean).slice(0, 40);
-    return { tipo: "calendario", titulo: "Calendário de provas", entrada, reserva: { tipo: "calendarios", n: 1 } };
+    const nome = typeof b.nome === "string" ? b.nome.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 150) : "";
+    if (nome) entrada.nome = nome;
+    return { tipo: "documento", titulo: nome ? `Documento: ${nome}` : "Importar documento", entrada, reserva: { tipo: "calendarios", n: 1 } };
   }
   throw new ErroIA("Ação desconhecida.", 400);
 }
@@ -762,7 +887,7 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
     };
   }
 
-  // ---------------- CALENDÁRIO DE PROVAS (só lê; quem salva é o site depois da revisão do aluno) ----------------
+  // ---------------- DOCUMENTO (só lê; quem salva é o site depois da revisão do aluno) ----------------
   const { data: sem } = await admin.from("semestres").select("id,numero,turma").eq("aluno_id", uid).eq("atual", true).maybeSingle();
   let qd = admin.from("disciplinas").select("id,nome").eq("aluno_id", uid).order("ordem").order("id");
   if (sem) qd = qd.eq("semestre_id", sem.id);
@@ -774,33 +899,47 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
     turma: (e.turma as string) ?? sem?.turma ?? P.turma ?? null,
     materias: listaSite ?? materias.map((m) => m.nome), hoje,
   };
-  let img = e.imagem as { mime: string; base64: string } | undefined;
-  if (e.imagem_caminho) {
-    const caminho = String(e.imagem_caminho);
+  // imagens: a foto/print, ou as páginas do PDF que são imagem (escaneadas), guardadas no Storage pelo site
+  const imgs: { mime: string; base64: string }[] = e.imagem ? [e.imagem as { mime: string; base64: string }] : [];
+  let total = 0;
+  for (const caminho of (e.imagem_caminhos as string[] | undefined) || []) {
     const { data: blob, error } = await admin.storage.from("tarefas").download(caminho);
-    if (error || !blob) { console.error("tarefas download:", error?.message); throw new ErroIA("Não achei a foto do calendário. Mande a foto de novo.", 404); }
+    if (error || !blob) { console.error("tarefas download:", error?.message); throw new ErroIA("Não achei as imagens do documento. Mande o arquivo de novo.", 404); }
     const bytes = new Uint8Array(await blob.arrayBuffer());
-    if (bytes.length > MAX_IMAGEM_B64 * 0.75) throw new ErroIA("Imagem grande demais.", 400);
-    img = { mime: MIME_IMG[caminho.split(".").pop()!.toLowerCase()] || "image/jpeg", base64: paraBase64(bytes) };
+    total += bytes.length;
+    if (bytes.length > MAX_IMAGEM_B64 * 0.75 || total > 9_000_000) throw new ErroIA("Imagens grandes demais.", 400);
+    imgs.push({ mime: MIME_IMG[caminho.split(".").pop()!.toLowerCase()] || "image/jpeg", base64: paraBase64(bytes) });
   }
-  const prompt = promptCalendario(cc, !img);
-  const conteudo: Conteudo = img
-    ? [{ type: "image", source: { type: "base64", media_type: img.mime, data: img.base64 } }, { type: "text", text: prompt }]
-    : prompt + String(e.texto) + "\n</calendario>";
-  const r = await pedirJSON(conteudo, MAX_TOKENS.calendario, "calendario", gasto, ctx.fim, naoAchouLinha);
-  // resposta cortada: aproveita as provas que vieram completas
-  const out = r.out ?? (r.cortada ? { provas: objetosDaLista(r.texto, "provas") } : null);
+  const { partes, cortado } = partesDoTexto(String(e.texto || ""));
+  if (!partes.length) partes.push("");
+  const pedidos = partes.map((parte, i) => {
+    const vai = [imgs.length && i === 0 ? `As ${imgs.length > 1 ? `${imgs.length} imagens acima são páginas` : "imagem acima é uma página ou foto"} do documento (alinhe cada célula com a data do cabeçalho da coluna).` : "",
+      parte ? `Abaixo, o texto extraído do PDF mantendo as colunas; quando um texto termina com [dd/mm/aaaa], essa é a data da coluna em que ele está.\n<documento>\n${parte}\n</documento>` : ""].filter(Boolean).join("\n");
+    const prompt = promptDocumento(cc, vai, { i: i + 1, n: partes.length });
+    const conteudo: Conteudo = imgs.length && i === 0
+      ? [...imgs.map((m) => ({ type: "image", source: { type: "base64", media_type: m.mime, data: m.base64 } })), { type: "text", text: prompt }]
+      : prompt;
+    return pedirJSON(conteudo, MAX_TOKENS.calendario, `documento ${i + 1}/${partes.length}`, gasto, ctx.fim, naoAchouLinha)
+      .then((r) => r.out ?? (r.cortada ? { provas: objetosDaLista(r.texto, "provas"), eventos: objetosDaLista(r.texto, "eventos"), horarios: objetosDaLista(r.texto, "horarios"), notas: objetosDaLista(r.texto, "notas"), _cortada: true } : naoAchouLinha(r.texto) ? { tipo: "cronograma_provas", _semLinha: true } : null));
+  });
+  const outs = (await Promise.all(pedidos)).filter(Boolean) as Record<string, unknown>[];
+  if (!outs.length) console.error("documento: nenhuma parte veio em JSON");
+  const junto = juntarDocumentos(outs);
   // com a lista da configuração, as matérias ainda não têm id: o site casa pelo nome
-  const provas = limparCalendario(out, listaSite ? listaSite.map((nome) => ({ id: -1, nome })) : materias, hoje)
-    .map((p) => listaSite ? { ...p, disciplina_id: null } : p);
-  let aviso = String(out?.aviso || "").slice(0, 300);
-  if (!provas.length) {
-    // não achou a turma (em JSON ou em texto) ou não deu para ler: aviso amigável, sem gastar a importação
-    if (!out && !naoAchouLinha(r.texto)) console.error("calendario: sem provas e sem JSON");
-    aviso = avisoSemLinha(cc.semestre, cc.turma);
-  } else if (r.cortada && !r.out) aviso = "O calendário é grande e a leitura veio incompleta: confira se faltou alguma prova.";
-  const res = { provas, semestre: cc.semestre, turma: cc.turma, aviso };
-  return { resposta: res, resultado: res, usadas: provas.length ? 1 : 0 };
+  const d = limparDocumento(junto, listaSite ? listaSite.map((nome) => ({ id: -1, nome })) : materias, hoje);
+  if (listaSite) { d.provas = d.provas.map((p) => ({ ...p, disciplina_id: null })); d.horarios = d.horarios.map((h) => ({ ...h, disciplina_id: null })); d.materias = d.materias.map((m) => ({ ...m, disciplina_id: null })); }
+  const avisos: string[] = [];
+  if (d.tipo === "material_de_estudo") avisos.push("Isso parece material de estudo (slides, aula, apostila). Para usar nos resumos e questões, mande em Enviar arquivos.");
+  else {
+    if (!d.provas.length && (d.tipo === "cronograma_provas" || naoAchouLinha(d.aviso) || /linha|turma|fila/i.test(d.aviso))) avisos.push(avisoSemLinha(cc.semestre, cc.turma));
+    else if (d.aviso) avisos.push(d.aviso);
+    if (!temItens(d) && d.tipo !== "cronograma_provas") avisos.push("Não achei datas nem informações para colocar no painel nesse documento.");
+    if (cortado) avisos.push("O documento é muito grande: li só o começo (cerca de 120 mil letras).");
+    if (outs.some((o) => o._cortada)) avisos.push("A leitura veio incompleta: confira se faltou alguma coisa.");
+  }
+  const res = { ...d, aviso: avisos.join(" ").slice(0, 600), semestre: cc.semestre, turma: cc.turma, nome: e.nome || null };
+  // material de estudo ou nada encontrado: não conta no limite do mês
+  return { resposta: res, resultado: res, usadas: d.tipo !== "material_de_estudo" && temItens(d) ? 1 : 0 };
 }
 
 // ======================= tarefas em segundo plano =======================
@@ -831,7 +970,8 @@ export async function rodarTarefa(ctx: Ctx, id: number, plano: Plano) {
     await sinal();
     const f = await executar(ctx, plano, gasto, sinal);
     await fecharTarefa(ctx, id, { status: "pronta", resultado: f.resultado, erro: null }, plano.reserva, f.usadas, gasto);
-    if (plano.entrada.imagem_caminho) await admin.storage.from("tarefas").remove([String(plano.entrada.imagem_caminho)]);
+    const imgs = plano.entrada.imagem_caminhos as string[] | undefined;
+    if (imgs?.length) await admin.storage.from("tarefas").remove(imgs);
   } catch (e) {
     const msg = e instanceof ErroIA ? e.message : "Algo deu errado. Tente de novo em instantes.";
     if (!(e instanceof ErroIA)) console.error("tarefa", id, (e as Error)?.message?.slice(0, 300));
@@ -847,11 +987,11 @@ export async function limparRestos(ctx: Ctx) {
     const ativa = t.status === "na_fila" || t.status === "rodando";
     await fecharTarefa(ctx, t.id, ativa ? { status: "erro", erro: MSG_PAROU } : {}, t.reserva, 0, { entrada: 0, saida: 0 });
   }
-  const { data: fotos } = await admin.from("tarefas").select("id,entrada").eq("aluno_id", uid).eq("tipo", "calendario")
-    .in("status", ["erro", "vista"]).not("entrada->>imagem_caminho", "is", null).lt("atualizado_em", new Date(agora - 86_400_000).toISOString()).limit(20);
+  const { data: fotos } = await admin.from("tarefas").select("id,entrada").eq("aluno_id", uid).eq("tipo", "documento")
+    .in("status", ["erro", "vista"]).not("entrada->imagem_caminhos", "is", null).lt("atualizado_em", new Date(agora - 86_400_000).toISOString()).limit(20);
   for (const t of fotos || []) {
-    const { imagem_caminho, ...resto } = t.entrada || {};
-    await admin.storage.from("tarefas").remove([String(imagem_caminho)]);
+    const { imagem_caminhos, ...resto } = t.entrada || {};
+    if (Array.isArray(imagem_caminhos) && imagem_caminhos.length) await admin.storage.from("tarefas").remove(imagem_caminhos.map(String));
     await admin.from("tarefas").update({ entrada: resto }).eq("id", t.id);
   }
   await admin.from("tarefas").delete().eq("aluno_id", uid).lt("criado_em", new Date(agora - 30 * 86_400_000).toISOString());

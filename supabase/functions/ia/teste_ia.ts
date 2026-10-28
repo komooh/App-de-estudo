@@ -1,5 +1,5 @@
 // Testes da função ia (sem chamar a IA de verdade). Rode com:
-//   deno run --allow-env --allow-net=localhost supabase/functions/ia/teste_ia.ts
+//   deno run --allow-env --allow-net=localhost --allow-read supabase/functions/ia/teste_ia.ts
 // O Deno.serve é trocado por um vazio, e o fetch da Anthropic é falso.
 // deno-lint-ignore no-explicit-any
 (Deno as any).serve = () => ({});
@@ -201,6 +201,52 @@ pj.length = 0; filaJ = [resposta("prosa")];
 rj = await ia.pedirJSON("pedido", 8000, "teste", g, Date.now() + 20_000);
 ok("pedirJSON: sem tempo, não tenta de novo", pj.length === 1 && rj.out === null);
 globalThis.fetch = realJ;
+
+// ---------- importar documento: cada tipo (respostas falsas da IA) ----------
+const H = "2026-10-28";
+const ctxD = { semestre: 6, turma: "F", materias: M6.map((m) => m.nome), hoje: H };
+const pd = ia.promptDocumento(ctxD, "<documento>x</documento>", { i: 1, n: 2 });
+ok("documento: prompt classifica e manda importar calendário geral sem turma", pd.includes('"calendario_geral"') && pd.includes("importe TODAS as datas dele como eventos, sem procurar turma") && pd.includes('"material_de_estudo"') && pd.includes("pedaço 1 de 2"));
+ok("documento: prompt com a linha do aluno", pd.includes("6º semestre, turma F") && pd.includes('"SEXTO SEMESTRE F"'));
+// calendário geral (anual): tudo vira evento, sem 'não achei a turma'
+const geral = ia.limparDocumento({ tipo: "calendario_geral", titulo: "Calendario Académico 2026", resumo: "Calendário anual.", eventos: [
+  { titulo: "Exámenes Finales Ordinarios", data_ini: "2026-12-07", data_fim: "2026-12-12", categoria: "prova" },
+  { titulo: "Navidad", data_ini: "2026-12-25", data_fim: null, categoria: "feriado" },
+  { titulo: "Navidad", data_ini: "2026-12-25", categoria: "feriado" },                       // repetido
+  { titulo: "Capacitación Docente", data_ini: "2026-10-12", data_fim: "2026-10-14", categoria: "xyz" },
+  { titulo: "Fim antes", data_ini: "2026-11-10", data_fim: "2026-11-01" },
+  { titulo: "Sem data", data_ini: "dezembro" }] }, M6, H);
+ok("calendário geral: 4 eventos válidos, ordenados, sem repetidos", geral.tipo === "calendario_geral" && geral.eventos.length === 4 && geral.eventos[0].titulo === "Capacitación Docente" && geral.eventos[1].data_fim === null && geral.eventos[1].titulo === "Fim antes", geral.eventos);
+ok("calendário geral: categoria desconhecida vira 'outro'; período de vários dias", geral.eventos[0].categoria === "outro" && geral.eventos[0].data_fim === "2026-10-14" && geral.eventos.find((e) => e.titulo.startsWith("Exámenes"))?.data_fim === "2026-12-12");
+// grade por turma com a linha do aluno faltando: provas vazias, o resto vem
+const grade = ia.limparDocumento({ tipo: "cronograma_provas", provas: [], eventos: [{ titulo: "Semana de parciales", data_ini: "2026-11-02", data_fim: "2026-11-13", categoria: "prova" }], aviso: "No encontré la fila QUINTO SEMESTRE F" }, M6, H);
+ok("grade sem a linha: sem provas, com o evento geral e o aviso", grade.provas.length === 0 && grade.eventos.length === 1 && /QUINTO/.test(grade.aviso));
+// horário de aulas
+const hor = ia.limparDocumento({ tipo: "horario_aulas", horarios: [
+  { materia: "FARMACOLOGIA", dia_semana: "lunes", hora_ini: "7:00", hora_fim: "08:30", sala: "Aula 5" },
+  { materia: "Semiología II", dia_semana: 3, hora_ini: "10:00", hora_fim: "09:00" },          // fim antes
+  { materia: "Inglés", dia_semana: "domingo", hora_ini: "10:00", hora_fim: "11:00" }] }, M6, H);
+ok("horário: dia por nome, hora normalizada, matéria casada; inválidos fora", hor.horarios.length === 1 && hor.horarios[0].dia_semana === 1 && hor.horarios[0].hora_ini === "07:00" && hor.horarios[0].disciplina_id === 14 && hor.horarios[0].sala === "Aula 5", hor.horarios);
+// material de estudo: nada é extraído
+const estudo = ia.limparDocumento({ tipo: "material_de_estudo", eventos: [{ titulo: "x", data_ini: "2026-11-01" }], notas: [{ titulo: "a", texto: "b" }] }, M6, H);
+ok("material de estudo: nada extraído", estudo.tipo === "material_de_estudo" && !estudo.eventos.length && !estudo.notas.length);
+// regulamento: notas
+const reg = ia.limparDocumento({ tipo: "regulamento", notas: [{ titulo: "Asistencia", texto: "- 80% de presença" }, { titulo: "", texto: "x" }], materias: [{ nome: "Farmacología II", professor: "Dr. X" }, { nome: "Medicina Tropical" }] }, M6, H);
+ok("regulamento: notas e matérias (com id quando existe)", reg.notas.length === 1 && reg.materias[0].disciplina_id === 14 && reg.materias[0].professor === "Dr. X" && reg.materias[1].disciplina_id === 16);
+ok("tipo desconhecido vira 'outro'", ia.limparDocumento({ tipo: "zzz" }, M6, H).tipo === "outro" && ia.limparDocumento(null, M6, H).tipo === "outro");
+// pedaços e junção
+const longo = Array.from({ length: 10 }, (_, i) => `Página ${i} ` + "x".repeat(15000)).join("\n\n--- página ---\n\n");
+const pt = ia.partesDoTexto(longo);
+ok("documento grande: até 3 pedaços cortando entre páginas e avisa o resto", pt.partes.length === 3 && pt.cortado && pt.partes.every((x) => x.length <= 40000) && pt.partes[1].startsWith("--- página ---"));
+ok("documento pequeno: 1 pedaço", ia.partesDoTexto("abc").partes.length === 1 && !ia.partesDoTexto("abc").cortado);
+const junto = ia.juntarDocumentos([{ tipo: "calendario_geral", titulo: "A", eventos: [{ titulo: "e1" }], aviso: "x" }, { tipo: "outro", eventos: [{ titulo: "e2" }], provas: [{ materia: "m" }], aviso: "x" }]);
+ok("juntar pedaços", junto.tipo === "calendario_geral" && (junto.eventos as unknown[]).length === 2 && (junto.provas as unknown[]).length === 1 && junto.aviso === "x");
+// texto real: grade oficial (2ª parcial) extraída como o navegador faz; a linha do 6º F tem as 8 datas
+try {
+  const gradeTxt = await Deno.readTextFile(new URL("./teste_grade_6f.txt", import.meta.url));
+  const linhaF = gradeTxt;
+  ok("texto real da grade: 6º F com as 8 datas", ["02/11", "04/11", "05/11", "06/11", "09/11", "10/11", "11/11", "13/11"].every((d) => linhaF.includes(`[${d}/2026]`)) && linhaF.includes("SEMESTRE F"), linhaF);
+} catch (_) { console.log("(sem teste_grade_6f.txt)"); }
 
 // ---------- segundo plano: EdgeRuntime.waitUntil ----------
 let esperou = false; const guardados: Promise<unknown>[] = [];
