@@ -63,7 +63,7 @@ table{border-collapse:collapse;width:100%;min-width:760px}
 th{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:400;text-align:left;padding:8px;border-bottom:1px solid var(--line)}
 td{padding:8px;border-bottom:1px solid var(--line);font-size:14px;vertical-align:middle}
 td input,td select{background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:5px 6px}
-.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:9px 16px;border-radius:999px;font-size:14px;z-index:20}
+.toast{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:9px 16px;border-radius:999px;font-size:14px;z-index:50;max-width:calc(100vw - 24px);text-align:center}
 @media (max-width:640px){.discrow{grid-template-columns:1fr}.provgrid{grid-template-columns:1fr 1fr}.provgrid .lbl{grid-column:1/-1}}
 /* rodapé */
 .rodape{background:#141311;color:#D9D3C8;margin-top:60px;padding:44px max(16px,env(safe-area-inset-left)) calc(24px + env(safe-area-inset-bottom))}
@@ -373,3 +373,26 @@ details.mats .drv-lista li{align-items:flex-start}
   .rev td:nth-child(3){grid-column:2}.rev td:nth-child(4){grid-column:3}
   .rev td:nth-child(5){grid-column:2}.rev td:nth-child(6){grid-column:3}
 }
+
+/* ---------- Tarefas (etapa 6): botão no alto, painel e avisos ---------- */
+.tarefas-btn{position:relative}
+.tarefas-btn.rodando svg{animation:tf-gira 1.6s linear infinite}
+@media (prefers-reduced-motion:reduce){.tarefas-btn.rodando svg{animation:none}}
+@keyframes tf-gira{50%{opacity:.35}}
+.tarefas-n{min-width:19px;height:19px;padding:0 5px;border-radius:999px;background:var(--terra);color:#fff;font-size:11.5px;font-weight:700;display:inline-grid;place-items:center;line-height:1}
+.tarefas-n[hidden]{display:none}
+.tf-painel{position:fixed;z-index:40;top:calc(64px + env(safe-area-inset-top,0px));right:max(12px,calc((100vw - 1180px)/2));width:min(440px,calc(100vw - 24px));max-height:min(72vh,640px);display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 24px 60px -20px rgba(0,0,0,.45)}
+.tf-painel[hidden]{display:none}
+.tf-cab{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--line)}
+.tf-corpo{overflow:auto;padding:4px 14px 14px;overscroll-behavior:contain}
+.tf-corpo h3{font-size:12px;font-family:var(--f-mono);font-weight:400;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:12px 0 4px}
+.tf-lista{list-style:none;margin:0;padding:0}
+.tf-item{display:flex;flex-wrap:wrap;justify-content:space-between;gap:6px 10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.tf-txt{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1 1 220px;overflow-wrap:anywhere}
+.tf-txt .muted{font-size:13px}
+.tf-txt progress{width:100%;height:6px}
+.tf-nota{font-size:12px;color:var(--muted)}
+.tf-acoes{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-end}
+.tf-acoes .btn{padding:5px 10px;font-size:13px}
+.bg-aviso{margin-bottom:12px}
+@media (max-width:520px){.tf-painel{left:12px;right:12px;width:auto;top:calc(58px + env(safe-area-inset-top,0px))}}

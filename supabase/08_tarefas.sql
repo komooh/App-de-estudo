@@ -50,11 +50,11 @@ grant select on public.tarefas to authenticated;
 -- (o servidor caiu no meio) aparece como erro, com "Tentar de novo".
 drop function if exists public.minhas_tarefas(integer);
 create function public.minhas_tarefas(p_limite integer default 30)
-returns table (id bigint, tipo text, status text, titulo text, resultado jsonb, erro text, criado_em timestamptz, atualizado_em timestamptz, agora timestamptz)
+returns table (id bigint, tipo text, status text, titulo text, tema_id bigint, resultado jsonb, erro text, criado_em timestamptz, atualizado_em timestamptz, agora timestamptz)
 language sql stable security definer set search_path = public as $$
   select t.id, t.tipo,
          case when t.status in ('na_fila','rodando') and t.atualizado_em < now() - interval '3 minutes' then 'erro' else t.status end,
-         t.titulo, t.resultado,
+         t.titulo, case when jsonb_typeof(t.entrada->'tema_id') = 'number' then (t.entrada->>'tema_id')::bigint end, t.resultado,
          case when t.status in ('na_fila','rodando') and t.atualizado_em < now() - interval '3 minutes'
               then 'A tarefa parou no meio. Tente de novo.' else t.erro end,
          t.criado_em, t.atualizado_em, now()

@@ -58,7 +58,7 @@
   let H = null, S = null, V = null;
   const TABS = [["agenda", "Agenda"], ["disc", "Disciplinas"], ["quest", "Questões"], ["media", "Média"], ["aulas", "Aulas"], ["cal", "Calendário"], ["vida", "Vida acadêmica"], ["lam", "Laminário"]];
   const TELAS = [...TABS.map(([k]) => k), "config"]; // "config" = Configurações (botão no alto, não é aba)
-  const ui = { tab: "agenda", up: { disc: null, modo: "arquivo", temaId: null, temaNome: "", files: [], itens: [], busy: false }, cal: { file: null, busy: false, msg: null, provas: null }, cfgOpen: true, disc: null, qMode: "prat", qDisc: "", qIdx: 0, qAns: null, calY: today().getFullYear(), calM: today().getMonth(), calView: "mes", calDate: iso(today()), vMode: "ev", calcDisc: null, genBusy: false, genMsg: "" };
+  const ui = { tab: "agenda", up: { disc: null, modo: "arquivo", temaId: null, temaNome: "", files: [] }, cal: { file: null, busy: false, msg: null, provas: null }, cfgOpen: true, disc: null, qMode: "prat", qDisc: "", qIdx: 0, qAns: null, calY: today().getFullYear(), calM: today().getMonth(), calView: "mes", calDate: iso(today()), vMode: "ev", calcDisc: null, genBusy: false, genMsg: "" };
   const RES = {}, RESLOAD = {}, MAPA = {}, MAPLOAD = {}, LAMURL = {};
   const ativo = () => !!document.getElementById("painel");
 
@@ -90,7 +90,7 @@
     const ids = (disc || []).map((d) => d.id);
     const vazio = Promise.resolve({ data: [] });
     const porDisc = (t, cols) => ids.length ? sb.from(t).select(cols).in("disciplina_id", ids) : vazio;
-    const [temas, provas, notas, mats, res, mapas, pref, fac, hor, cal, ev, ligas, horas, uso] = await Promise.all([
+    const [temas, provas, notas, mats, res, mapas, pref, fac, hor, cal, ev, ligas, horas, uso, facs] = await Promise.all([
       porDisc("temas", "*"), porDisc("provas", "*"), porDisc("notas", "disciplina_id,campo,valor"),
       sb.from("materiais").select("id,nome,status,tema_id,disciplina_id,mime,fonte_id"),
       sb.from("resumos").select("tema_id"), sb.from("mapas").select("tema_id"),
@@ -100,6 +100,7 @@
       sb.from("calendario").select("*").order("inicio"), sb.from("vida_eventos").select("*").order("data"),
       sb.from("ligas").select("*").order("id"), sb.from("horas_compl").select("*").order("id"),
       sb.from("uso_ia").select("*").eq("mes", mesAtual()).maybeSingle(),
+      sb.from("faculdades").select("id,nome").eq("ativa", true).order("nome"),
     ]);
     const falta06 = [pref, hor, cal, ev, mapas].some((r) => r.error && erroBanco(r.error));
     const notasMap = {};
@@ -110,7 +111,7 @@
       resIds: new Set((res.data || []).map((r) => r.tema_id)), mapaIds: new Set((mapas.data || []).map((r) => r.tema_id)),
       pref: pref.data || {}, regra: fac.data?.regra_notas || {}, faculdade: fac.data?.nome || "",
       horarios: hor.data || [], cal: cal.data || [], eventos: ev.data || [], ligas: ligas.data || [], horas: horas.data || [],
-      uso: uso.data || {}, questoes: null, laminas: null,
+      uso: uso.data || {}, questoes: null, laminas: null, faculdades: facs.data || [],
     };
   }
   async function carregarQuestoes() {
@@ -172,7 +173,7 @@
     }
     return hero("Painel de", "disciplinas", "var(--terra)") + janela(`Medicina · ${semNome()}`, `<div class="win-body"><h2 style="text-align:center;color:var(--terra)">Minhas disciplinas</h2><div style="width:36px;height:2px;background:var(--terra);margin:8px auto 18px"></div>${cards ? `<div class="dgrid">${cards}</div>` : `<div class="empty">Nenhuma matéria neste semestre. ${SEM_MATERIA}</div>`}
       ${S.disc.length ? `<div class="row" style="justify-content:center;margin-top:16px"><button class="btn" data-a="upAbrir" data-id="${d ? d.id : ""}">Enviar arquivos</button></div>` : ""}</div>`) + plan
-      + (d && ui.upOpen ? janela(`Enviar arquivos · ${d.nome}`, `<div class="win-body" id="upJanela">${vUpload()}<div class="row" style="margin-top:12px"><button class="btn ghost" data-a="upFechar" ${ui.up.busy ? "disabled" : ""}>Fechar</button></div></div>`) : "");
+      + (d && ui.upOpen ? janela(`Enviar arquivos · ${d.nome}`, `<div class="win-body" id="upJanela">${vUpload()}<div class="row" style="margin-top:12px"><button class="btn ghost" data-a="upFechar">Fechar</button></div></div>`) : "");
   }
   const semNome = () => { const s = H.SEM().atual; return s?.numero ? `${s.numero}º semestre` : "semestre atual"; };
   const SEM_MATERIA = `Adicione em <button class="lnk" data-a="goCfg">Configurações → Ajustes do semestre</button>.`;
@@ -193,11 +194,15 @@
           : `<button class="x" data-a="askMat" data-id="${m.id}" aria-label="Apagar ${esc(m.nome)}">×</button>`}</span></li>`; }).join("")}</ul></details>`;
   }
   const MAT_ST = { ok: ["s-ok", "lido"], pendente: ["s-ok", "pronto"], sem_texto: ["s-warn", "sem texto"], grande_demais: ["s-warn", "grande demais"], erro: ["s-bad", "erro"] };
-  const UP_ST = { fila: ["", "na fila"], lendo: ["s-warn", "lendo"], ok: ["s-ok", "enviado"], sem_texto: ["s-warn", "sem texto"], erro: ["s-bad", "erro"] };
+  const UP_ST = { fila: ["", "na fila"], rodando: ["s-warn", "lendo"], ok: ["s-ok", "enviado"], sem_texto: ["s-warn", "sem texto"], erro: ["s-bad", "erro"] };
+  // os envios ficam na fila do navegador (assets/fila.js): o aluno pode usar o resto do site enquanto lê
+  const envios = () => Fila.lista().filter((j) => j.tipo === "upload");
   function vUpProg() {
-    const it = ui.up.itens; if (!it.length) return "";
+    const it = envios(); if (!it.length) return "";
+    const pend = it.some((x) => x.st === "fila" || x.st === "rodando");
     return `<ul class="up-lista" aria-live="polite">${it.map((x) => { const [cls, txt] = UP_ST[x.st] || ["", x.st];
-      return `<li><div style="min-width:0"><b class="drv-nome">${esc(x.nome)}</b>${x.msg ? `<div class="muted" style="font-size:13px">${esc(x.msg)}</div>` : ""}${x.st === "lendo" && x.frac != null ? `<progress max="100" value="${Math.round(x.frac * 100)}"></progress>` : ""}</div><span class="chip ${cls}">${esc(txt)}</span></li>`; }).join("")}</ul>`;
+      return `<li><div style="min-width:0"><b class="drv-nome">${esc(x.dados.nome || x.titulo)}</b>${x.msg ? `<div class="muted" style="font-size:13px">${esc(x.msg)}</div>` : ""}${x.st === "rodando" && x.frac != null ? `<progress max="100" value="${Math.round(x.frac * 100)}"></progress>` : ""}</div><span class="chip ${cls}">${esc(txt)}</span></li>`; }).join("")}</ul>
+      ${pend ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Pode usar o resto do site enquanto os arquivos são lidos. ${it.every((x) => x.persistente || !(x.st === "fila" || x.st === "rodando")) ? "Se fechar o site, continua quando você abrir de novo neste aparelho." : "Deixe o site aberto até terminar."}</p>` : ""}`;
   }
   function pintarUpProg() { const el = document.getElementById("upProg"); if (el) el.innerHTML = vUpProg(); }
   /** Painel "Enviar arquivos" (na matéria, em Disciplinas, e em Configurações) */
@@ -207,58 +212,56 @@
     if (!discById(u.disc)) u.disc = discById(ui.disc) ? ui.disc : S.disc[0].id;
     const ts = temasDe(u.disc);
     if (u.modo === "existente" && !ts.some((t) => t.id == u.temaId)) { u.modo = "arquivo"; u.temaId = null; }
-    const dis = u.busy ? "disabled" : "";
     return `<div class="stack up">
       <p style="margin:0">Mande os slides, PDFs e documentos do professor. Cada arquivo vira material do tema e é usado nos resumos, mapas e questões.</p>
       <div class="row">
-        <label class="field" style="flex:1 1 200px"><span class="mono">Matéria</span><select data-a="upDisc" ${dis}>${S.disc.map((d) => `<option value="${d.id}" ${d.id == u.disc ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select></label>
-        <label class="field" style="flex:1 1 220px"><span class="mono">Tema</span><select data-a="upTema" ${dis}>
+        <label class="field" style="flex:1 1 200px"><span class="mono">Matéria</span><select data-a="upDisc">${S.disc.map((d) => `<option value="${d.id}" ${d.id == u.disc ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select></label>
+        <label class="field" style="flex:1 1 220px"><span class="mono">Tema</span><select data-a="upTema">
           <option value="arquivo" ${u.modo === "arquivo" ? "selected" : ""}>Um tema novo para cada arquivo (nome do arquivo)</option>
           <option value="novo" ${u.modo === "novo" ? "selected" : ""}>Um tema novo com o nome que eu escrever</option>
           ${ts.length ? `<optgroup label="Temas que já existem">${ts.map((t) => `<option value="${t.id}" ${u.modo === "existente" && u.temaId == t.id ? "selected" : ""}>${esc(t.nome)}</option>`).join("")}</optgroup>` : ""}</select></label>
-        ${u.modo === "novo" ? `<label class="field" style="flex:1 1 200px"><span class="mono">Nome do tema</span><input id="upTemaNome" data-a="upTemaNome" maxlength="120" value="${esc(u.temaNome)}" placeholder="Ex.: Insuficiência cardíaca" ${dis}></label>` : ""}
+        ${u.modo === "novo" ? `<label class="field" style="flex:1 1 200px"><span class="mono">Nome do tema</span><input id="upTemaNome" data-a="upTemaNome" maxlength="120" value="${esc(u.temaNome)}" placeholder="Ex.: Insuficiência cardíaca"></label>` : ""}
       </div>
-      <div class="row" style="align-items:center"><label class="btn ${u.busy ? "" : "solid"}" style="cursor:pointer" ${u.busy ? "aria-disabled=\"true\"" : ""}>Escolher arquivos<input type="file" id="upArq" data-a="upArq" multiple accept=".pdf,.pptx,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" hidden ${dis}></label>
-        ${u.files.length ? `<button class="btn solid" data-a="upEnviar" ${dis}>${u.busy ? "Enviando…" : `Ler e enviar (${u.files.length})`}</button>${u.busy ? "" : `<button class="btn ghost" data-a="upLimpar">Limpar</button>`}` : ""}</div>
-      ${u.files.length && !u.busy && !u.itens.length ? `<ul class="up-lista">${u.files.map((f, i) => `<li><span class="drv-nome">${esc(f.name)}</span><span class="row" style="gap:6px;align-items:center;flex-wrap:nowrap"><span class="muted tnum" style="font-size:12.5px">${(f.size / 1048576).toFixed(1).replace(".", ",")} MB</span><button class="x" data-a="upTirar" data-i="${i}" aria-label="Tirar ${esc(f.name)}">×</button></span></li>`).join("")}</ul>` : ""}
+      <div class="row" style="align-items:center"><label class="btn solid" style="cursor:pointer">Escolher arquivos<input type="file" id="upArq" data-a="upArq" multiple accept=".pdf,.pptx,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" hidden></label>
+        ${u.files.length ? `<button class="btn solid" data-a="upEnviar">Ler e enviar (${u.files.length})</button><button class="btn ghost" data-a="upLimpar">Limpar</button>` : ""}</div>
+      ${u.files.length ? `<ul class="up-lista">${u.files.map((f, i) => `<li><span class="drv-nome">${esc(f.name)}</span><span class="row" style="gap:6px;align-items:center;flex-wrap:nowrap"><span class="muted tnum" style="font-size:12.5px">${(f.size / 1048576).toFixed(1).replace(".", ",")} MB</span><button class="x" data-a="upTirar" data-i="${i}" aria-label="Tirar ${esc(f.name)}">×</button></span></li>`).join("")}</ul>` : ""}
       <div id="upProg">${vUpProg()}</div>
-      <p class="muted" style="margin:0;font-size:13px">PDF, PowerPoint (.pptx), Word (.docx) e texto (.txt, .md). O arquivo não é guardado: o site lê o texto aqui no seu aparelho e guarda só o texto. PDF escaneado (páginas que são fotos) não tem texto. ${S.mats.filter(enviado).length} de 400 arquivos enviados.</p>
+      <p class="muted" style="margin:0;font-size:13px">PDF, PowerPoint (.pptx), Word (.docx) e texto (.txt, .md). O arquivo não é guardado no site: ele é lido aqui no seu aparelho e só o texto é guardado. PDF escaneado (páginas que são fotos) não tem texto. ${S.mats.filter(enviado).length} de 400 arquivos enviados.</p>
     </div>`;
   }
+  /** Põe os arquivos escolhidos na fila do navegador (um trabalho por arquivo). */
   async function enviarArquivos() {
-    const u = ui.up; if (u.busy || !u.files.length) return;
+    const u = ui.up; if (!u.files.length) return;
     const d = discById(u.disc); if (!d) return toast("Escolha a matéria.");
     if (u.modo === "novo" && !u.temaNome.trim()) return toast("Escreva o nome do tema.");
     const temaFixo = u.modo === "existente" ? temaById(u.temaId)?.nome : u.modo === "novo" ? u.temaNome.trim() : null;
-    u.busy = true; u.itens = u.files.map((f) => ({ nome: f.name, st: "fila", msg: "" })); render();
-    const avisoSair = (e) => { e.preventDefault(); e.returnValue = ""; };
-    window.addEventListener("beforeunload", avisoSair);
-    let ok = 0;
-    for (let i = 0; i < u.files.length; i++) {
-      const f = u.files[i], it = u.itens[i]; it.st = "lendo"; it.msg = "Abrindo…"; it.frac = 0; pintarUpProg();
-      try {
-        const tp = Leitor.tipoDoArquivo(f.name, f.type);
-        if (!tp) throw Object.assign(new Error(/\.(ppt|doc)$/i.test(f.name) ? "Formato antigo (.ppt/.doc): abra no PowerPoint/Word, salve como .pptx/.docx e envie de novo." : "Tipo de arquivo não aceito. Use PDF, PowerPoint (.pptx), Word (.docx) ou texto (.txt)."), { st: "erro" });
-        if (f.size > 80 * 1024 * 1024) throw Object.assign(new Error("Arquivo grande demais (mais de 80 MB)."), { st: "erro" });
-        const r = await lerArquivo(tp.tipo, new Uint8Array(await f.arrayBuffer()), (frac, msg) => { it.frac = frac; it.msg = msg; pintarUpProg(); });
-        const texto = limparTexto(r.texto), letras = texto.replace(/\s+/g, "").length;
-        if (letras < 20) throw Object.assign(new Error(tp.tipo === "pdf" ? "Sem texto: este PDF parece escaneado (as páginas são imagens). Use um PDF em que dá para selecionar as palavras." : "Não achei texto neste arquivo."), { st: "sem_texto" });
-        it.msg = "Guardando…"; it.frac = null; pintarUpProg();
-        const tema = temaFixo || Leitor.nomeDoTema(f.name);
-        const { data, error } = await sb.rpc("enviar_material", { p_disciplina_id: d.id, p_tema_nome: tema, p_nome: f.name.slice(0, 300), p_mime: tp.mime, p_texto: texto, p_paginas: r.paginas ?? null });
-        if (error) throw Object.assign(new Error(/function .*enviar_material|Could not find/i.test(error.message) ? "O envio de arquivos ainda não foi ativado no banco (falta rodar o 07_uploads.sql)." : error.message), { st: "erro", parar: /limite|07_uploads|Acesso/i.test(error.message) });
-        it.st = "ok"; ok++;
-        it.msg = `${data?.tema_novo ? "Tema novo" : "No tema"}: ${tema}${data?.truncado ? " (arquivo muito longo: guardei as primeiras 300 mil letras)" : ""}${tp.tipo === "pdf" && r.paginas && letras < r.paginas * 15 ? ". Pouco texto: algumas páginas parecem imagem." : ""}`;
-      } catch (e) {
-        it.st = e.st || "erro"; it.msg = e.message || String(e); it.frac = null;
-        if (e.parar) { u.itens.slice(i + 1).forEach((x) => { x.st = "erro"; x.msg = "Não enviado."; }); pintarUpProg(); break; }
-      }
-      pintarUpProg();
-    }
-    window.removeEventListener("beforeunload", avisoSair);
-    u.busy = false; u.files = [];
-    if (ok) { await recarregar(); toast(ok === 1 ? "Arquivo enviado" : `${ok} arquivos enviados`); } else render();
+    const fs = u.files; u.files = [];
+    Fila.limparFeitos();
+    for (const f of fs) await Fila.adicionar("upload", `Enviar ${f.name}`, { disc: d.id, discNome: d.nome, tema: temaFixo || null, nome: f.name }, f);
+    render();
+    toast(fs.length === 1 ? "Arquivo na fila: pode continuar usando o site" : `${fs.length} arquivos na fila: pode continuar usando o site`);
   }
+  /** Trabalho da fila: lê um arquivo enviado e grava só o texto (enviar_material). */
+  async function trabalhoUpload(job, prog) {
+    const f = job.arquivo, { disc, nome } = job.dados;
+    if (!f) throw Object.assign(new Error("O arquivo não ficou guardado neste aparelho. Escolha de novo."), { st: "erro" });
+    const tp = Leitor.tipoDoArquivo(nome, f.type);
+    if (!tp) throw Object.assign(new Error(/\.(ppt|doc)$/i.test(nome) ? "Formato antigo (.ppt/.doc): abra no PowerPoint/Word, salve como .pptx/.docx e envie de novo." : "Tipo de arquivo não aceito. Use PDF, PowerPoint (.pptx), Word (.docx) ou texto (.txt)."), { st: "erro" });
+    if (f.size > 80 * 1024 * 1024) throw Object.assign(new Error("Arquivo grande demais (mais de 80 MB)."), { st: "erro" });
+    prog(0, "Abrindo…");
+    const r = await lerArquivo(tp.tipo, new Uint8Array(await f.arrayBuffer()), (frac, msg) => prog(frac, msg));
+    const texto = limparTexto(r.texto), letras = texto.replace(/\s+/g, "").length;
+    if (letras < 20) throw Object.assign(new Error(tp.tipo === "pdf" ? "Sem texto: este PDF parece escaneado (as páginas são imagens). Use um PDF em que dá para selecionar as palavras." : "Não achei texto neste arquivo."), { st: "sem_texto" });
+    prog(null, "Guardando…");
+    const tema = job.dados.tema || Leitor.nomeDoTema(nome);
+    const { data, error } = await sb.rpc("enviar_material", { p_disciplina_id: disc, p_tema_nome: tema, p_nome: nome.slice(0, 300), p_mime: tp.mime, p_texto: texto, p_paginas: r.paginas ?? null });
+    if (error) throw Object.assign(new Error(/function .*enviar_material|Could not find/i.test(error.message) ? "O envio de arquivos ainda não foi ativado no banco (falta rodar o 07_uploads.sql)." : /Matéria não encontrada/i.test(error.message) ? "A matéria deste arquivo foi apagada." : error.message), { st: "erro", pararTipo: /limite|07_uploads|Acesso/i.test(error.message) });
+    recarregarLogo();
+    return `${data?.tema_novo ? "Tema novo" : "No tema"}: ${tema}${data?.truncado ? " (arquivo muito longo: guardei as primeiras 300 mil letras)" : ""}${tp.tipo === "pdf" && r.paginas && letras < r.paginas * 15 ? ". Pouco texto: algumas páginas parecem imagem." : ""}`;
+  }
+  // depois de cada envio, o painel se atualiza (junta vários envios seguidos numa recarga só)
+  let recargaT = 0;
+  function recarregarLogo(ms = 1500) { clearTimeout(recargaT); recargaT = setTimeout(() => { if (ativo()) recarregar(); }, ms); }
   async function apagarMaterial(id) {
     const m = S.mats.find((x) => x.id == id); if (!m || !enviado(m)) return;
     if (!(await del("materiais", m.id))) return;
@@ -277,30 +280,50 @@
   function vImportCal() {
     const c = ui.cal, dis = c.busy ? "disabled" : "";
     const usados = `${S.uso.calendarios || 0} de ${H.P.limite_calendarios_mes ?? 10} importações usadas este mês`;
+    const rodando = c.tarefa && Tarefas.lista().some((t) => t.id === c.tarefa && (t.status === "na_fila" || t.status === "rodando"));
     let corpo = `<p style="margin:0">Mande o calendário oficial das provas (o PDF da faculdade ou uma foto/print da tabela). A IA acha a linha da sua turma${H.SEM().atual?.turma ? ` (${esc(semNome())}, turma ${esc(H.SEM().atual.turma)})` : ""} e mostra as provas para você conferir antes de salvar.</p>
       <div class="row" style="align-items:center"><label class="btn ${c.file ? "" : "solid"}" style="cursor:pointer">Importar calendário (PDF ou foto)<input type="file" data-a="calArq" accept=".pdf,application/pdf,image/jpeg,image/png,image/webp" hidden ${dis}></label>
-      ${c.file ? `<span class="drv-nome" style="font-size:14px">${esc(c.file.name)}</span><button class="btn solid" data-a="calLer" ${dis}>${c.busy ? "Lendo…" : "Ler com IA"}</button>` : ""}</div>`;
+      ${c.file ? `<span class="drv-nome" style="font-size:14px">${esc(c.file.name)}</span><button class="btn solid" data-a="calLer" ${dis}>${c.busy ? "Preparando…" : "Ler com IA"}</button>` : ""}</div>`;
+    if (rodando) corpo += `<p class="muted" style="margin:0;font-size:13px">Lendo… acompanhe em <button class="lnk" data-a="verTarefas" data-abre-tarefas>Tarefas</button>.</p>`;
     if (c.msg) corpo += `<div class="msg ${c.msg.bad ? "bad" : ""}" style="margin:0" aria-live="polite">${esc(c.msg.t)}</div>`;
     if (c.provas) corpo += `<div id="calRev">${Leitor.revisaoHTML(c.provas, S.disc)}</div>
       ${c.provas.length ? `<p class="muted" style="margin:0;font-size:13px">Confira cada linha: escolha a matéria do painel (ou "Não importar"), o tipo, a data e a hora. Se já existir a mesma prova (mesma matéria, P1/P2/Final e teórica/prática), a data é trocada pela nova.</p>` : ""}
       <div class="row">${c.provas.length ? `<button class="btn solid" data-a="calSalvar" ${dis}>Salvar no calendário</button>` : ""}<button class="btn ghost" data-a="calCancelar" ${dis}>Cancelar</button></div>`;
     return `<div class="stack">${corpo}<p class="muted" style="margin:0;font-size:12.5px">${esc(usados)}. A leitura é feita por IA e pode errar: confira as datas.</p></div>`;
   }
+  // O texto do PDF (ou a foto reduzida, guardada na pasta privada "tarefas" do Storage) vai para uma
+  // tarefa da IA no servidor: o aluno pode sair da tela; quando fica pronta, ele confere aqui.
   async function lerCalendario() {
     const c = ui.cal; if (c.busy || !c.file) return;
     c.busy = true; c.provas = null; c.msg = { t: "Abrindo o arquivo…" }; render();
     const passo = (t) => { c.msg = { t }; render(); };
     try {
       const prep = await Leitor.prepararCalendario(c.file, H.carregarPdfjs, passo);
-      passo("A IA está lendo o calendário. Leva uns 20 segundos…");
-      const r = await H.chamar("ia", { acao: "calendario", ...prep });
-      const ids = S.disc.map((d) => d.id), nomes = S.disc.map((d) => d.nome);
-      c.provas = (r.provas || []).map((p) => { const id = p.disciplina_id ?? ids[Leitor.casarMateria(p.materia, nomes)] ?? null; return { ...p, disciplina_id: id, ok: id != null }; });
-      c.msg = c.provas.length ? { t: `Achei ${c.provas.length} prova${c.provas.length === 1 ? "" : "s"}${r.semestre ? ` do ${r.semestre}º semestre${r.turma ? `, turma ${r.turma}` : ""}` : ""}. Nada foi salvo ainda.` }
-        : { bad: true, t: r.aviso || "Não achei provas da sua turma nesse arquivo. Confira o semestre e a turma no seu perfil." };
-      atualizarUso().then(() => { if (ui.tab === "cal" || ui.tab === "config") render(); });
-    } catch (e) { c.msg = { bad: true, t: e.message || "Não consegui ler o calendário." }; }
-    c.busy = false; render();
+      let corpo = { acao: "calendario", texto: prep.texto };
+      if (prep.imagem) {
+        passo("Enviando a foto…");
+        const bin = atob(prep.imagem.base64), bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const caminho = `${H.P.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+        const up = await sb.storage.from("tarefas").upload(caminho, new Blob([bytes], { type: "image/jpeg" }), { contentType: "image/jpeg", upsert: false });
+        if (up.error) throw new Error(/bucket|not found/i.test(up.error.message) ? "Falta rodar o 08_tarefas.sql no Supabase." : "Não consegui enviar a foto: " + up.error.message);
+        corpo = { acao: "calendario", imagem_caminho: caminho };
+      }
+      const r = await Tarefas.criar(corpo);
+      ui.cal = { file: null, busy: false, tarefa: r.tarefa_id, provas: null,
+        msg: { t: "A IA está lendo o calendário no servidor (uns 20 a 40 segundos). Pode usar o resto do site: quando terminar, aparece um aviso e a tabela para conferir." } };
+    } catch (e) { c.busy = false; c.msg = { bad: true, t: e.message || "Não consegui ler o calendário." }; }
+    render();
+  }
+  /** Tarefa do calendário pronta: mostra a tabela para o aluno conferir (nada é salvo antes). */
+  function aplicarCalendario(t) {
+    const r = t.resultado || {};
+    const ids = S.disc.map((d) => d.id), nomes = S.disc.map((d) => d.nome);
+    const provas = (r.provas || []).map((p) => { const id = p.disciplina_id != null && ids.includes(p.disciplina_id) ? p.disciplina_id : ids[Leitor.casarMateria(p.materia, nomes)] ?? null; return { ...p, disciplina_id: id, ok: id != null }; });
+    ui.cal = { file: null, busy: false, tarefa: null, provas,
+      msg: provas.length ? { t: `Achei ${provas.length} prova${provas.length === 1 ? "" : "s"}${r.semestre ? ` do ${r.semestre}º semestre${r.turma ? `, turma ${r.turma}` : ""}` : ""}. Nada foi salvo ainda.${r.aviso ? " " + r.aviso : ""}` }
+        : { bad: true, t: r.aviso || "Não achei provas da sua turma nesse arquivo. Confira seu semestre e turma em Configurações." } };
+    atualizarUso().then(() => { if (ui.tab === "cal" || ui.tab === "config") render(); });
   }
   async function salvarCalendario() {
     const box = document.getElementById("calRev"); if (!box || ui.cal.busy) return;
@@ -324,7 +347,45 @@
     return hero("Suas", "configurações", "var(--ink)")
       + janela("Enviar arquivos", `<div class="win-body">${vUpload()}</div>`)
       + janela("Importar calendário de provas", `<div class="win-body">${vImportCal()}</div>`)
-      + janela("Semestres", `<div class="win-body"><div class="row" style="align-items:center;justify-content:space-between"><p style="margin:0">${esc(semNome())}${H.SEM().atual?.turma ? ` · turma ${esc(H.SEM().atual.turma)}` : ""}. Passou de semestre ou quer ver os anteriores?</p><button class="btn" data-a="goPerfil">Meu semestre</button></div></div>`);
+      + janela("Semestres", `<div class="win-body">${vSemestres()}</div>`);
+  }
+  /** Semestre atual (número, turma e faculdade) e a turma dos semestres anteriores */
+  function vSemestres() {
+    const SM = H.SEM(), a = SM.atual;
+    if (!SM.ok) return `<p class="muted" style="margin:0">A parte de semestres ainda não foi ativada no banco (falta rodar o 04_semestres.sql).</p>`;
+    const dataBR = (d) => d ? new Date(d + "T12:00").toLocaleDateString("pt-BR") : "";
+    const antigos = (SM.lista || []).filter((x) => !x.atual).reverse();
+    const facs = S.faculdades || [];
+    return `${a ? `<form data-form="editSem" class="stack" style="gap:10px">
+        <div class="row" style="align-items:flex-end">
+          <label class="field" style="flex:0 1 150px"><span class="mono">Semestre atual</span><select name="numero">${a.numero ? "" : `<option value="">Escolha</option>`}${Array.from({ length: 12 }, (_, i) => `<option value="${i + 1}" ${a.numero == i + 1 ? "selected" : ""}>${i + 1}º semestre</option>`).join("")}</select></label>
+          <label class="field" style="flex:0 1 120px"><span class="mono">Turma (sala)</span>${App.campoTurma("turma", a.turma, "semTurma")}</label>
+          ${facs.length ? `<label class="field" style="flex:1 1 220px"><span class="mono">Faculdade</span><select name="fac">${facs.map((f) => `<option value="${f.id}" ${f.id == (a.faculdade_id || H.P.faculdade_id) ? "selected" : ""}>${esc(f.nome)}</option>`).join("")}</select></label>` : ""}
+          <button class="btn solid">Salvar</button></div>
+        <p class="muted" style="margin:0;font-size:13px">Turma é a letra da sua sala (ex.: F), como aparece no calendário de provas. A importação do calendário procura a linha deste semestre e desta turma.</p></form>`
+      : `<p style="margin:0">Nenhum semestre atual.</p>`}
+      ${antigos.length ? `<h3 style="margin:16px 0 6px">Semestres anteriores</h3><ul class="sem-lista">${antigos.map((x) => `<li><form data-form="editSemAnt" data-id="${x.id}" class="row" style="align-items:flex-end;width:100%">
+          <span style="flex:1 1 160px;min-width:0"><b>${x.numero ? `${x.numero}º semestre` : "Semestre sem número"}</b><span class="muted" style="display:block;font-size:13px">${esc(dataBR(x.inicio))}${x.fim ? " a " + esc(dataBR(x.fim)) : ""}</span></span>
+          <label class="field" style="flex:0 1 90px"><span class="mono">Turma</span>${App.campoTurma("turma", x.turma)}</label><button class="btn">Salvar</button></form></li>`).join("")}</ul>` : ""}
+      <div class="row" style="margin-top:12px;align-items:center;justify-content:space-between"><p class="muted" style="margin:0;font-size:13.5px">Passou de semestre? Monte o novo em "Adicionar semestre" (o atual fica guardado).</p><button class="btn" data-a="goPerfil">Adicionar semestre</button></div>`;
+  }
+  async function salvarSemestre(f, atual) {
+    const fd = Object.fromEntries(new FormData(f));
+    const turma = App.limparTurma(fd.turma) || null;
+    const sem = atual ? H.SEM().atual : (H.SEM().lista || []).find((x) => x.id == f.dataset.id);
+    if (!sem) return;
+    const campos = { turma };
+    if (atual) {
+      const numero = fd.numero ? +fd.numero : null;
+      if (numero !== (sem.numero ?? null) && sem.numero && !confirm(`Mudar o semestre atual de ${sem.numero}º para ${numero ? numero + "º" : "sem número"}? Suas matérias continuam as mesmas: só o número muda. Para começar um semestre novo com outras matérias, use "Adicionar semestre".`)) return render();
+      campos.numero = numero;
+      if (fd.fac) campos.faculdade_id = +fd.fac;
+    }
+    const { error } = await sb.from("semestres").update(campos).eq("id", sem.id);
+    if (error) return toast(/turma/i.test(error.message) ? "Turma: use só letras (ex.: F)." : "Não consegui salvar: " + error.message);
+    await H.recarregarSemestres();
+    await recarregar();
+    toast(atual ? `Salvo: ${campos.numero ? campos.numero + "º semestre" : "semestre"}${turma ? `, turma ${turma}` : ""}` : "Turma salva");
   }
 
   /* ================= QUESTÕES ================= */
@@ -411,6 +472,12 @@
     const nav = [["prat", "Praticar"], ["perf", "Desempenho"], ["rev", "Revisar erros"], ["gen", "Gerar com IA"]].map(([k, l]) => `<button data-a="qMode" data-m="${k}" aria-current="${ui.qMode === k}">${l}</button>`).join("");
     return hero("Banco de", "questões", "var(--green)") + `<section class="win"><div class="qwin"><aside class="qside"><b>Questões</b>${nav}</aside><div class="qmain">${main}</div></div></section>`;
   }
+  function msgQuestoes(r) {
+    const n = r.salvas || 0, disc = discById(r.disciplina_id)?.nome || "a matéria";
+    if (!n) return r.repetidas ? "Todas as questões geradas eram repetidas das que você já recebeu. Tente de novo ou escolha outro subtema." : "A IA não devolveu questões válidas. Tente de novo.";
+    return `${n} questões de ${r.tema} adicionadas${r.aviso ? ` (${r.aviso})` : ""}. Vá em “Praticar” e filtre por ${disc}.`;
+  }
+  // Todas as questões pedidas viram UMA tarefa no servidor (os lotes são feitos lá).
   async function gerarQuestoes(fd) {
     const disc = discById(fd.disc); if (!disc) return;
     const tema = String(fd.tema || "").trim(); if (!tema) return;
@@ -420,29 +487,13 @@
     const total = mix.mc + mix.vf + mix.rel + mix.dis;
     if (!total) { ui.genMsg = "Escolha pelo menos uma questão em algum dos tipos."; return render(); }
     if (total > 40) { ui.genMsg = "O máximo é 40 questões por vez. Diminua alguma quantidade."; return render(); }
-    ui.genBusy = true; ui.genMsg = "Preparando…"; render();
+    ui.genBusy = true; ui.genMsg = "Mandando para a IA…"; render();
     const t = temasDe(disc.id).find((x) => qNorm(x.nome) === qNorm(tema));
-    const jobs = []; ["mc", "vf", "rel", "dis"].forEach((tp) => { let n = mix[tp]; while (n > 0) { const k = Math.min(MAX_LOTE[tp], n); jobs.push([tp, k]); n -= k; } });
-    const nLotes = jobs.length, added = { mc: 0, vf: 0, rel: 0, dis: 0 }; let dup = 0, erro = null, feitos = 0, parar = false;
     try {
-      if (t) { const avisos = await prepararMaterial(t.id, (m) => { ui.genMsg = m; render(); }); if (avisos.length) toast(avisos[0]); }
-      const trabalhador = async () => {
-        while (jobs.length && !parar) {
-          const [tp, k] = jobs.shift(); feitos++;
-          ui.genMsg = `Gerando ${QTIPOS[tp].toLowerCase()} (lote ${feitos} de ${nLotes})…`; render();
-          try {
-            const r = await H.chamar("ia", { acao: "questoes", disciplina_id: disc.id, tema, tema_id: t ? t.id : null, tipo: tp, n: k });
-            (r.questoes || []).forEach((row) => S.questoes.push(qObj(row))); added[tp] += (r.questoes || []).length; dup += r.repetidas || 0;
-          } catch (e) { erro = e; if (/limite|configurad|acesso|login|sessão/i.test(e.message)) parar = true; }
-        }
-      };
-      await Promise.all([trabalhador(), trabalhador()]);
-      await atualizarUso();
-      const n = added.mc + added.vf + added.rel + added.dis;
-      const partes = Object.entries(added).filter(([, v]) => v).map(([k, v]) => `${v} ${QTIPOS[k].toLowerCase()}`);
-      ui.genMsg = n ? `${n} questões de ${tema} adicionadas: ${partes.join(", ")}${dup ? `; ${dup} repetida${dup > 1 ? "s" : ""} descartada${dup > 1 ? "s" : ""}` : ""}${n < total ? `. Vieram menos que o pedido${erro ? ` (${erro.message})` : "; gere de novo para completar"}` : ""}. Vá em “Praticar” e filtre por ${disc.nome}.`
-        : erro ? erro.message : dup ? "Todas as questões geradas eram repetidas das que você já recebeu. Tente de novo ou escolha outro subtema." : "A IA não devolveu questões válidas. Tente de novo.";
-      if (n) ui.qDisc = disc.id;
+      const corpo = { acao: "questoes", disciplina_id: disc.id, tema, tema_id: t ? t.id : null, mix };
+      if (t && faltaLer(t.id)) { await Fila.adicionar("material", `Ler o material e fazer questões: ${tema}`, { tema_id: t.id, depois: corpo }); ui.genTarefa = null; }
+      else { const r = await Tarefas.criar(corpo); ui.genTarefa = r.tarefa_id; }
+      ui.genMsg = `Gerando ${total} questões no servidor. Pode usar o resto do site (ou sair): quando ficarem prontas, aparece um aviso.`;
     } catch (e) { ui.genMsg = e.message || "Não consegui gerar agora. Tente de novo em instantes."; }
     finally { ui.genBusy = false; render(); }
   }
@@ -944,34 +995,67 @@
     MAPLOAD[id] = "ok"; renderSheet();
   }
   async function pedirResumo(id) {
-    const t = temaById(id); if (!t || ui.resBusy) return;
+    const t = temaById(id); if (!t || ui.resBusy || emAndamento("resumo", id)) return;
     ui.resErr = ""; ui.resAvisos = []; ui.escolha = null; ui.resBusy = id; ui.resEtapa = "Procurando o tema nos seus livros…"; renderSheet();
     let achados = [];
     try { achados = await buscarLivros(t.nome); } catch (_) { }
     if (achados.length) { ui.resBusy = false; ui.escolha = { id, livros: agruparLivros(achados) }; return renderSheet(); }
     gerarResumo(id, "professor");
   }
+  // Resumo e mapa rodam no servidor (tarefas). Se o tema tem PDF/Word/PowerPoint do Drive ainda não lido,
+  // a leitura entra antes na fila do navegador e a tarefa da IA é criada quando ela termina.
+  const faltaLer = (temaId) => matsDe(temaId).some((m) => m.status === "pendente" && tipoMat(m));
+  const naFila = (acao, temaId) => Fila.pendentes().find((j) => j.tipo === "material" && j.dados.depois?.acao === acao && j.dados.depois?.tema_id == temaId);
+  const emAndamento = (acao, temaId) => !!(Tarefas.rodandoPara(acao, temaId) || naFila(acao, temaId));
+  async function pedirIA(corpo, temaId, titulo) {
+    if (temaId && faltaLer(temaId)) { await Fila.adicionar("material", titulo, { tema_id: temaId, depois: corpo }); return; }
+    await Tarefas.criar(corpo);
+  }
   async function gerarResumo(id, modo) {
-    ui.escolha = null; ui.resErr = ""; ui.resBusy = id; ui.resModo = modo; renderSheet();
-    try {
-      ui.resAvisos = await prepararMaterial(id, (m) => { ui.resEtapa = m; renderSheet(); });
-      ui.resEtapa = "Lendo o material do professor e escrevendo o resumo. Leva cerca de 1 minuto: deixe esta janela aberta até terminar.";
-      renderSheet();
-      const r = await H.chamar("ia", { acao: "resumo", tema_id: id, modo });
-      RES[id] = r.resumo; RESLOAD[id] = "ok"; S.resIds.add(id);
-      atualizarUso().then(renderSheet);
-    } catch (e) { ui.resErr = e.message || "Não consegui gerar agora. Tente de novo em instantes."; }
-    finally { ui.resBusy = false; renderSheet(); if (ui.tab === "agenda" || ui.tab === "disc") render(); }
+    const t = temaById(id); if (!t) return;
+    ui.escolha = null; ui.resErr = ""; ui.resAvisos = []; ui.resBusy = id; ui.resEtapa = "Mandando para a IA…"; renderSheet();
+    try { await pedirIA({ acao: "resumo", tema_id: id, modo }, id, `Ler o material e resumir: ${t.nome}`); }
+    catch (e) { ui.resErr = e.message || "Não consegui pedir o resumo agora. Tente de novo em instantes."; }
+    finally { ui.resBusy = false; renderSheet(); }
   }
   async function genMapa(id) {
-    if (ui.mapBusy) return; ui.mapBusy = id; ui.mapErr = ""; renderSheet();
-    try {
-      if (!S.resIds.has(id)) await prepararMaterial(id, () => { });
-      const r = await H.chamar("ia", { acao: "mapa", tema_id: id });
-      MAPA[id] = { ...r.mapa.dados, base: r.mapa.base }; MAPLOAD[id] = "ok"; S.mapaIds.add(id); ui.mmCol = {};
-      atualizarUso();
-    } catch (e) { ui.mapErr = e.message || "Não consegui gerar o mapa agora. Tente de novo em instantes."; }
+    const t = temaById(id); if (!t || ui.mapBusy || emAndamento("mapa", id)) return;
+    ui.mapBusy = id; ui.mapErr = ""; renderSheet();
+    try { await pedirIA({ acao: "mapa", tema_id: id }, S.resIds.has(id) ? null : id, `Ler o material e montar o mapa: ${t.nome}`); }
+    catch (e) { ui.mapErr = e.message || "Não consegui pedir o mapa agora. Tente de novo em instantes."; }
     finally { ui.mapBusy = false; renderSheet(); }
+  }
+  /** Trabalho da fila: lê no navegador o material do Drive do tema e depois cria a tarefa da IA. */
+  async function trabalhoMaterial(job, prog) {
+    const { tema_id, depois } = job.dados;
+    if (!S || !temaById(tema_id)) throw new Error("O tema foi apagado.");
+    const avisos = await prepararMaterial(tema_id, (m) => prog(null, m));
+    prog(null, "Mandando para a IA…");
+    await Tarefas.criar(depois);
+    return `Material lido; a IA está trabalhando (veja abaixo).${avisos.length ? " " + avisos.join(" ") : ""}`;
+  }
+  /** Uma tarefa terminou (Tarefas avisa): atualiza o que estiver na tela. */
+  async function aoTerminar(lista) {
+    if (!S) return;
+    let questoes = false;
+    for (const t of lista) {
+      const r = t.resultado || {};
+      if (t.status !== "pronta") { if (t.tipo === "questoes" && ui.genTarefa === t.id) { ui.genMsg = t.erro || "Não deu certo."; ui.genTarefa = null; } if (t.tipo === "calendario" && ui.cal.tarefa === t.id) ui.cal = { file: null, busy: false, provas: null, msg: { bad: true, t: t.erro || "Não consegui ler o calendário." } }; continue; }
+      if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; S.resIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode !== "mapa") { loadRes(r.tema_id); Tarefas.vista([t.id]); } }
+      if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; S.mapaIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode === "mapa") { ui.mmCol = {}; loadMapa(r.tema_id); Tarefas.vista([t.id]); } }
+      if (t.tipo === "questoes") { questoes = true; if (ui.genTarefa === t.id) { ui.genTarefa = null; ui.qDisc = r.disciplina_id; ui.genMsg = msgQuestoes(r); } }
+      if (t.tipo === "calendario" && ui.cal.tarefa === t.id && (ui.tab === "cal" || ui.tab === "config")) { aplicarCalendario(t); Tarefas.vista([t.id]); }
+    }
+    if (questoes && S.questoes) await carregarQuestoes().catch(() => { });
+    atualizarUso().then(() => render());
+  }
+  /** "Abrir" no painel de Tarefas */
+  async function abrirTarefa(t) {
+    const r = t.resultado || {};
+    if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; openRes(r.tema_id); }
+    else if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; openMapa(r.tema_id); }
+    else if (t.tipo === "questoes") { fecharSheet(); if (S.questoes) await carregarQuestoes().catch(() => { }); ui.tab = "quest"; ui.qMode = "prat"; ui.qDisc = r.disciplina_id || ""; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); window.scrollTo(0, 0); }
+    else if (t.tipo === "calendario") { fecharSheet(); ui.tab = "cal"; aplicarCalendario(t); render(); document.getElementById("calRev")?.scrollIntoView({ block: "center" }); }
   }
   let sheetRAF = 0;
   function renderSheetSoon() { if (!sheetRAF) sheetRAF = requestAnimationFrame(() => { sheetRAF = 0; renderSheet(); }); }
@@ -982,7 +1066,9 @@
     const t = temaById(ui.resumo); if (!t) { ui.resumo = null; el.hidden = true; el.innerHTML = ""; document.body.style.overflow = ""; return; }
     const d = discById(t.disciplina_id) || { nome: "", id: t.disciplina_id };
     const r = RES[t.id], busy = ui.resBusy === t.id, sub = Array.isArray(t.itens) ? t.itens : [];
-    const isMap = ui.sheetMode === "mapa", mp = MAPA[t.id], mBusy = ui.mapBusy === t.id;
+    const isMap = ui.sheetMode === "mapa", mp = MAPA[t.id], mBusy = ui.mapBusy === t.id || emAndamento("mapa", t.id);
+    const bgRes = emAndamento("resumo", t.id);
+    const AVISO_BG = `<div class="fb bg-aviso" aria-live="polite"><b>A IA está trabalhando no servidor.</b> Pode fechar esta janela e usar o resto do site (ou até sair): quando ficar pronto, aparece um aviso. Acompanhe em <button class="lnk" data-a="verTarefas" data-abre-tarefas>Tarefas</button>.</div>`;
     const ms = matsDe(t.id);
     const escolha = ui.escolha && ui.escolha.id === t.id ? ui.escolha : null;
     const body = busy ? `<p class="muted" aria-live="polite">${esc(ui.resEtapa || "Preparando…")}</p>`
@@ -993,8 +1079,8 @@
           <button class="opcao" data-a="resModo" data-v="livros"><b>Corrigido pelos livros</b><span>O material do professor conferido e completado pelos livros. Cada correção mostra o livro e a página.</span></button></div>
           <p class="muted" style="margin:0;font-size:13.5px">Nos dois jeitos o resumo mostra o que diz o material do professor e o que diz cada livro, e avisa quando eles discordam.</p>
           <div><button class="btn ghost" data-a="resCancelar">Cancelar</button></div></div>`
-      : r ? md(r.texto) : ui.resErr ? "" : RESLOAD[t.id] === "ok" ? `<p class="muted">Ainda não há resumo deste tema. O resumo só é feito quando você pede: use o botão “Gerar resumo” abaixo.</p>` : `<p class="muted">Carregando…</p>`;
-    const mapBody = mBusy ? `<p class="muted">Montando o mapa mental a partir ${S.resIds.has(t.id) ? "do resumo" : "do material do professor"}. Leva uns 30 segundos.</p>`
+      : bgRes && !r ? AVISO_BG : r ? (bgRes ? AVISO_BG : "") + md(r.texto) : ui.resErr ? "" : RESLOAD[t.id] === "ok" ? `<p class="muted">Ainda não há resumo deste tema. O resumo só é feito quando você pede: use o botão “Gerar resumo” abaixo.</p>` : `<p class="muted">Carregando…</p>`;
+    const mapBody = mBusy ? `<p class="muted">Montando o mapa mental a partir ${S.resIds.has(t.id) ? "do resumo" : "do material do professor"}. Leva uns 30 segundos.</p>${AVISO_BG}`
       : mp && mp.ramos ? `<div class="maptools"><span class="mono">Toque num ramo para abrir ou fechar</span><span class="row" style="gap:6px"><button class="btn" data-a="mmAll" data-v="1">Abrir tudo</button><button class="btn" data-a="mmAll" data-v="0">Só os ramos</button></span></div><div class="mapwrap" id="mapwrap">${mapSvg(t.id)}</div>`
       : ui.mapErr ? "" : MAPLOAD[t.id] === "ok" ? `<div class="empty">Ainda não há mapa mental deste tema.<br><button class="btn solid" data-a="genMapa" data-id="${t.id}" style="margin-top:10px">Gerar mapa mental</button></div>` : `<p class="muted">Carregando…</p>`;
     const keepScroll = el.querySelector(".sheet-body")?.scrollTop;
@@ -1023,7 +1109,7 @@
       </div>
       <footer class="sheet-f">
         ${isMap ? (mBusy ? `<button class="btn" disabled>Gerando…</button>` : `<button class="btn" data-a="genMapa" data-id="${t.id}">${mp ? "Gerar mapa de novo" : "Gerar mapa mental"}</button>`)
-          : busy ? `<button class="btn" disabled>Gerando…</button>` : escolha ? "" : `<button class="btn" data-a="genRes" data-id="${t.id}">${r ? "Refazer resumo" : "Gerar resumo"}</button>`}
+          : busy || bgRes ? `<button class="btn" disabled>Gerando…</button>` : escolha ? "" : `<button class="btn" data-a="genRes" data-id="${t.id}">${r ? "Refazer resumo" : "Gerar resumo"}</button>`}
         <button class="btn" data-a="resQuest" data-id="${d.id}">Questões</button>
         <button class="btn solid" data-a="resDone" data-id="${t.id}">${topicDone(t) ? "Estudado ✓" : "Marcar como estudado"}</button>
       </footer></section>`;
@@ -1237,15 +1323,16 @@
     switch (a) {
       case "goCfg": abrirTela("config"); break;
       case "goPerfil": H.perfilTela(); break;
-      case "upAbrir": ui.upOpen = true; if (discById(id)) ui.up.disc = +id; if (!ui.up.busy) ui.up.itens = []; render(); document.getElementById("upJanela")?.scrollIntoView({ behavior: "smooth", block: "start" }); break;
-      case "upFechar": if (!ui.up.busy) { ui.upOpen = false; ui.up.itens = []; ui.up.files = []; render(); } break;
+      case "upAbrir": ui.upOpen = true; if (discById(id)) ui.up.disc = +id; render(); document.getElementById("upJanela")?.scrollIntoView({ behavior: "smooth", block: "start" }); break;
+      case "upFechar": ui.upOpen = false; ui.up.files = []; render(); break;
       case "upEnviar": enviarArquivos(); break;
-      case "upLimpar": ui.up.files = []; ui.up.itens = []; render(); break;
+      case "upLimpar": ui.up.files = []; render(); break;
       case "upTirar": ui.up.files.splice(+b.dataset.i, 1); render(); break;
       case "askMat": ui.confMat = +id; render(); break;
       case "delMat": ui.confMat = null; apagarMaterial(+id); break;
       case "calLer": lerCalendario(); break;
       case "calCancelar": ui.cal = { file: null, busy: false, msg: null, provas: null }; render(); break;
+      case "verTarefas": Tarefas.abrir(); break;
       case "calSalvar": salvarCalendario(); break;
       case "askDel": ui.confDel = +id; render(); break;
       case "askDisc": ui.confDisc = +id; ui.cfgOpen = true; render(); break;
@@ -1329,7 +1416,7 @@
       return;
     }
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b)) return; const a = b.dataset.a;
-    if (a === "upArq") { const fs = [...(b.files || [])]; if (fs.length) { ui.up.files = ui.up.files.concat(fs).slice(0, 30); ui.up.itens = []; } render(); return; }
+    if (a === "upArq") { const fs = [...(b.files || [])]; if (fs.length) { ui.up.files = ui.up.files.concat(fs).slice(0, 30); } render(); return; }
     if (a === "upDisc") { ui.up.disc = +b.value; ui.up.modo = "arquivo"; ui.up.temaId = null; render(); return; }
     if (a === "upTema") { if (b.value === "arquivo" || b.value === "novo") { ui.up.modo = b.value; ui.up.temaId = null; } else { ui.up.modo = "existente"; ui.up.temaId = +b.value; } render(); if (ui.up.modo === "novo") document.getElementById("upTemaNome")?.focus(); return; }
     if (a === "calArq") { const f = b.files?.[0]; if (f) { ui.cal = { file: f, busy: false, msg: null, provas: null }; render(); } return; }
@@ -1354,6 +1441,7 @@
     const ins = async (tabela, linha) => { const { data, error } = await sb.from(tabela).insert(linha).select("*").single(); if (error) { toast("Não consegui salvar: " + error.message); return null; } return data; };
     try {
       if (k === "gen") return await gerarQuestoes(fd);
+      if (k === "editSem" || k === "editSemAnt") return await salvarSemestre(f, k === "editSem");
       if (k === "addLam") return await addLamina(f);
       if (k === "addTopic") { const d = discById(ui.disc); const nome = String(fd.nome || "").trim(); if (!d || !nome) return;
         const t = await ins("temas", { disciplina_id: d.id, nome, prova: fd.prova || null, ordem: temasDe(d.id).length }); if (t) { S.temas.push(t); render(); document.getElementById("topicName")?.focus(); } }
@@ -1418,8 +1506,20 @@
     abrir(t) { if (ativo() && S) abrirTela(t); },
     fechar() { if (S) { ui.resumo = null; ui.escolha = null; } const el = document.getElementById("sheet"); if (el) { el.hidden = true; el.innerHTML = ""; } document.body.style.overflow = ""; },
     async aoMudarDrive() { if (!ativo()) return; await recarregar(); },
+    abrirTarefa(t) { if (ativo() && S) return abrirTarefa(t); },
     async iniciar(ganchos) {
       H = ganchos; V = ganchos.V; ouvir();
+      if (!Painel._fila) { // uma vez: trabalhos da fila do navegador e avisos das tarefas
+        Painel._fila = true;
+        Tarefas.ouvir((lista) => aoTerminar(lista));
+        let enviando = 0;
+        Fila.ouvir(() => {
+          const n = Fila.pendentes().filter((j) => j.tipo === "upload").length;
+          if (enviando && !n) recarregarLogo(0); // a fila de envios acabou: atualiza já
+          enviando = n;
+          if (ativo() && S) { pintarUpProg(); if (ui.resumo) renderSheetSoon(); }
+        });
+      }
       const h = location.hash.slice(1); const salvo = ss.get("painel:tab");
       if (ganchos.tab && TELAS.includes(ganchos.tab)) ui.tab = ganchos.tab; else if (TELAS.includes(h)) ui.tab = h; else if (salvo && TELAS.includes(salvo)) ui.tab = salvo;
       V.onclick = null;
@@ -1428,6 +1528,9 @@
       Object.keys(fixosIni).forEach((k) => delete fixosIni[k]);
       try { await carregar(); } catch (e) { document.getElementById("pview").innerHTML = `<div class="msg bad">Não consegui carregar seu painel: ${esc(e.message || e)}</div>`; return; }
       render();
+      // só depois de carregar: os trabalhos usam as matérias e os temas do painel
+      Fila.registrar("upload", trabalhoUpload);
+      Fila.registrar("material", trabalhoMaterial);
     },
   };
 })();

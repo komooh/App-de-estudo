@@ -22,5 +22,12 @@
   function win(title, body) {
     return `<section class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>${esc(title)}</div><div class="win-body">${body}</div></section>`;
   }
-  window.App = { sb, esc, toast, hoje, isoHoje, acessoOk, sessao, meuPerfil, sair, win, C };
+  // Turma (sala): só letras de A a Z, maiúsculas, até 2 (ex.: "F"). O banco confere igual (08_tarefas.sql).
+  const limparTurma = (s) => String(s ?? "").toUpperCase().replace(/[^A-Z]/g, "").slice(0, 2);
+  const campoTurma = (name, valor, id) => `<input name="${esc(name)}"${id ? ` id="${esc(id)}"` : ""} value="${esc(limparTurma(valor))}" maxlength="2" inputmode="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false" pattern="[A-Za-z]{0,2}" placeholder="Ex.: F" data-turma aria-label="Turma (só a letra)">`;
+  document.addEventListener("input", (e) => {
+    const el = e.target; if (!el || !el.matches || !el.matches("input[data-turma]")) return;
+    const v = limparTurma(el.value); if (v !== el.value) el.value = v;
+  });
+  window.App = { sb, esc, toast, hoje, isoHoje, acessoOk, sessao, meuPerfil, sair, win, C, limparTurma, campoTurma };
 })();

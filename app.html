@@ -13,7 +13,7 @@
 <div class="wrap">
   <header class="top">
     <a class="brand" href="/app.html">Painel de Estudos</a>
-    <div class="row" style="align-items:center"><button class="btn ghost cfg-btn" id="cfgBtn" hidden aria-label="Configurações" title="Configurações"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="cfg-txt">Configurações</span></button><button class="eu" id="eu" hidden aria-label="Meu perfil"><span class="av" id="euAv"></span><span id="euNome"></span></button><a id="lnkAdmin" class="btn ghost" href="/admin.html" hidden>Administração</a><button class="btn ghost" id="sair">Sair</button></div>
+    <div class="row" style="align-items:center"><button class="btn ghost cfg-btn tarefas-btn" id="tarefasBtn" hidden aria-expanded="false" aria-haspopup="dialog" aria-label="Tarefas" title="Tarefas"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2"/></svg><span class="cfg-txt">Tarefas</span><span class="tarefas-n" hidden>0</span></button><button class="btn ghost cfg-btn" id="cfgBtn" hidden aria-label="Configurações" title="Configurações"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="cfg-txt">Configurações</span></button><button class="eu" id="eu" hidden aria-label="Meu perfil"><span class="av" id="euAv"></span><span id="euNome"></span></button><a id="lnkAdmin" class="btn ghost" href="/admin.html" hidden>Administração</a><button class="btn ghost" id="sair">Sair</button></div>
   </header>
   <main id="view"><p class="muted">Carregando…</p></main>
 </div>
@@ -24,6 +24,8 @@
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
 <script src="/assets/leitor.js"></script>
+<script src="/assets/fila.js"></script>
+<script src="/assets/tarefas.js"></script>
 <script src="/assets/painel.js"></script>
 <script>
 (async () => {
@@ -31,6 +33,11 @@
   const V = document.getElementById("view");
   // link de "esqueci a senha": o Supabase manda type=recovery na URL (lido antes de ele limpar a URL)
   if (/type=recovery/.test(location.hash)) sessionStorage.setItem("recuperando", "1");
+  // volta do link de troca de e-mail: "type=email_change" (as duas confirmações feitas) ou a mensagem
+  // "Confirmation link accepted..." (falta confirmar no outro e-mail)
+  const emailVolta = /type=email_change/.test(location.hash) ? "ok" : /message=Confirmation(\+|%20)link(\+|%20)accepted/i.test(location.hash) ? "metade"
+    : /error_description=[^&]*(email|link)/i.test(location.hash) ? "erro" : "";
+  if (emailVolta === "metade" || emailVolta === "erro") history.replaceState(null, "", location.pathname);
   document.getElementById("sair").onclick = App.sair;
 
   // Espera o Supabase ler o link mágico da URL (se veio do e-mail)
@@ -49,6 +56,7 @@
   const LIV_STATUS = { ok: ["s-ok", "pronto"], processando: ["s-warn", "incompleto"], erro: ["s-bad", "erro"] };
   const FORMATOS = { pdf: "PDF", epub: "EPUB", docx: "Word", txt: "Texto" };
   let pdfjsLib = null;
+  const SEG = { codigo: false, msg: null }; // troca de senha com código (perfil)
   async function carregarPdfjs() {
     if (pdfjsLib) return pdfjsLib;
     pdfjsLib = await import(PDFJS + "pdf.min.mjs");
@@ -86,6 +94,7 @@
   const dataBR = (d) => d ? new Date(d + "T12:00").toLocaleDateString("pt-BR") : "";
   try { P = await App.meuPerfil(); } catch (e) { V.innerHTML = `<div class="msg bad">Não consegui carregar seu perfil: ${esc(e.message)}</div>`; return; }
   pintarEu();
+  if (emailVolta) toast(emailVolta === "ok" ? `E-mail trocado. Agora você entra com ${P.email}.` : emailVolta === "metade" ? "Confirmado neste e-mail. Falta clicar no link que foi para o outro e-mail." : "O link de confirmação do e-mail venceu ou já foi usado. Peça de novo no seu perfil.");
   document.getElementById("eu").onclick = () => perfilTela();
   document.getElementById("cfgBtn").onclick = () => abrirConfig();
   if (P.is_admin) document.getElementById("lnkAdmin").hidden = false;
@@ -110,7 +119,7 @@
       sb.from("catalogo_materias").select("faculdade_id,semestre,nome,ordem").order("ordem"), carregarSemestres()]);
     const numAtual = +(SEM.atual?.numero || P.semestre || 0);
     const st = { passo: 1, nome: P.nome || "", faculdade_id: P.faculdade_id || facs?.[0]?.id || null,
-      semestre: novo ? (numAtual ? Math.min(numAtual + 1, 12) : "") : (P.semestre || ""), turma: (novo ? SEM.atual?.turma : null) || P.turma || "",
+      semestre: novo ? (numAtual ? Math.min(numAtual + 1, 12) : "") : (P.semestre || ""), turma: App.limparTurma((novo ? SEM.atual?.turma : null) || P.turma || ""),
       disc: [{ nome: "", professor: "", tem_pratica: false }], provas: {}, semId: null, catChave: "", catLista: null, catVazio: false, cal: {} };
     // Matérias do catálogo para a faculdade + semestre escolhidos (o aluno pode mudar tudo depois)
     const doCatalogo = () => (catalogo || []).filter((c) => c.faculdade_id == st.faculdade_id && c.semestre == st.semestre).map((c) => c.nome);
@@ -136,7 +145,7 @@
         <label class="field"><span class="mono">Seu nome</span><input id="nome" value="${esc(st.nome)}" required></label>
         <label class="field"><span class="mono">Faculdade</span><select id="fac">${(facs || []).map((f) => `<option value="${f.id}" ${f.id == st.faculdade_id ? "selected" : ""}>${esc(f.nome)}</option>`).join("")}</select></label>
         <div class="row"><label class="field" style="flex:1"><span class="mono">Semestre</span><select id="sem"><option value="">Escolha</option>${Array.from({ length: 12 }, (_, i) => `<option ${st.semestre == i + 1 ? "selected" : ""}>${i + 1}</option>`).join("")}</select></label>
-        <label class="field" style="flex:1"><span class="mono">Turma (opcional)</span><input id="turma" value="${esc(st.turma)}" placeholder="Ex.: F"></label></div>`;
+        <label class="field" style="flex:1"><span class="mono">Turma (opcional, só a letra)</span>${App.campoTurma("turma", st.turma, "turma")}</label></div>`;
       if (st.passo === 2) body = (st.catLista ? `<p style="margin:0">Já colocamos as matérias do <b>${esc(st.semestre)}º semestre</b>. Coloque o nome dos professores, tire o que não for seu e adicione o que faltar.</p>`
           : st.catVazio && st.semestre ? `<div class="msg" style="margin:0">Ainda não temos a lista deste semestre; adicione suas matérias.</div>` : "")
         + `<p class="muted" style="margin:0">${st.catLista ? "" : `Coloque as matérias ${novo ? "do semestre novo, com o nome dos professores," : "deste semestre"}. `}Marque "tem prática" nas que têm prova prática separada. Se preferir, continue e adicione depois.</p>
@@ -170,7 +179,7 @@
         <button class="btn solid" data-a="segue">${st.passo === 4 ? (novo ? "Criar o semestre novo" : "Concluir e abrir meu painel") : "Continuar"}</button></div>`);
     }
     function ler() {
-      if (st.passo === 1) { st.nome = V.querySelector("#nome").value.trim(); st.faculdade_id = V.querySelector("#fac").value; st.semestre = V.querySelector("#sem").value; st.turma = V.querySelector("#turma").value.trim(); }
+      if (st.passo === 1) { st.nome = V.querySelector("#nome").value.trim(); st.faculdade_id = V.querySelector("#fac").value; st.semestre = V.querySelector("#sem").value; st.turma = App.limparTurma(V.querySelector("#turma").value); }
       V.querySelectorAll("[data-d]").forEach((el) => { const d = st.disc[+el.dataset.d]; if (d) d[el.dataset.k] = el.type === "checkbox" ? el.checked : el.value.trim(); });
       V.querySelectorAll("[data-p]").forEach((el) => { (st.provas[el.dataset.p] = st.provas[el.dataset.p] || {})[el.dataset.k] = el.value; });
     }
@@ -273,10 +282,11 @@
             <span class="muted" style="font-size:13px">${esc(P.email)}</span>
           </div></div><div id="msgPerfil"></div>`)
         + (P.onboarding_ok && (App.acessoOk(P) || P.is_admin) ? win("Meu semestre", `<div id="semBox"><p class="muted" style="margin:0">Carregando…</p></div>`) : ""))
-      + win(recuperando ? "Crie sua senha nova" : "Trocar senha", `<form id="fSenha" class="stack" style="max-width:380px">
+      + (recuperando ? win("Crie sua senha nova", `<form id="fSenha" class="stack" style="max-width:380px">
           <label class="field"><span class="mono">Senha nova</span><input id="s1" type="password" minlength="8" autocomplete="new-password" required></label>
           <label class="field"><span class="mono">Repita a senha</span><input id="s2" type="password" minlength="8" autocomplete="new-password" required></label>
           <button class="btn solid">Salvar senha</button></form><div id="msgSenha"></div>`)
+        : win("Trocar senha", `<div id="senhaBox"></div>`) + win("E-mail de acesso", `<div id="emailBox"><p class="muted" style="margin:0">Carregando…</p></div>`))
       + (recuperando ? "" : `<div class="row" style="margin-top:16px"><button class="btn ghost" id="voltar">Voltar ao painel</button>${P.onboarding_ok && (App.acessoOk(P) || P.is_admin) ? `<button class="btn" id="irCfg">Configurações</button>` : ""}</div>`);
     let novaFoto = null;
     const q = (id) => document.getElementById(id);
@@ -313,7 +323,9 @@
       } catch (e) { q("msgPerfil").innerHTML = `<div class="msg bad">Não consegui salvar: ${esc(e.message || e)}</div>`; }
       b.disabled = false; b.textContent = "Salvar";
     };
-    q("fSenha").onsubmit = async (e) => {
+    if (q("senhaBox")) senhaBox();
+    if (q("emailBox")) emailBox();
+    if (q("fSenha")) q("fSenha").onsubmit = async (e) => {
       e.preventDefault();
       const s1 = q("s1").value, s2 = q("s2").value;
       if (s1.length < 8) return (q("msgSenha").innerHTML = `<div class="msg bad">Use pelo menos 8 caracteres.</div>`);
@@ -323,6 +335,82 @@
       sessionStorage.removeItem("recuperando"); toast("Senha salva");
       if (recuperando) return voltar();
       q("fSenha").reset(); q("msgSenha").innerHTML = `<div class="msg">Senha trocada. Use a nova no próximo login.</div>`;
+    };
+  }
+
+  /* ================= SEGURANÇA: trocar a senha e o e-mail, sempre confirmando pelo e-mail ================= */
+  // Senha: o Supabase manda um código de 6 números para o e-mail atual (reauthenticate) e só aceita a
+  // senha nova com esse código. E-mail: com "Secure email change" ligado no Supabase, a troca só vale
+  // depois de confirmar nos DOIS e-mails (o atual e o novo). Veja o README (Etapa 6).
+  function erroAuth(e) {
+    const m = `${e?.message || ""} ${e?.code || ""}`;
+    if (e?.status === 429 || /rate limit|too many|security purposes|over_email_send_rate/i.test(m)) return "Muitas tentativas seguidas. Espere um minuto e tente de novo.";
+    if (/reauthentication_needed|requires? reauthentication/i.test(m)) return "Peça o código no seu e-mail antes de trocar a senha.";
+    if (/(nonce|reauthenticat|otp|token|code)/i.test(m) && /(invalid|expired|not found|incorrect)/i.test(m)) return "Código errado ou vencido. Confira os 6 números ou peça outro código.";
+    if (/weak|pwned|at least|characters|should contain|too short/i.test(m)) return "Senha fraca: use pelo menos 8 caracteres, misturando letras e números.";
+    if (/same.*password|different from the old/i.test(m)) return "A senha nova precisa ser diferente da atual.";
+    if (/already (been )?registered|email.*exists|email_exists/i.test(m)) return "Esse e-mail já é usado por outra conta.";
+    if (/invalid.*email|email.*invalid|validate email/i.test(m)) return "Esse e-mail não parece certo. Confira e tente de novo.";
+    return "Não consegui agora: " + (e?.message || "tente de novo em instantes.");
+  }
+  function senhaBox() {
+    const box = document.getElementById("senhaBox"); if (!box) return;
+    const msg = SEG.msg ? `<div class="msg ${SEG.msg.bad ? "bad" : ""}" style="margin:0" aria-live="polite">${esc(SEG.msg.t)}</div>` : "";
+    box.innerHTML = !SEG.codigo ? `<div class="stack" style="max-width:420px"><p style="margin:0">Para trocar a senha, mandamos um <b>código de 6 números</b> para o seu e-mail (<b>${esc(P.email)}</b>). Assim ninguém troca a sua senha só porque achou o site aberto.</p>
+        <div class="row"><button class="btn solid" id="pedirCodigo">Enviar código para meu e-mail</button></div>${msg}</div>`
+      : `<form id="fSenhaCod" class="stack" style="max-width:380px">
+        <label class="field"><span class="mono">Código que chegou no e-mail</span><input id="cod" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" placeholder="6 números" required></label>
+        <label class="field"><span class="mono">Senha nova</span><input id="s1" type="password" minlength="8" autocomplete="new-password" required></label>
+        <label class="field"><span class="mono">Repita a senha</span><input id="s2" type="password" minlength="8" autocomplete="new-password" required></label>
+        <div class="row"><button class="btn solid">Salvar senha</button><button type="button" class="btn ghost" id="outroCodigo">Mandar outro código</button></div>${msg}
+        <p class="muted" style="margin:0;font-size:13px">Não chegou? Olhe a caixa de spam. O código vale por pouco tempo.</p></form>`;
+    const pedir = async (b) => {
+      b.disabled = true;
+      const { error } = await sb.auth.reauthenticate();
+      SEG.msg = error ? { bad: true, t: erroAuth(error) } : { t: `Mandamos o código para ${P.email}. Digite abaixo com a senha nova.` };
+      if (!error) SEG.codigo = true;
+      senhaBox(); document.getElementById("cod")?.focus();
+    };
+    const q = (id) => document.getElementById(id);
+    if (q("pedirCodigo")) q("pedirCodigo").onclick = (e) => pedir(e.currentTarget);
+    if (q("outroCodigo")) q("outroCodigo").onclick = (e) => pedir(e.currentTarget);
+    if (q("cod")) q("cod").oninput = (e) => { e.target.value = e.target.value.replace(/\D/g, "").slice(0, 6); };
+    if (q("fSenhaCod")) q("fSenhaCod").onsubmit = async (e) => {
+      e.preventDefault();
+      const cod = q("cod").value.trim(), s1 = q("s1").value, s2 = q("s2").value;
+      const bad = (t) => { SEG.msg = { bad: true, t }; senhaBox(); };
+      if (!/^\d{6}$/.test(cod)) return bad("O código tem 6 números.");
+      if (s1.length < 8) return bad("Use pelo menos 8 caracteres.");
+      if (s1 !== s2) return bad("As duas senhas não são iguais.");
+      e.submitter && (e.submitter.disabled = true);
+      const { error } = await sb.auth.updateUser({ password: s1, nonce: cod });
+      if (error) return bad(erroAuth(error));
+      SEG.codigo = false; SEG.msg = { t: "Senha trocada. Use a nova no próximo login." }; toast("Senha salva"); senhaBox();
+    };
+  }
+  async function emailBox(aviso) {
+    const box = document.getElementById("emailBox"); if (!box) return;
+    const { data } = await sb.auth.getUser();
+    const u = data?.user || { email: P.email };
+    if (!document.getElementById("emailBox")) return;
+    const pend = u.new_email && u.new_email !== u.email ? u.new_email : null;
+    box.innerHTML = `<div class="stack" style="max-width:460px">
+      <p style="margin:0">E-mail de acesso: <b>${esc(u.email || P.email)}</b></p>
+      ${pend ? `<div class="msg" style="margin:0" aria-live="polite"><b>Troca pendente para ${esc(pend)}.</b> Confirme nos dois e-mails: clique no link que chegou no e-mail atual (${esc(u.email)}) e no link que chegou no novo (${esc(pend)}). A troca só vale depois das duas confirmações.</div>` : ""}
+      <form id="fEmail" class="stack"><label class="field"><span class="mono">${pend ? "Corrigir o e-mail novo" : "E-mail novo"}</span><input id="novoEmail" type="email" autocomplete="email" maxlength="200" required placeholder="nome@exemplo.com" value="${esc(pend || "")}"></label>
+        <div class="row"><button class="btn solid">${pend ? "Mandar os e-mails de novo" : "Trocar e-mail"}</button></div></form>
+      ${aviso ? `<div class="msg ${aviso.bad ? "bad" : ""}" style="margin:0" aria-live="polite">${esc(aviso.t)}</div>` : ""}
+      <p class="muted" style="margin:0;font-size:13px">Para sua segurança, mandamos um link de confirmação para o e-mail <b>atual</b> e outro para o <b>novo</b>. Enquanto você não confirmar nos dois, continua entrando com o e-mail atual.</p></div>`;
+    document.getElementById("fEmail").onsubmit = async (e) => {
+      e.preventDefault();
+      const novo = document.getElementById("novoEmail").value.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(novo)) return emailBox({ bad: true, t: "Esse e-mail não parece certo. Confira e tente de novo." });
+      if (novo === String(u.email || "").toLowerCase()) return emailBox({ bad: true, t: "Esse já é o seu e-mail." });
+      e.submitter && (e.submitter.disabled = true);
+      const { error } = await sb.auth.updateUser({ email: novo }, { emailRedirectTo: location.origin + "/app.html" });
+      if (error) return emailBox({ bad: true, t: erroAuth(error) });
+      toast("Confirme nos dois e-mails");
+      emailBox({ t: `Pronto. Agora abra o e-mail atual (${u.email}) e o novo (${novo}) e clique no link de confirmação dos dois.` });
     };
   }
 
@@ -378,9 +466,19 @@
   async function home(tab) {
     V.onclick = null; V.onchange = null;
     document.getElementById("cfgBtn").hidden = false;
+    iniciarTarefas();
     await carregarSemestres();
     window.scrollTo(0, 0);
-    await Painel.iniciar({ V, P, SEM: () => SEM, chamar, driveTela, livrosTela, carregarPdfjs, carregarJSZip, perfilTela: () => perfilTela(), tab });
+    await Painel.iniciar({ V, P, SEM: () => SEM, chamar, driveTela, livrosTela, carregarPdfjs, carregarJSZip, perfilTela: () => perfilTela(), recarregarSemestres, tab });
+  }
+  async function recarregarSemestres() { await carregarSemestres(); Object.assign(P, await App.meuPerfil()); pintarEu(); }
+  // Tarefas (IA no servidor) e a fila do navegador (arquivos e livros): começam uma vez, depois do login
+  function iniciarTarefas() {
+    if (iniciarTarefas.ok) return; iniciarTarefas.ok = true; // (função: existe antes do resto deste bloco rodar)
+    Fila.registrar("livro", trabalhoLivro);
+    Fila.ouvir(() => { const el = document.getElementById("livFila"); if (el) el.innerHTML = livrosFilaHTML(); });
+    Fila.iniciar(P.id);
+    Tarefas.iniciar({ chamar, aoAbrir: async (t) => { if (!Painel.ativo()) await home(); Painel.abrirTarefa(t); } });
   }
   // Configurações (Google Drive, livros, enviar arquivos, importar calendário, ajustes do semestre): uma tela do painel
   function abrirConfig() {
@@ -617,7 +715,8 @@
     const { data: livros, error } = await sb.from("livros").select("id,titulo,autor,edicao,formato,paginas,status,erro,total_trechos,criado_em").order("criado_em", { ascending: false });
     if (!document.getElementById("liv")) return;
     if (error) { box.innerHTML = /livros|relation|schema cache/i.test(error.message) ? `<p class="muted" style="margin:0">A parte de livros ainda não foi ativada no banco (falta rodar o 05_livros.sql).</p>` : `<div class="msg bad" style="margin:0">Não consegui carregar seus livros: ${esc(error.message)}</div>`; return; }
-    const L = livros || [];
+    const emFila = new Set(Fila.pendentes().filter((j) => j.tipo === "livro" && j.dados.livroId).map((j) => j.dados.livroId));
+    const L = (livros || []).filter((l) => !emFila.has(l.id));
     const lista = L.length ? `<ul class="liv-lista">${L.map((l) => { const [cls, txt] = LIV_STATUS[l.status] || ["s-warn", l.status];
       const info = [l.autor, l.edicao ? `${l.edicao}` : "", FORMATOS[l.formato] || "", l.paginas ? `${l.paginas} páginas` : "", l.total_trechos ? `${l.total_trechos} trechos` : ""].filter(Boolean).map(esc).join(" · ");
       return `<li><div style="min-width:0"><b class="liv-tit">${esc(l.titulo)}</b><div class="muted" style="font-size:13px">${info}</div>
@@ -634,7 +733,7 @@
     box.innerHTML = `<div class="stack">
       <p style="margin:0">Guarde aqui os livros que você usa. Depois, nos resumos, você vai poder comparar o que o livro diz com os slides do professor.</p>
       <p class="muted" style="margin:0;font-size:13.5px">O livro fica só na sua conta: ninguém mais vê. O arquivo não é enviado; o site lê o texto aqui no seu aparelho e guarda só o texto, com o número das páginas. Livros grandes levam alguns minutos.</p>
-      ${lista}${form}
+      ${lista}<div id="livFila" aria-live="polite">${livrosFilaHTML()}</div>${form}
       <div id="livProg" aria-live="polite">${LIV.msg ? `<div class="msg ${LIV.msg.bad ? "bad" : ""}" style="margin:0">${esc(LIV.msg.t)}</div>` : ""}</div>
       ${L.some((l) => l.status === "ok") ? `<form id="livBusca" class="row" role="search"><label class="field" style="flex:1 1 220px"><span class="mono">Procurar nos meus livros</span>
         <input id="livQ" type="search" maxlength="200" value="${esc(LIV.busca)}" placeholder="Ex.: pneumonia comunitária tratamento"></label><button class="btn solid">Procurar</button></form>
@@ -683,56 +782,73 @@
       } catch (e) { prog.innerHTML = `<div class="msg bad" style="margin:0">${esc(/password/i.test(e?.name + e?.message) ? "Esse PDF tem senha. Tire a senha e tente de novo." : "Não consegui abrir esse PDF. " + (e?.message || ""))}</div>`; LIV.arq = null; }
     }
   }
+  // O livro entra na fila do navegador (assets/fila.js): é lido sem travar o site, e se o aluno
+  // fechar a página, continua quando ele abrir o site de novo neste aparelho.
   async function enviar() {
-    if (LIV.ocupado) return;
     const prog = document.getElementById("livProg"), f = formLivro();
     if (!LIV.arq) return (prog.innerHTML = `<div class="msg bad" style="margin:0">Escolha o arquivo do livro.</div>`);
     if (!f.titulo) f.titulo = tituloDoArquivo(LIV.arq.file.name) || "Livro";
-    LIV.form = f; LIV.ocupado = true; LIV.msg = null;
-    const avisoSair = (e) => { e.preventDefault(); e.returnValue = ""; };
-    window.addEventListener("beforeunload", avisoSair);
-    await livrosTela();
-    const barra = (frac, txt) => { const el = document.getElementById("livProg"); if (el) el.innerHTML = `<div class="liv-prog"><progress max="100" value="${Math.round(frac * 100)}"></progress><span class="muted" style="font-size:13.5px">${esc(txt)}</span></div>`; };
-    const { file, formato } = LIV.arq; let livroId = null;
+    const { file, formato } = LIV.arq;
+    try { LIV.pdf?.destroy(); } catch (_) { }
+    LIV.pdf = null; LIV.arq = null; LIV.aberto = false; LIV.form = null;
+    await Fila.adicionar("livro", `Livro: ${f.titulo}`, { ...f, formato, nome: file.name.slice(0, 300) }, file);
+    LIV.msg = { t: `"${f.titulo}" está na fila. Pode usar o resto do site enquanto ele é lido; acompanhe aqui ou em Tarefas.` };
+    toast("Livro na fila");
+    livrosTela();
+  }
+  /** Trabalho da fila: lê o livro e grava só o texto, em trechos com a página. */
+  async function trabalhoLivro(job, prog) {
+    const d = job.dados, file = job.arquivo;
+    if (!file) throw new Error("O arquivo não ficou guardado neste aparelho. Escolha o livro de novo.");
+    if (d.livroId) { await sb.from("livros").delete().eq("id", d.livroId); d.livroId = null; } // recomeço: tira o que ficou pela metade
+    let r, doc = null;
     try {
-      barra(0, "Abrindo o arquivo…");
-      let r;
-      if (formato === "pdf") {
-        if (!LIV.pdf) { const lib = await carregarPdfjs(); LIV.pdf = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: true }).promise; }
-        r = await lerPDF(LIV.pdf, (x, t) => barra(x * 0.7, t));
-      } else if (formato === "epub") r = await lerEPUB(file, (x, t) => barra(x * 0.7, t));
-      else if (formato === "docx") r = await lerDOCX(file, (x, t) => barra(x * 0.7, t));
-      else r = await lerTXT(file, (x, t) => barra(x * 0.7, t));
-      const trechos = fatiar(r.unidades);
-      const letras = trechos.reduce((s, t) => s + t.texto.length, 0);
-      if (!trechos.length || (r.paginas && letras < r.paginas * 40)) {
-        throw Object.assign(new Error(formato === "pdf" ? "Esse PDF parece escaneado (as páginas são fotos, sem texto). O site ainda não lê texto de imagens. Se tiver uma versão com texto (dá para selecionar as palavras), use ela." : "Não achei texto nesse arquivo."), { semLivro: true });
-      }
-      barra(0.7, "Guardando…");
-      const ins = await sb.from("livros").insert({ titulo: f.titulo, autor: f.autor || null, edicao: f.edicao || null, formato, paginas: r.paginas, arquivo_nome: file.name.slice(0, 300), status: "processando" }).select("id").single();
-      if (ins.error) throw ins.error;
-      livroId = ins.data.id;
+      prog(0, "Abrindo o arquivo…");
+      if (d.formato === "pdf") {
+        const lib = await carregarPdfjs();
+        try { doc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()), isEvalSupported: false, disableFontFace: true }).promise; }
+        catch (e) { throw new Error(/password/i.test(e?.name + e?.message) ? "Esse PDF tem senha. Tire a senha e tente de novo." : "Não consegui abrir esse PDF."); }
+        r = await lerPDF(doc, (x, t) => prog(x * 0.7, t));
+      } else if (d.formato === "epub") r = await lerEPUB(file, (x, t) => prog(x * 0.7, t));
+      else if (d.formato === "docx") r = await lerDOCX(file, (x, t) => prog(x * 0.7, t));
+      else r = await lerTXT(file, (x, t) => prog(x * 0.7, t));
+    } finally { try { doc?.destroy(); } catch (_) { } }
+    const trechos = fatiar(r.unidades);
+    const letras = trechos.reduce((s, t) => s + t.texto.length, 0);
+    if (!trechos.length || (r.paginas && letras < r.paginas * 40)) {
+      throw Object.assign(new Error(d.formato === "pdf" ? "Esse PDF parece escaneado (as páginas são fotos, sem texto). O site ainda não lê texto de imagens. Se tiver uma versão com texto (dá para selecionar as palavras), use ela." : "Não achei texto nesse arquivo."), { st: "sem_texto" });
+    }
+    prog(0.7, "Guardando…");
+    const ins = await sb.from("livros").insert({ titulo: d.titulo, autor: d.autor || null, edicao: d.edicao || null, formato: d.formato, paginas: r.paginas, arquivo_nome: d.nome, status: "processando" }).select("id").single();
+    if (ins.error) throw ins.error;
+    d.livroId = ins.data.id; await Fila.salvar(job);
+    try {
       const LOTE = 100;
       for (let i = 0; i < trechos.length; i += LOTE) {
-        const lote = trechos.slice(i, i + LOTE).map((t) => ({ ...t, livro_id: livroId }));
+        const lote = trechos.slice(i, i + LOTE).map((t) => ({ ...t, livro_id: d.livroId }));
         let e = (await sb.from("livro_trechos").insert(lote)).error;
         if (e && !/limite/i.test(e.message)) e = (await sb.from("livro_trechos").insert(lote)).error; // uma nova tentativa se a internet falhar
         if (e) throw e;
-        barra(0.7 + 0.3 * Math.min(1, (i + LOTE) / trechos.length), `Guardando os trechos… ${Math.min(i + LOTE, trechos.length)} de ${trechos.length}`);
+        prog(0.7 + 0.3 * Math.min(1, (i + LOTE) / trechos.length), `Guardando os trechos… ${Math.min(i + LOTE, trechos.length)} de ${trechos.length}`);
       }
-      const fim = await sb.from("livros").update({ status: "ok", total_trechos: trechos.length }).eq("id", livroId);
+      const fim = await sb.from("livros").update({ status: "ok", total_trechos: trechos.length }).eq("id", d.livroId);
       if (fim.error) throw fim.error;
-      LIV.msg = { t: `Pronto: "${f.titulo}" guardado${r.paginas ? ` (${r.paginas} páginas)` : ""}. Já dá para procurar nele.` };
-      LIV.aberto = false; LIV.form = null; toast("Livro guardado");
     } catch (e) {
       const m = e?.message || String(e);
-      LIV.msg = { bad: true, t: e?.semLivro ? m : /limite/i.test(m) ? m : "Não consegui guardar o livro: " + m };
-      if (livroId) await sb.from("livros").update({ status: "erro", erro: m.slice(0, 300) }).eq("id", livroId);
+      await sb.from("livros").update({ status: "erro", erro: m.slice(0, 300) }).eq("id", d.livroId);
+      throw new Error(/limite/i.test(m) ? m : "Não consegui guardar o livro: " + m);
     }
-    try { LIV.pdf?.destroy(); } catch (_) { }
-    LIV.pdf = null; LIV.arq = null; LIV.ocupado = false;
-    window.removeEventListener("beforeunload", avisoSair);
-    livrosTela();
+    LIV.msg = { t: `Pronto: "${d.titulo}" guardado${r.paginas ? ` (${r.paginas} páginas)` : ""}. Já dá para procurar nele.` };
+    if (document.getElementById("liv")) livrosTela();
+    return `Guardado${r.paginas ? ` (${r.paginas} páginas)` : ""}.`;
+  }
+  function livrosFilaHTML() {
+    const js = Fila.lista().filter((j) => j.tipo === "livro" && (j.st === "fila" || j.st === "rodando" || j.st === "erro" || j.st === "sem_texto"));
+    if (!js.length) return "";
+    return `<ul class="liv-lista">${js.map((j) => `<li><div style="min-width:0;flex:1"><b class="liv-tit">${esc(j.dados.titulo)}</b><div class="muted" style="font-size:13px">${esc(j.msg || "Na fila.")}</div>
+      ${j.st === "rodando" && j.frac != null ? `<progress max="100" value="${Math.round(j.frac * 100)}" style="width:100%"></progress>` : ""}
+      ${j.st === "fila" || j.st === "rodando" ? `<div class="muted" style="font-size:12.5px">${j.persistente ? "Continua quando você abrir o site de novo neste aparelho." : "Deixe o site aberto até terminar."}</div>` : ""}</div>
+      <span class="chip ${j.st === "erro" ? "s-bad" : j.st === "sem_texto" ? "s-warn" : j.st === "rodando" ? "s-warn" : ""}">${{ fila: "na fila", rodando: "lendo", erro: "erro", sem_texto: "sem texto" }[j.st]}</span></li>`).join("")}</ul>`;
   }
   async function procurar(consulta) {
     const res = document.getElementById("livRes"); LIV.busca = consulta;
