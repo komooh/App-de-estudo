@@ -21,6 +21,9 @@
 <script src="/assets/config.js"></script>
 <script src="/assets/comum.js"></script>
 <script src="/assets/rodape.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" integrity="sha384-/TQbtLCAerC3jgaim+N78RZSDYV7ryeoBCVqTuzRrFec2akfBkHS7ACQ3PQhvMVi" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" integrity="sha384-+VfUPEb0PdtChMwmBcBmykRMDd+v6D/oFmB3rZM/puCMDYcIvF968OimRh4KQY9a" crossorigin="anonymous"></script>
+<script src="/assets/painel.js"></script>
 <script>
 (async () => {
   const { sb, esc, toast, win } = App;
@@ -99,7 +102,7 @@
   /* ================= CONFIGURAÇÃO GUIADA (primeira entrada) ================= */
   // novo=true: "Adicionar semestre" (o semestre de agora fica guardado; só o novo é montado)
   async function onboarding(novo) {
-    V.onclick = null;
+    window.Painel?.fechar(); V.onclick = null;
     const [{ data: facs }, { data: catalogo }] = await Promise.all([sb.from("faculdades").select("*").eq("ativa", true).order("nome"),
       sb.from("catalogo_materias").select("faculdade_id,semestre,nome,ordem").order("ordem"), carregarSemestres()]);
     const numAtual = +(SEM.atual?.numero || P.semestre || 0);
@@ -225,7 +228,7 @@
   function perfilTela(recuperando) {
     if (recuperando) sessionStorage.setItem("recuperando", "1");
     const voltar = () => { if (location.hash) history.replaceState(null, "", location.pathname); if (!App.acessoOk(P) && !P.is_admin) return location.reload(); return P.onboarding_ok ? home() : onboarding(); };
-    V.onclick = null;
+    window.Painel?.fechar(); V.onclick = null;
     V.innerHTML = `<div class="hero"><h1>Meu<span class="script">perfil</span></h1></div>`
       + (recuperando ? "" : win("Foto e nome", `<div class="perfil">
           <div class="av av-g" id="avG">${avatarHTML(96)}</div>
@@ -335,29 +338,13 @@
     document.getElementById("volSem").onclick = () => perfilTela();
   }
 
+  // O painel com as abas (Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica) fica em assets/painel.js.
+  // As janelas do Google Drive e dos livros continuam aqui e aparecem na aba Disciplinas.
   async function home() {
     V.onclick = null;
     await carregarSemestres();
-    // só o semestre atual aparece aqui; os anteriores ficam no perfil
-    let qDisc = sb.from("disciplinas").select("*").order("ordem");
-    if (SEM.atual) qDisc = qDisc.eq("semestre_id", SEM.atual.id);
-    const [{ data: disc }, { data: provasTodas }] = await Promise.all([
-      qDisc,
-      sb.from("provas").select("*").gte("data", App.isoHoje()).order("data").order("hora"),
-    ]);
-    const provas = (provasTodas || []).filter((p) => (disc || []).some((d) => d.id === p.disciplina_id));
-    const nomeD = (id) => (disc || []).find((d) => d.id === id)?.nome || "";
-    const dias = (d) => Math.round((new Date(d + "T00:00") - App.hoje()) / 864e5);
-    const prox = (provas || []).slice(0, 6).map((p) => { const n = dias(p.data);
-      return `<div class="card"><span class="mono">${esc(p.tipo)} ${p.modalidade === "pratica" ? "prática" : "teórica"} · ${new Date(p.data + "T12:00").toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" })}${p.hora ? " · " + p.hora.slice(0, 5) : ""}</span><h3>${esc(nomeD(p.disciplina_id))}</h3><div class="big tnum">${n === 0 ? "Hoje" : n === 1 ? "Amanhã" : n + " dias"}</div></div>`; }).join("");
-    V.innerHTML = `<div class="hero"><h1>Olá, ${esc((P.nome || "").split(" ")[0] || "")}<span class="script">bons estudos</span></h1></div>`
-      + win("Próximas provas", prox ? `<div class="cards">${prox}</div>` : `<div class="empty">Nenhuma prova futura cadastrada.</div>`)
-      + win(SEM.atual?.numero ? `Minhas matérias · ${SEM.atual.numero}º semestre` : "Minhas matérias", (disc || []).length ? `<div class="cards">${disc.map((d) => `<div class="card"><h3>${esc(d.nome)}</h3><span class="muted" style="font-size:13px">${esc(d.professor || "")}</span>${d.tem_pratica ? `<span class="chip s-warn" style="align-self:flex-start">tem prática</span>` : ""}</div>`).join("")}</div>` : `<div class="empty">Nenhuma matéria.</div>`)
-      + win("Meu Google Drive", `<div id="drv"><p class="muted" style="margin:0">Carregando…</p></div>`)
-      + win("Meus livros", `<div id="liv"><p class="muted" style="margin:0">Carregando…</p></div>`)
-      + win("Em breve", `<p style="margin:0" class="muted">Agenda de estudos, temas de cada prova, resumos, banco de questões e calculadora de pontos chegam na próxima etapa.</p>`);
-    driveTela(disc || []);
-    livrosTela();
+    window.scrollTo(0, 0);
+    await Painel.iniciar({ V, P, SEM: () => SEM, chamar, driveTela, livrosTela, carregarPdfjs, carregarJSZip });
   }
 
   /* ================= GOOGLE DRIVE: ligar a pasta e importar os materiais ================= */
@@ -492,6 +479,7 @@
     } catch (e) { DRV.msg = { bad: true, t: e.message }; }
     DRV.ocupado = false;
     await driveTela(disc);
+    window.Painel?.aoMudarDrive(); // temas novos vindos do Drive aparecem nas abas
   }
 
   /* ================= LIVROS: o aluno envia o livro dele e procura nele ================= */

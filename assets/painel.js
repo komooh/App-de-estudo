@@ -17,12 +17,15 @@
   const fmt = (n) => n == null || isNaN(n) ? "—" : (Math.round(n * 100) / 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 });
   const num = (v) => { if (v === "" || v == null) return null; const n = parseFloat(String(v).replace(",", ".")); return isNaN(n) ? null : n; };
   const semAcento = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const semAcentoMaiusc = (s) => String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\x20-\x7E]/g, "");
   const qNorm = (s) => semAcento(s).replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
   const ls = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (_) { } } };
   const ss = { get(k) { try { return sessionStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { sessionStorage.setItem(k, v); } catch (_) { } } };
   function janela(title, body, extra = "") { return `<section class="win"${extra}><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>${esc(title)}</div>${body}</section>`; }
   function hero(a, b, color) { return `<div class="hero"><h1>${a}<span class="script" style="color:${color}">${b}</span></h1></div>`; }
-  function md(text) { try { if (window.marked && window.DOMPurify) return DOMPurify.sanitize(marked.parse(String(text || ""))); } catch (_) { } return esc(text || "").replace(/\n/g, "<br>"); }
+  // Markdown da IA: sem imagens, mídia nem formulários (o resumo é só texto)
+  const PURIFY = { FORBID_TAGS: ["img", "svg", "math", "style", "form", "input", "button", "textarea", "select", "iframe", "video", "audio", "picture", "source", "object", "embed"], FORBID_ATTR: ["style"] };
+  function md(text) { try { if (window.marked && window.DOMPurify) return DOMPurify.sanitize(marked.parse(String(text || "")), PURIFY); } catch (_) { } return esc(text || "").replace(/\n/g, "<br>"); }
   const mesAtual = () => iso(today()).slice(0, 8) + "01";
 
   // Modelo dos resumos (o mesmo do servidor, função ia): resumo ativo, em tópicos.
@@ -906,7 +909,8 @@
     a.href = url; a.download = nome; a.rel = "noopener"; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   }
-  const nomeArq = (pref, t, ext) => (pref + " - " + t.nome).replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 120) + "." + ext;
+  // nome do arquivo sem acento (alguns navegadores trocam nomes com acento por "download")
+  const nomeArq = (pref, t, ext) => (pref + " - " + semAcentoMaiusc(t.nome)).replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").trim().slice(0, 120) + "." + ext;
   async function expMapa(id) {
     const t = temaById(id); if (!t || !MAPA[id]) return; ui.expBusy = "png"; renderSheet();
     try {
