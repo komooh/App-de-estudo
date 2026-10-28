@@ -412,7 +412,7 @@ Deno.serve(async (req) => {
       const prompt = promptResumo(c, pref.data?.modelo_resumo ?? null, mat.texto, livros, modo);
       const r = await chamarClaude(prompt, MAX_TOKENS.resumo);
       const texto = r.texto.trim();
-      if (texto.length < 40) throw new ErroIA("A IA devolveu um resumo vazio. Tente de novo.", 502);
+      if (texto.length < 15) throw new ErroIA("A IA devolveu um resumo vazio. Tente de novo.", 502);
       const usadosLivros = juntarLivros(livros, LIMITE_LIVROS).usados;
       const linha = {
         tema_id: t.id, aluno_id: uid, texto, modelo: modelo(), modo: usadosLivros.length ? modo : null,
