@@ -23,7 +23,9 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `supabase/06_estudo.sql` | O painel de estudo: questões, resumos, mapas, agenda, aulas, calendário, vida acadêmica, laminário e limites de IA |
 | `supabase/functions/ia` | Função que faz resumos, mapas mentais e questões com o Claude |
 | `supabase/functions/drive-arquivo` | Função que entrega ao navegador os PDF/Word/PowerPoint do Drive para ele ler o texto |
-| `assets/painel.js` | As abas do painel (Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica) |
+| `assets/painel.js` | As abas do painel (Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica, Laminário) e a tela Configurações |
+| `assets/leitor.js` | Leitura de arquivos no navegador (texto do PDF com as colunas, nome do tema, calendário) |
+| `supabase/07_uploads.sql` | Enviar arquivos sem o Drive e o limite de importações do calendário |
 
 ## Como colocar no ar (uma vez)
 
@@ -75,7 +77,7 @@ O que fazer (uma vez):
 1. Supabase → **SQL Editor** → **New query**. Cole todo o `supabase/04_semestres.sql` e clique em **Run**. Ele cria o semestre atual de quem já usa o site, com as matérias que a pessoa já tem.
 2. **Republique a drive-varrer colando o novo index.ts** (Edge Functions → drive-varrer → Code → apague tudo, cole `supabase/functions/drive-varrer/index.ts` e clique em **Deploy**). A função nova liga os arquivos só às matérias do semestre atual (os arquivos já ligados a semestres antigos continuam lá) e entende nomes em espanhol e em português (ex.: pasta "Farmacologia 2" = "Farmacología II", "Anatopato" = "Anatomía Patológica", "Gestão" = "Gestión").
 
-Depois de configurado, o aluno muda as matérias do semestre atual em **Ajustes do semestre**, no fim do painel (nome, professor, "tem prática", adicionar e remover).
+Depois de configurado, o aluno muda as matérias do semestre atual em **Configurações → Ajustes do semestre** (nome, professor, "tem prática", adicionar e remover).
 
 ### 7. Livros
 Cada aluno tem a janela **Meus livros**, com o botão **Adicionar livro**. Ele escolhe o arquivo (PDF, EPUB, Word .docx ou .txt). O **próprio navegador** do aluno lê o texto página por página (com barra de progresso) e grava **só o texto**, em trechos de cerca de 2.000 letras com o número da página. O arquivo do livro **não** é enviado nem guardado, então não gasta o espaço de arquivos do Supabase. O livro fica só na conta do aluno: ninguém mais vê (nem o administrador, que vê só a lista de títulos).
@@ -96,7 +98,7 @@ Limites e espaço:
 O painel agora tem as mesmas abas do painel original: **Agenda**, **Disciplinas**, **Questões**, **Média**, **Aulas**, **Calendário** e **Vida acadêmica**. Cada aluno começa com tudo vazio e só vê o que é dele.
 
 - **Agenda:** monta o plano de estudo até cada prova com os temas que faltam; o aluno marca o que estudou e ajusta as horas por dia.
-- **Disciplinas:** os temas de cada matéria (os do Drive entram sozinhos), com **Resumo** e **Mapa mental**. As janelas "Meu Google Drive" e "Meus livros" ficam nesta aba; quem não usa clica em **Agora não** e elas ficam fechadas (o navegador lembra).
+- **Disciplinas:** os temas de cada matéria (os do Drive e os dos arquivos enviados entram sozinhos), com **Resumo** e **Mapa mental**. As janelas "Meu Google Drive" e "Meus livros" ficam em **Configurações** (veja a parte 9).
 - **Resumo:** só é feito quando o aluno clica em "Gerar resumo", no formato **resumo ativo** (tópicos diretos, sem texto corrido). Se o tema aparece nos livros do aluno, o site pergunta: **Do jeito do professor** ou **Corrigido pelos livros**. Nos dois, o resumo separa o que diz o material do professor e o que diz cada livro (com título e página) e avisa quando discordam. Dá para baixar em **PDF** e **Word**. O modelo do resumo pode ser trocado em Agenda → Ajustes da agenda → Modelo dos resumos.
 - **PDF, Word e PowerPoint do Drive:** são lidos no navegador do aluno na hora do primeiro resumo daquele tema (a função do Supabase não aguenta ler arquivos pesados).
 - **Questões:** 4 tipos (marcar X, verdadeiro ou falso, relacionar, dissertativa), até 20 de cada e 40 por vez, estilo prova com caso clínico. A IA nunca repete as que o aluno já recebeu (mesmo as que ele apagou).
@@ -122,3 +124,16 @@ Custo estimado com o Claude Haiku 5.5 (0,10 dólar por milhão de tokens de entr
 
 ## Configuração pública
 `assets/config.js` tem só a URL do projeto e a chave **publishable** do Supabase, que podem ficar no navegador. A chave secreta (service_role) e a chave da API do Claude **nunca** entram neste repositório.
+
+### 9. Enviar arquivos, importar o calendário e a tela Configurações (Etapa 5)
+- **Configurações:** botão com a engrenagem no alto (ao lado do seu nome) e também no seu perfil. Reúne: **Enviar arquivos**, **Importar calendário de provas**, **Semestres**, **Meu Google Drive**, **Meus livros** e **Ajustes do semestre**. As abas do painel ficam só com o estudo: Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica e Laminário.
+- **Enviar arquivos:** para quem não usa o Drive. Em Disciplinas (botão **Enviar arquivos** da matéria) ou em Configurações, o aluno escolhe um ou vários arquivos do computador ou do celular (PDF, PowerPoint .pptx, Word .docx, .txt ou .md), a matéria e o tema (por padrão, um tema novo com o nome de cada arquivo). O **próprio navegador** lê o texto e só o texto vai para o banco: o arquivo não é guardado. Os arquivos enviados aparecem na lista "Materiais" da matéria, com o botão de apagar. PDF escaneado (só imagem) aparece como "sem texto" e não é guardado. Arquivos .ppt e .doc antigos: o site pede para salvar como .pptx/.docx.
+- **Importar calendário:** na aba Calendário, em Configurações e no passo 3 da configuração do semestre (Provas), o botão **Importar calendário (PDF ou foto)**. O aluno manda o PDF oficial das provas (ou uma foto/print da tabela); a IA acha a linha do semestre e da turma dele e mostra as provas numa tabela para conferir (matéria, P1/P2/Final, teórica/prática, data e hora). **Nada é salvo antes de ele clicar em "Salvar no calendário"**. Se a mesma prova já existir, a data é trocada pela nova.
+
+Limites: cada aluno pode ter **400 arquivos enviados** (cada um com até 300 mil letras; somando todos, até 40 milhões de letras, uns 40 MB no banco) e **10 importações de calendário por mês**. Para mudar os números dos arquivos, edite as funções `limite_uploads()`, `limite_letras_upload()` e `limite_letras_uploads()` no começo do `07_uploads.sql` e rode de novo. O limite do calendário fica na coluna `limite_calendarios_mes` de cada aluno (tabela perfis; ainda não aparece na página de Administração). Cada importação custa menos de 1 centavo de dólar.
+
+O que fazer (uma vez, nesta ordem):
+1. **Banco:** Supabase → **SQL Editor** → **New query**. Cole todo o `supabase/07_uploads.sql` e clique em **Run** (depois do 06). Pode rodar de novo sem problema.
+2. **Função `ia`:** Edge Functions → **ia** → **Code** → apague tudo, cole o novo `supabase/functions/ia/index.ts` e clique em **Deploy**. Confira que **"Verify JWT" continua DESLIGADO** (Details/Settings). Não precisa de segredo novo.
+3. Mais nada: o site atualiza sozinho quando o `git push` chegar ao Cloudflare.
+4. **Teste:** entre como aluno → Disciplinas → uma matéria → **Enviar arquivos** → escolha um PDF → **Ler e enviar**. Depois, aba Calendário → **Importar calendário (PDF ou foto)** → escolha o PDF das provas → **Ler com IA** → confira a tabela → **Salvar no calendário**. Se aparecer "falta rodar o 07_uploads.sql", falta o passo 1; se aparecer "Ação desconhecida", falta o passo 2.
