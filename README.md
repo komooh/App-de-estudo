@@ -137,3 +137,20 @@ O que fazer (uma vez, nesta ordem):
 2. **Função `ia`:** Edge Functions → **ia** → **Code** → apague tudo, cole o novo `supabase/functions/ia/index.ts` e clique em **Deploy**. Confira que **"Verify JWT" continua DESLIGADO** (Details/Settings). Não precisa de segredo novo.
 3. Mais nada: o site atualiza sozinho quando o `git push` chegar ao Cloudflare.
 4. **Teste:** entre como aluno → Disciplinas → uma matéria → **Enviar arquivos** → escolha um PDF → **Ler e enviar**. Depois, aba Calendário → **Importar calendário (PDF ou foto)** → escolha o PDF das provas → **Ler com IA** → confira a tabela → **Salvar no calendário**. Se aparecer "falta rodar o 07_uploads.sql", falta o passo 1; se aparecer "Ação desconhecida", falta o passo 2.
+
+### 10. Tarefas em segundo plano, turma e segurança da conta (Etapa 6)
+- **Tarefas:** resumo, mapa mental, questões e importação rodam **no servidor**. O aluno pede e pode usar o resto do site ou até fechar: quando fica pronto, aparece um aviso ("Seu resumo de X ficou pronto"). O botão **Tarefas** no alto mostra o que está rodando e o que ficou pronto (Abrir / Conferir / Tentar de novo). Se uma tarefa parar no meio (servidor reiniciou), depois de 3 minutos ela aparece com **Tentar de novo** e o limite do mês é devolvido.
+- **Arquivos e livros:** são lidos **no navegador** (a função do Supabase não aguenta ler PDF grande), numa fila que não trava o site. A fila fica guardada neste navegador: se o aluno fechar, **continua quando ele abrir o site de novo neste aparelho** (em outro aparelho, não).
+- **Turma:** só letras (ex.: F). O aluno muda o semestre, a turma e a faculdade em **Configurações → Semestres**, e a turma dos semestres anteriores. A importação usa a turma atual.
+- **Senha:** para trocar, o site manda um **código de 6 números** para o e-mail do aluno. **E-mail:** a troca só vale depois de confirmar nos **dois** e-mails (o atual e o novo). O "Esqueci a senha" continua igual.
+
+O que fazer (uma vez, nesta ordem):
+1. **Banco:** SQL Editor → cole todo o `supabase/08_tarefas.sql` → **Run** (depois do 07). Pode rodar de novo.
+2. **Função `ia`:** Edge Functions → **ia** → Code → cole o novo `supabase/functions/ia/index.ts` → **Deploy**. **"Verify JWT" continua DESLIGADO.**
+3. **Auth:** Authentication → **Sign In / Providers → Email**: ligue **"Secure email change"** e **"Secure password change"** e salve.
+4. **E-mail (SMTP próprio, obrigatório antes dos alunos usarem senha/e-mail):** o remetente padrão do Supabase só entrega para quem é do time do projeto e tem limite baixo por hora. Use o Resend:
+   1. Crie conta em resend.com → **Domains → Add domain** (ex.: seu domínio) e faça a verificação no DNS.
+   2. **API Keys → Create** e copie a chave (começa com `re_`). Não cole em lugar nenhum além do Supabase.
+   3. Supabase → **Authentication → Emails → SMTP Settings** → ligue **Enable custom SMTP**: Host `smtp.resend.com`, Port `465`, User `resend`, Password = a chave do Resend, Sender email = um endereço do domínio verificado (ex.: `nao-responda@seudominio.com`), Sender name `Painel de Estudos`. Salve.
+   4. Em **Authentication → Emails → Templates**, troque os textos de **Reauthentication** e **Change Email Address** pelos de `docs/emails-ptbr.md`.
+5. Mais nada: o site atualiza sozinho com o `git push`.
