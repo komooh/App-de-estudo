@@ -464,3 +464,4 @@ table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-to
 .imp-erros{margin:8px 0 0;padding-left:18px;font-size:13px;overflow-wrap:anywhere}
 .imp-erros li{margin:2px 0}
 @media (max-width:640px){table.imp th{letter-spacing:0;padding:6px 3px;font-size:10px}table.imp td{padding:7px 3px}table.imp th:first-child,table.imp td:first-child{padding-left:0}}
+.upbox{border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
