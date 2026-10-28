@@ -348,6 +348,27 @@ ok("sem EdgeRuntime: espera terminar", esperou);
   ok("flash: erro do banco sem o 12 é reconhecido", ia.falta12('relation "public.flashcards" does not exist') && ia.falta12("tipo inválido") && !ia.falta12("timeout"));
 }
 
+// ---------- painel do tema (etapa 10) ----------
+{
+  const cp = { materia: "Farmacología II", tema: "Anticoagulantes", semestre: 6 };
+  const pp = ia.promptPainel(cp, "<material_do_professor>\nHeparina\n</material_do_professor>");
+  ok("painel: nunca inventar, partes vazias sem material", pp.includes("Nunca invente dados") && pp.includes("Parte sem informação no material fica vazia") && pp.includes("QUE APARECEM NO MATERIAL"));
+  ok("painel: formato JSON pedido", pp.includes(ia.FORMATO_PAINEL) && !pp.includes("memoria_de_estudo"));
+  const cheio = ia.limparPainel({ titulo: " Anticoagulantes ", em_uma_frase: "Impedem\na coagulação.", conceitos: [{ nome: "Heparina", explicacao: "Ativa a antitrombina" }, { nome: "heparina", explicacao: "repetido" }, { nome: "", explicacao: "sem nome" }, "lixo"],
+    numeros: [{ valor: "80 UI/kg", o_que_e: "bolus da heparina" }, { valor: "2-3", o_que_e: "INR alvo" }, { valor: 5, o_que_e: "número sem unidade" }, { valor: "x" }],
+    comparacao: { colunas: ["Fármaco", "Antídoto", "Exame"], linhas: [["Heparina", "Protamina"], ["Varfarina", "Vitamina K", "INR", "a mais"], ["só um"], "lixo"] },
+    passos: ["Avaliar sangramento", "", "Avaliar sangramento", 7], pegadinhas: ["HBPM não usa TTPa"], checklist: Array.from({ length: 30 }, (_, i) => `Saber ${i}`), extra: "ignorado" }, "Anticoagulantes");
+  ok("painel cheio: limpa e mantém", !!cheio && cheio.titulo === "Anticoagulantes" && cheio.em_uma_frase === "Impedem a coagulação." && cheio.conceitos.length === 1 && cheio.numeros.length === 3 && cheio.numeros[2].valor === "5", cheio);
+  ok("painel: tabela com linhas do tamanho das colunas", JSON.stringify(cheio?.comparacao) === JSON.stringify({ colunas: ["Fármaco", "Antídoto", "Exame"], linhas: [["Heparina", "Protamina", ""], ["Varfarina", "Vitamina K", "INR"]] }), cheio?.comparacao);
+  ok("painel: listas sem vazios/repetidos e com limite", JSON.stringify(cheio?.passos) === JSON.stringify(["Avaliar sangramento", "7"]) && cheio?.checklist.length === 15 && !("extra" in (cheio || {})));
+  const vazio = ia.limparPainel({ titulo: "X", conceitos: [], numeros: [], comparacao: { colunas: [], linhas: [] }, passos: [], pegadinhas: [], checklist: [] }, "Tema");
+  ok("painel: tudo vazio = inválido (não salva)", vazio === null && ia.limparPainel(null, "T") === null);
+  const parcial = ia.limparPainel({ checklist: ["Saber a dose"], comparacao: { colunas: ["Só uma"], linhas: [["a"]] } }, "Tema longo");
+  ok("painel: seções ausentes ficam vazias; título do tema", !!parcial && parcial.titulo === "Tema longo" && parcial.comparacao === null && parcial.numeros.length === 0 && parcial.em_uma_frase === "", parcial);
+  const xss = ia.limparPainel({ em_uma_frase: "<img src=x onerror=1>\u0000 ok" }, "T");
+  ok("painel: texto fica como texto (o site escapa); controle sai", xss?.em_uma_frase === "<img src=x onerror=1> ok", xss);
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : "\nTudo certo.");
 // regressão: lista de nomes vinda do site (sem ids reais) não pode juntar todas as provas numa só
 {

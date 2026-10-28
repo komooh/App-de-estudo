@@ -506,3 +506,43 @@ table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-to
 @media (prefers-reduced-motion:reduce){
   .fc-in{transition:none}.fc-in,.fc-card.virado .fc-in,.fc-verso{transform:none}
   .fc-verso{visibility:hidden}.fc-card.virado .fc-verso{visibility:visible}.fc-card.virado .fc-frente{visibility:hidden}}
+/* Painel do tema: grade de cartões */
+.pn{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;max-width:100%}
+.pn-cab,.pn-comp,.pn-check-sec,.pn-numeros,.pn-conceitos{grid-column:1/-1}
+.pn-cab{padding:16px;border-radius:14px;background:color-mix(in srgb,var(--c,var(--terra)) 12%,var(--card));border:1px solid var(--line)}
+.pn-cab h3{font-family:var(--f-display);font-size:22px;letter-spacing:-.02em;margin-top:4px;overflow-wrap:anywhere}
+.pn-frase{margin:6px 0 0;font-size:16px;overflow-wrap:anywhere}
+.pn-sec{border:1px solid var(--line);border-radius:14px;padding:14px;background:var(--card);min-width:0}
+.pn-sec h4{margin:0 0 10px;font-size:13px;font-family:var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--c,var(--terra));display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.pn-nums{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.pn-num{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:10px;background:var(--card2);border:1px solid var(--line);min-width:0}
+.pn-num b{font-family:var(--f-display);font-size:22px;line-height:1.1;color:var(--ink);overflow-wrap:anywhere}
+.pn-num span{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.pn-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:8px}
+.pn-card{display:flex;flex-direction:column;gap:4px;padding:10px 12px;border-left:3px solid var(--c,var(--terra));background:var(--card2);border-radius:8px;min-width:0;overflow-wrap:anywhere}
+.pn-card span{font-size:14px}
+.pn-tabwrap{overflow-x:auto;max-width:100%}
+.pn-tab{border-collapse:collapse;width:100%;font-size:14px}
+.pn-tab th,.pn-tab td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+.pn-tab th{font-family:var(--f-body);text-transform:none;letter-spacing:0;font-size:14px;color:var(--ink)}
+.pn-tab thead th{background:var(--card2);font-size:13px;font-weight:700}
+.pn-tab tbody th{font-weight:600}
+.pn-passos{counter-reset:p;list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.pn-passos li{counter-increment:p;display:flex;gap:10px;align-items:flex-start;overflow-wrap:anywhere;min-width:0}
+.pn-passos li::before{content:counter(p);flex:none;width:24px;height:24px;border-radius:50%;background:var(--c,var(--terra));color:var(--card);font-size:13px;font-weight:700;display:grid;place-items:center}
+.pn-lista{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}
+.pn-checks{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:6px 14px}
+.pn-check{white-space:normal;align-items:flex-start;overflow-wrap:anywhere;min-width:0}.pn-check input{margin-top:3px;flex:none}
+.pn-check.on span{text-decoration:line-through;color:var(--muted)}
+@media (max-width:640px){.pn{grid-template-columns:minmax(0,1fr)}.pn-cards,.pn-checks{grid-template-columns:minmax(0,1fr)}.pn-nums{grid-template-columns:repeat(2,minmax(0,1fr))}}
+/* Imprimir o painel: só os cartões, sem a ficha em volta */
+@media print{
+  body.imprimindo-painel{background:#fff;color:#000;--ink:#1C1A17;--muted:#555;--card:#fff;--card2:#f6f4f0;--line:#ccc;--paper:#fff}
+  body.imprimindo-painel>*:not(#sheet){display:none!important}
+  body.imprimindo-painel #sheet{position:static}
+  body.imprimindo-painel .sheet-bg,body.imprimindo-painel .sheet-h .x,body.imprimindo-painel .sheet-seg,body.imprimindo-painel .sheet-f,body.imprimindo-painel .sheet-body>:not(.pn){display:none!important}
+  body.imprimindo-painel .sheet-card{position:static;transform:none;width:auto;box-shadow:none;border:0;overflow:visible;border-radius:0}
+  body.imprimindo-painel .sheet-body{overflow:visible;padding:0}
+  body.imprimindo-painel .pn-sec,body.imprimindo-painel .pn-num,body.imprimindo-painel .pn-card{break-inside:avoid;background:#fff}
+  body.imprimindo-painel .pn-cab{background:#fff}
+}

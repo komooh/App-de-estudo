@@ -62,7 +62,8 @@
   const ui = { tab: "agenda", up: { disc: null, modo: "arquivo", temaId: null, temaNome: "", files: [] }, cal: { file: null, busy: false, msg: null, provas: null }, disc: null, qMode: "prat", qDisc: "", qIdx: 0, qAns: null, calY: today().getFullYear(), calM: today().getMonth(), calView: "mes", calDate: iso(today()), vMode: "ev", calcDisc: null, genBusy: false, genMsg: "" };
   const RES = {}, RESLOAD = {}, MAPA = {}, MAPLOAD = {}, LAMURL = {};
   const FC = {}, FCDISC = {};              // flash cards: por tema (lista) e matérias já carregadas
-  const MODOS_FICHA = { res: "Resumo", mapa: "Mapa mental", flash: "Flash cards" };
+  const MODOS_FICHA = { res: "Resumo", mapa: "Mapa mental", flash: "Flash cards", painel: "Painel" };
+  const PAINEL = {};                        // painel do tema: dados (ou null = ainda não tem)
   const ativo = () => !!document.getElementById("painel");
 
   const discById = (id) => S.disc.find((d) => d.id == id);
@@ -93,7 +94,7 @@
     const ids = (disc || []).map((d) => d.id);
     const vazio = Promise.resolve({ data: [] });
     const porDisc = (t, cols) => ids.length ? sb.from(t).select(cols).in("disciplina_id", ids) : vazio;
-    const [temas, provas, notas, mats, res, mapas, pref, fac, hor, cal, ev, ligas, horas, uso, facs, docs, fcs] = await Promise.all([
+    const [temas, provas, notas, mats, res, mapas, pref, fac, hor, cal, ev, ligas, horas, uso, facs, docs, fcs, pns] = await Promise.all([
       porDisc("temas", "*"), porDisc("provas", "*"), porDisc("notas", "disciplina_id,campo,valor"),
       sb.from("materiais").select("id,nome,status,tema_id,disciplina_id,mime,fonte_id").eq("ignorado", false),
       sb.from("resumos").select("tema_id"), sb.from("mapas").select("tema_id"),
@@ -105,7 +106,7 @@
       sb.from("uso_ia").select("*").eq("mes", mesAtual()).maybeSingle(),
       sb.from("faculdades").select("id,nome").eq("ativa", true).order("nome"),
       sb.from("documentos").select("*").order("criado_em", { ascending: false }).limit(100),
-      sb.from("flashcards").select("tema_id"),
+      sb.from("flashcards").select("tema_id"), sb.from("paineis").select("tema_id"),
     ]);
     const falta06 = [pref, hor, cal, ev, mapas].some((r) => r.error && erroBanco(r.error));
     const notasMap = {};
@@ -118,8 +119,9 @@
       horarios: hor.data || [], cal: cal.data || [], eventos: ev.data || [], ligas: ligas.data || [], horas: horas.data || [],
       uso: uso.data || {}, questoes: null, laminas: null, faculdades: facs.data || [], docs: docs.data || [],
       fcIds: new Set((fcs.data || []).map((r) => r.tema_id)), falta12: !!(fcs.error && erroBanco(fcs.error)),
+      painelIds: new Set((pns.data || []).map((r) => r.tema_id)),
     };
-    Object.keys(FC).forEach((k) => delete FC[k]); Object.keys(FCDISC).forEach((k) => delete FCDISC[k]);
+    Object.keys(FC).forEach((k) => delete FC[k]); Object.keys(PAINEL).forEach((k) => delete PAINEL[k]); Object.keys(FCDISC).forEach((k) => delete FCDISC[k]);
   }
   async function carregarQuestoes() {
     const ids = S.disc.map((d) => d.id);
@@ -168,7 +170,7 @@
         <div class="bar" style="margin-top:10px;height:7px"><i style="width:${p}%;background:var(--terra)"></i></div>
         <div class="tgrid">${ts.length ? ts.map((t) => `<div class="topic">${t.prova ? `<span class="chip ${/prát|prat/i.test(t.prova) ? "pv-pr" : "pv-te"}" style="align-self:flex-start">${esc(t.prova)}</span>` : ""}
           <div class="topic-h"><h3>${esc(t.nome)}</h3></div>
-          <div class="tbtns"><button class="btn" data-a="openRes" data-id="${t.id}">Resumo${S.resIds.has(t.id) ? " ✓" : ""}</button><button class="btn" data-a="openMapa" data-id="${t.id}">Mapa mental</button><button class="btn" data-a="openFlash" data-id="${t.id}">Flash cards${S.fcIds.has(t.id) ? " ✓" : ""}</button></div>
+          <div class="tbtns"><button class="btn" data-a="openRes" data-id="${t.id}">Resumo${S.resIds.has(t.id) ? " ✓" : ""}</button><button class="btn" data-a="openMapa" data-id="${t.id}">Mapa mental</button><button class="btn" data-a="openFlash" data-id="${t.id}">Flash cards${S.fcIds.has(t.id) ? " ✓" : ""}</button><button class="btn" data-a="openPainel" data-id="${t.id}">Painel${S.painelIds.has(t.id) ? " ✓" : ""}</button></div>
           ${Array.isArray(t.itens) && t.itens.length ? `<div class="lams">${t.itens.map((i) => `<span>${esc(i)}</span>`).join("")}</div>` : ""}${matInfo(t)}
           ${[["aula", "Aula assistida"], ["resumo_ok", "Resumo / revisão"], ["questoes_ok", "Questões feitas"]].map(([k, l]) => `<label class="check ${t[k] ? "on" : ""}"><input type="checkbox" data-a="tick" data-id="${t.id}" data-k="${k}" ${t[k] ? "checked" : ""}><span>${l}</span></label>`).join("")}
         </div>`).join("") : `<div class="empty" style="grid-column:1/-1">Nenhum conteúdo ainda. Cadastre os temas que caem nas provas em ${lnkCfg("conteudos", ` data-d="${d.id}"`)}, envie os arquivos do professor em <button class="lnk" data-a="upAbrir" data-id="${d.id}">Configurações → Enviar arquivos</button> ou ligue sua pasta do Google Drive em ${lnkCfg("drive")}: cada arquivo vira um tema.</div>`}</div>
@@ -1313,6 +1315,7 @@
       if (t.status !== "pronta") { if (t.tipo === "questoes" && ui.genTarefa === t.id) { ui.genMsg = t.erro || "Não deu certo."; ui.genTarefa = null; } if ((t.tipo === "documento" || t.tipo === "calendario") && ui.cal.tarefa === t.id) ui.cal = { file: null, busy: false, provas: null, msg: { bad: true, t: t.erro || "Não consegui ler o documento." } }; continue; }
       if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; S.resIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode !== "mapa") { loadRes(r.tema_id); Tarefas.vista([t.id]); } }
       if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; S.mapaIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode === "mapa") { ui.mmCol = {}; loadMapa(r.tema_id); Tarefas.vista([t.id]); } }
+      if (t.tipo === "painel" && r.tema_id) { delete PAINEL[r.tema_id]; S.painelIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode === "painel") { loadPainel(r.tema_id); Tarefas.vista([t.id]); } }
       if (t.tipo === "flashcards" && r.tema_id) { delete FC[r.tema_id]; if (r.disciplina_id) delete FCDISC[r.disciplina_id]; S.fcIds.add(r.tema_id); if (ui.resumo === r.tema_id && ui.sheetMode === "flash") { loadFlash(r.tema_id); Tarefas.vista([t.id]); } else if (ui.tab === "quest" && ui.qMode === "flash" && ui.fcDisc == r.disciplina_id) loadFlashDisc(r.disciplina_id); }
       if (t.tipo === "questoes") { questoes = true; if (ui.genTarefa === t.id) { ui.genTarefa = null; ui.qDisc = r.disciplina_id; ui.genMsg = msgQuestoes(r); } }
       if ((t.tipo === "documento" || t.tipo === "calendario") && ui.cal.tarefa === t.id && ui.tab === "config") { aplicarCalendario(t); Tarefas.vista([t.id]); }
@@ -1326,6 +1329,7 @@
     if (t.tipo === "resumo" && r.tema_id) { delete RES[r.tema_id]; delete RESLOAD[r.tema_id]; openRes(r.tema_id); }
     else if (t.tipo === "mapa" && r.tema_id) { delete MAPA[r.tema_id]; delete MAPLOAD[r.tema_id]; openMapa(r.tema_id); }
     else if (t.tipo === "flashcards" && r.tema_id) { delete FC[r.tema_id]; openFlash(r.tema_id); }
+    else if (t.tipo === "painel" && r.tema_id) { delete PAINEL[r.tema_id]; openPainel(r.tema_id); }
     else if (t.tipo === "questoes") { fecharSheet(); if (S.questoes) await carregarQuestoes().catch(() => { }); ui.tab = "quest"; ui.qMode = "prat"; ui.qDisc = r.disciplina_id || ""; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); window.scrollTo(0, 0); }
     else if (t.tipo === "documento" || t.tipo === "calendario") { fecharSheet(); aplicarCalendario(t); irCfg("enviar"); document.getElementById("docRev")?.scrollIntoView({ block: "start" }); }
   }
@@ -1338,7 +1342,7 @@
     const t = temaById(ui.resumo); if (!t) { ui.resumo = null; el.hidden = true; el.innerHTML = ""; document.body.style.overflow = ""; return; }
     const d = discById(t.disciplina_id) || { nome: "", id: t.disciplina_id };
     const r = RES[t.id], busy = ui.resBusy === t.id, sub = Array.isArray(t.itens) ? t.itens : [];
-    const extra = ui.sheetMode === "flash" ? fichaFlash(t) : null;
+    const extra = ui.sheetMode === "flash" ? fichaFlash(t) : ui.sheetMode === "painel" ? fichaPainel(t) : null;
     const isMap = ui.sheetMode === "mapa", mp = MAPA[t.id], mBusy = ui.mapBusy === t.id || emAndamento("mapa", t.id);
     const bgRes = emAndamento("resumo", t.id);
     const AVISO_BG = `<div class="fb bg-aviso" aria-live="polite"><b>A IA está trabalhando no servidor.</b> Pode fechar esta janela e usar o resto do site (ou até sair): quando ficar pronto, aparece um aviso. Acompanhe em <button class="lnk" data-a="verTarefas" data-abre-tarefas>Tarefas</button>.</div>`;
@@ -1535,6 +1539,65 @@
     const temas = vTemasSel("f", ui.fcDisc, gruposDe(todos, fcChave, (c) => grupoNome(c.tema_id, ""), ui.fcDisc), ["flash card selecionado", "flash cards selecionados"]);
     const deck = deckAtual();
     return `${sel}${temas}<div style="margin-top:14px">${deck && deck.cards.length ? vFlash(deck) : `<div class="empty">Nenhum tema marcado. Marque pelo menos um tema acima.</div>`}</div>`;
+  }
+
+  /* ================= PAINEL DO TEMA (resumo visual em cartões; imprimível) ================= */
+  const ls = { get(k) { try { return localStorage.getItem(k); } catch (_) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (_) { } } };
+  async function loadPainel(temaId) {
+    if (temaId in PAINEL) return; PAINEL[temaId] = undefined;
+    const { data, error } = await sb.from("paineis").select("*").eq("tema_id", temaId).maybeSingle();
+    if (error) { delete PAINEL[temaId]; if (erroBanco(error)) S.falta12 = true; else toast("Não consegui carregar o painel: " + error.message); }
+    else { PAINEL[temaId] = data?.dados ? { ...data.dados, criado_em: data.criado_em } : null; if (data) S.painelIds.add(temaId); }
+    if (ui.resumo === temaId) renderSheet();
+  }
+  function openPainel(id) { if (!temaById(id)) return; ui.resumo = +id; ui.sheetMode = "painel"; ui.pnErr = ""; renderSheet(); if (!(id in PAINEL)) loadPainel(+id); }
+  async function pnGerar(id) {
+    const t = temaById(id); if (!t || ui.pnBusy || emAndamento("painel", id)) return;
+    if (S.falta12) { ui.pnErr = FALTA12; return renderSheet(); }
+    ui.pnBusy = id; ui.pnErr = ""; renderSheet();
+    try { await pedirIA({ acao: "painel", tema_id: id }, id, `Ler o material e montar o painel: ${t.nome}`); }
+    catch (e) { ui.pnErr = e.message || "Não consegui pedir o painel agora. Tente de novo em instantes."; }
+    finally { ui.pnBusy = false; renderSheet(); }
+  }
+  // checklist: o que o aluno marcou fica neste navegador (por tema; pelo texto do item, então um painel novo começa limpo)
+  const pnChave = (temaId) => `painel:check:${temaId}`;
+  function pnMarcados(temaId) { try { const v = JSON.parse(ls.get(pnChave(temaId)) || "[]"); return new Set(Array.isArray(v) ? v.map(String) : []); } catch (_) { return new Set(); } }
+  function pnMarcar(temaId, k, on) { const m = pnMarcados(temaId); if (on) m.add(k); else m.delete(k); ls.set(pnChave(temaId), JSON.stringify([...m].slice(0, 100))); const l = document.querySelector(`.pn-check input[data-k="${CSS.escape(k)}"]`)?.closest("label"); if (l) l.classList.toggle("on", on); pnContar(temaId); }
+  function pnContar(temaId) { const el = document.getElementById("pnConta"); if (!el) return; const n = document.querySelectorAll(".pn-check input").length, f = document.querySelectorAll(".pn-check input:checked").length; el.textContent = `${f} de ${n}`; }
+  function pnImprimir() {
+    document.body.classList.add("imprimindo-painel");
+    const tira = () => { document.body.classList.remove("imprimindo-painel"); window.removeEventListener("afterprint", tira); };
+    window.addEventListener("afterprint", tira);
+    try { window.print(); } finally { setTimeout(tira, 1000); }
+  }
+  /** O painel: grade de cartões (números em destaque, comparação em tabela, passos numerados, checklist). Seções vazias não aparecem. */
+  function vPainel(p, temaId) {
+    const sec = (cls, titulo, corpo) => `<section class="pn-sec ${cls}"><h4>${titulo}</h4>${corpo}</section>`;
+    const marc = pnMarcados(temaId), chk = (p.checklist || []);
+    const cp = p.comparacao && Array.isArray(p.comparacao.colunas) && p.comparacao.colunas.length >= 2 && (p.comparacao.linhas || []).length ? p.comparacao : null;
+    return `<article class="pn" aria-label="Painel do tema">
+      <header class="pn-cab"><span class="mono">Painel do tema</span><h3>${esc(p.titulo || "")}</h3>${p.em_uma_frase ? `<p class="pn-frase">${esc(p.em_uma_frase)}</p>` : ""}</header>
+      ${(p.numeros || []).length ? sec("pn-numeros", "Números que caem", `<div class="pn-nums">${p.numeros.map((n) => `<div class="pn-num"><b class="tnum">${esc(n.valor)}</b><span>${esc(n.o_que_e)}</span></div>`).join("")}</div>`) : ""}
+      ${(p.conceitos || []).length ? sec("pn-conceitos", "Conceitos-chave", `<div class="pn-cards">${p.conceitos.map((c) => `<div class="pn-card"><b>${esc(c.nome)}</b><span>${esc(c.explicacao)}</span></div>`).join("")}</div>`) : ""}
+      ${cp ? sec("pn-comp", "Comparação", `<div class="tablewrap pn-tabwrap"><table class="pn-tab"><thead><tr>${cp.colunas.map((c) => `<th scope="col">${esc(c)}</th>`).join("")}</tr></thead><tbody>${cp.linhas.map((l) => `<tr>${cp.colunas.map((_, i) => i === 0 ? `<th scope="row">${esc(l[i] || "")}</th>` : `<td>${esc(l[i] || "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`) : ""}
+      ${(p.passos || []).length ? sec("pn-passos-sec", "Conduta passo a passo", `<ol class="pn-passos">${p.passos.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>`) : ""}
+      ${(p.pegadinhas || []).length ? sec("pn-peg", "Pegadinhas de prova", `<ul class="pn-lista">${p.pegadinhas.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`) : ""}
+      ${chk.length ? sec("pn-check-sec", `O que você tem que saber para a prova <span class="muted tnum" id="pnConta">${chk.filter((x) => marc.has(qNorm(x))).length} de ${chk.length}</span>`, `<div class="pn-checks">${chk.map((x) => { const k = qNorm(x), on = marc.has(k); return `<label class="check pn-check ${on ? "on" : ""}"><input type="checkbox" data-a="pnCheck" data-t="${temaId}" data-k="${esc(k)}" ${on ? "checked" : ""}><span>${esc(x)}</span></label>`; }).join("")}</div>`) : ""}
+    </article>`;
+  }
+  /** Ficha do tema no modo Painel: {corpo, rodape} */
+  function fichaPainel(t) {
+    const p = PAINEL[t.id], busy = ui.pnBusy === t.id || emAndamento("painel", t.id), carregado = t.id in PAINEL && p !== undefined;
+    const aviso = `<div class="fb bg-aviso" aria-live="polite"><b>A IA está montando o painel no servidor.</b> Pode fechar esta janela e usar o resto do site: quando ficar pronto, aparece um aviso. Acompanhe em <button class="lnk" data-a="verTarefas" data-abre-tarefas>Tarefas</button>.</div>`;
+    let corpo = ui.pnErr ? `<div class="fb bad" style="margin-bottom:12px">${esc(ui.pnErr)}</div>` : "";
+    if (S.falta12) corpo += `<div class="fb bad">${FALTA12}</div>`;
+    else if (!carregado) corpo += `<p class="muted">Carregando…</p>`;
+    else if (!p) corpo += busy ? aviso : `<div class="empty">Ainda não há painel deste tema. O painel junta o tema em cartões: a ideia em uma frase, os conceitos, os números que caem, a comparação, a conduta, as pegadinhas e o que você tem que saber. É feito só com o seu material, quando você pede.<br><button class="btn solid" data-a="pnGerar" data-id="${t.id}" style="margin-top:10px">Gerar painel</button></div>`;
+    else corpo += (busy ? aviso : "") + vPainel(p, t.id)
+      + `<div class="exp-row"><span class="mono" style="font-size:11px">Imprimir ou salvar em PDF</span><div class="row" style="gap:8px"><button class="btn" data-a="pnImprimir">Imprimir</button></div></div>`;
+    corpo += `<p class="muted" style="font-size:12.5px;margin-top:12px">${esc(usoTxt("mapas", "limite_mapas_mes", "mapas mentais e painéis"))}. O painel é feito por IA só com o seu material e pode conter erros: confira.</p>`;
+    const rodape = busy ? `<button class="btn" disabled>Gerando…</button>` : S.falta12 || !carregado ? "" : `<button class="btn" data-a="pnGerar" data-id="${t.id}">${p ? "Gerar painel de novo" : "Gerar painel"}</button>`;
+    return { corpo, rodape };
   }
 
   /* ----- mapa mental (SVG) ----- */
@@ -1768,8 +1831,12 @@
       case "openRes": if (id) openRes(+id); break;
       case "closeRes": fecharSheet(); break;
       case "openMapa": if (id) openMapa(+id); break;
-      case "sheetMode": if (b.dataset.v === "mapa") openMapa(ui.resumo); else if (b.dataset.v === "flash") openFlash(ui.resumo); else { ui.sheetMode = "res"; renderSheet(); if (!RES[ui.resumo]) loadRes(ui.resumo); } break;
+      case "sheetMode": if (b.dataset.v === "mapa") openMapa(ui.resumo); else if (b.dataset.v === "flash") openFlash(ui.resumo); else if (b.dataset.v === "painel") openPainel(ui.resumo); else { ui.sheetMode = "res"; renderSheet(); if (!RES[ui.resumo]) loadRes(ui.resumo); } break;
       case "openFlash": if (id) openFlash(+id); break;
+      case "openPainel": if (id) openPainel(+id); break;
+      case "pnGerar": pnGerar(+id); break;
+      case "pnImprimir": pnImprimir(); break;
+      case "pnCheck": pnMarcar(+b.dataset.t, b.dataset.k, b.checked); break;
       case "fcGerar": fcGerar(+id, b.dataset.mais === "1"); break;
       case "fcAskDel": ui.fcConfDel = +id; renderSheet(); break;
       case "fcNaoDel": ui.fcConfDel = null; renderSheet(); break;

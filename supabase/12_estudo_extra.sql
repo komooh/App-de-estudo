@@ -7,6 +7,8 @@
 --     O aluno lê, apaga e só muda a caixa da revisão (caixa e proxima: revisão espaçada simples).
 --   - limite mensal de gerações de flash cards (perfis.limite_flashcards_mes, 10 por padrão;
 --     contador uso_ia.flashcards). Só o administrador muda o limite.
+--   - paineis: o "painel do tema" (resumo visual em cartões), um por tema, feito pela IA (quem grava é
+--     o servidor; o aluno lê e apaga). Conta no limite de mapas mentais (não tem limite próprio).
 -- =====================================================================
 
 -- ---------- Flash cards ----------
@@ -95,6 +97,26 @@ begin
 end $$;
 revoke all on function public.ia_uso(uuid, text, integer, bigint, bigint, boolean) from public, anon, authenticated;
 grant execute on function public.ia_uso(uuid, text, integer, bigint, bigint, boolean) to service_role;
+
+-- ---------- Painel do tema ----------
+create table if not exists public.paineis (
+  tema_id    bigint primary key references public.temas(id) on delete cascade,   -- um por tema (e o tema é de um aluno só)
+  aluno_id   uuid not null default auth.uid() references public.perfis(id) on delete cascade,
+  dados      jsonb not null check (pg_column_size(dados) < 60000),
+  criado_em  timestamptz not null default now(),
+  unique (aluno_id, tema_id)
+);
+alter table public.paineis enable row level security;
+drop policy if exists dono_ler on public.paineis;
+create policy dono_ler on public.paineis for select to authenticated
+  using (aluno_id = auth.uid() and public.acesso_ok());
+drop policy if exists dono_apagar on public.paineis;
+create policy dono_apagar on public.paineis for delete to authenticated
+  using (aluno_id = auth.uid() and public.acesso_ok());
+drop policy if exists admin_ler on public.paineis;
+create policy admin_ler on public.paineis for select to authenticated using (public.is_admin());
+revoke all on public.paineis from anon, authenticated;
+grant select, delete on public.paineis to authenticated;
 
 -- ---------- Tarefas: os tipos novos ----------
 alter table public.tarefas drop constraint if exists tarefas_tipo_check;

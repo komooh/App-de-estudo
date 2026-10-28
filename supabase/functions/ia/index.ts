@@ -7,6 +7,8 @@
 //        (instrucao_extra: pedido de estilo só para este resumo, até 500 letras; a "memória do resumo"
 //         do aluno vem da tabela preferencias. Os dois são preferências de ESTILO, nunca regras.)
 //   POST {acao:"mapa",     tema_id}                              -> {mapa}
+//   POST {acao:"flashcards", tema_id, mais?:true}                 -> {salvos}   (15 a 30 cards do material/resumo do tema)
+//   POST {acao:"painel",   tema_id}                              -> {painel}   (resumo visual em cartões; conta no limite de mapas)
 //   POST {acao:"questoes", disciplina_id, tema, tema_id?, tipo:"mc"|"vf"|"rel"|"dis", n} -> {questoes, repetidas}
 //   POST {acao:"documento" (ou "calendario"), texto? e/ou imagem_caminhos?:[...] | imagem?:{mime,base64}, semestre?, turma?, materias?, nome?}
 //        -> {tipo, titulo, resumo, provas, eventos, horarios, materias, notas, aviso, semestre, turma}
@@ -407,6 +409,56 @@ export function limparFlashcards(out: Record<string, unknown> | null, jaTem: str
     if (res.length >= max) break;
   }
   return res;
+}
+
+// ======================= painel do tema (resumo visual em cartões) =======================
+export const FORMATO_PAINEL = `{"titulo":"...","em_uma_frase":"...","conceitos":[{"nome":"...","explicacao":"..."}],"numeros":[{"valor":"...","o_que_e":"..."}],"comparacao":{"colunas":["...","..."],"linhas":[["...","..."]]},"passos":["..."],"pegadinhas":["..."],"checklist":["..."]}`;
+export function promptPainel(c: Contexto, base: string, memoria: string | null = null): string {
+  return `${cabecalho(c, "Você monta o PAINEL do tema: um resumo visual em cartões")}
+
+O que vai em cada parte (todas curtas e diretas, para caber em cartões):
+- "titulo": o nome do tema.
+- "em_uma_frase": o tema inteiro em uma frase.
+- "conceitos": de 3 a 8 conceitos-chave; "nome" curto e "explicacao" em até 2 linhas.
+- "numeros": doses, valores de referência, valores de corte, porcentagens, tempos e escores QUE APARECEM NO MATERIAL; "valor" só o número com a unidade (ex.: "5 mg/kg", "> 140/90 mmHg") e "o_que_e" em uma linha. Se o material não tiver números, deixe [].
+- "comparacao": uma tabela só quando o material comparar 2 ou mais itens (fármacos, doenças, achados): "colunas" com 2 a 5 títulos e "linhas" com uma lista por item, do mesmo tamanho das colunas. Se não houver comparação no material, use {"colunas":[],"linhas":[]}.
+- "passos": a conduta ou o fluxo em ordem (diagnóstico, tratamento, atendimento), um passo por item, só se o material trouxer; senão [].
+- "pegadinhas": o que costuma confundir na prova, só a partir do material; senão [].
+- "checklist": de 4 a 10 itens do tipo "o que você tem que saber para a prova", cada um uma frase curta começando por verbo (ex.: "Saber o antídoto da heparina").
+Regras:
+- Use SÓ o que está no material abaixo. Nunca invente dados, doses, valores, porcentagens, nomes ou passos. Parte sem informação no material fica vazia ([] ou "").
+- Português do Brasil; quando o nome usado na prova em espanhol ajudar, coloque entre parênteses.
+- Sem Markdown dentro dos textos.${blocoMemoria("painel", memoria)}
+Responda SOMENTE com JSON: ${FORMATO_PAINEL}
+
+${AVISO_FONTES}
+${base}`;
+}
+export type Painel = { titulo: string; em_uma_frase: string; conceitos: { nome: string; explicacao: string }[]; numeros: { valor: string; o_que_e: string }[];
+  comparacao: { colunas: string[]; linhas: string[][] } | null; passos: string[]; pegadinhas: string[]; checklist: string[] };
+/** Confere o painel da IA: só texto, tamanhos e quantidades limitados, sem repetidos, tabela com as linhas do tamanho das colunas. */
+export function limparPainel(out: Record<string, unknown> | null, tema: string): Painel | null {
+  const o = out || {};
+  const t = (x: unknown, max: number) => String(typeof x === "string" || typeof x === "number" ? x : "").replace(/[\u0000-\u001F\u007F]/g, " ").replace(/\s+/g, " ").trim().slice(0, max).trim();
+  const lista = (k: string) => (Array.isArray(o[k]) ? o[k] as unknown[] : []);
+  const unicos = <T>(xs: T[], chave: (x: T) => string, max: number) => { const v = new Set<string>(), r: T[] = []; for (const x of xs) { const k = qNorm(chave(x)); if (!k || v.has(k)) continue; v.add(k); r.push(x); if (r.length >= max) break; } return r; };
+  const textos = (k: string, tam: number, max: number) => unicos(lista(k).map((x) => t(x, tam)).filter(Boolean), (x) => x, max);
+  const conceitos = unicos(lista("conceitos").filter((x) => x && typeof x === "object").map((x) => { const c = x as Q; return { nome: t(c.nome, 120), explicacao: t(c.explicacao, 400) }; }).filter((c) => c.nome && c.explicacao), (c) => c.nome, 10);
+  const numeros = unicos(lista("numeros").filter((x) => x && typeof x === "object").map((x) => { const c = x as Q; return { valor: t(c.valor, 60), o_que_e: t(c.o_que_e, 200) }; }).filter((c) => c.valor && c.o_que_e), (c) => c.valor + " " + c.o_que_e, 12);
+  let comparacao: Painel["comparacao"] = null;
+  const cp = o.comparacao && typeof o.comparacao === "object" ? o.comparacao as Q : null;
+  if (cp && Array.isArray(cp.colunas) && Array.isArray(cp.linhas)) {
+    const colunas = (cp.colunas as unknown[]).map((x) => t(x, 60)).slice(0, 6);
+    if (colunas.length >= 2 && colunas.every(Boolean)) {
+      const linhas = (cp.linhas as unknown[]).filter(Array.isArray).map((l) => { const a = (l as unknown[]).map((x) => t(x, 200)).slice(0, colunas.length); while (a.length < colunas.length) a.push(""); return a; })
+        .filter((l) => l.filter(Boolean).length >= 2).slice(0, 12);
+      if (linhas.length) comparacao = { colunas, linhas };
+    }
+  }
+  const p: Painel = { titulo: t(o.titulo, 160) || tema.slice(0, 160), em_uma_frase: t(o.em_uma_frase, 300), conceitos, numeros, comparacao,
+    passos: textos("passos", 300, 12), pegadinhas: textos("pegadinhas", 300, 10), checklist: textos("checklist", 200, 15) };
+  const algo = p.em_uma_frase || p.conceitos.length || p.numeros.length || p.comparacao || p.passos.length || p.pegadinhas.length || p.checklist.length;
+  return algo ? p : null;
 }
 
 /** Consultas para achar o tema nos livros: o nome todo; se não achar, as palavras principais com "or". */
@@ -829,6 +881,11 @@ export async function validar(ctx: Ctx, b: Record<string, unknown>, fundo: boole
     await temBase(admin, uid, t.id);
     return { tipo: "flashcards", titulo: `Flash cards: ${t.nome}`, entrada: { tema_id: t.id, mais: b.mais === true }, reserva: { tipo: "flashcards", n: 1 } };
   }
+  if (b.acao === "painel") {
+    const t = await carregarTema(admin, uid, b.tema_id);
+    await temBase(admin, uid, t.id);
+    return { tipo: "painel", titulo: `Painel do tema: ${t.nome}`, entrada: { tema_id: t.id }, reserva: { tipo: "mapas", n: 1 } };
+  }
   if (b.acao === "questoes") {
     // na hora: um lote de um tipo {tipo, n}; em segundo plano: a mistura toda {mix:{mc,vf,rel,dis}}
     const mix: Record<string, number> = {};
@@ -992,6 +1049,19 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
     const { error } = await admin.from("flashcards").insert(cards.map((x) => ({ aluno_id: uid, disciplina_id: t.disciplina_id, tema_id: t.id, ...x })));
     if (error) { console.error("salvar flashcards:", error.message); throw new ErroIA(falta12(error.message) ? FALTA_12 : "Os flash cards ficaram prontos, mas não consegui salvar. Tente de novo.", 500); }
     return { resposta: { salvos: cards.length }, resultado: { tema_id: t.id, disciplina_id: t.disciplina_id, tema: t.nome, salvos: cards.length }, usadas: 1 };
+  }
+
+  if (plano.tipo === "painel") {
+    const t = await carregarTema(admin, uid, e.tema_id);
+    const [base, mem] = await Promise.all([baseDoTema(ctx, t, LIMITE_BASE), memoriaDe(admin, uid, "painel")]);
+    const c: Contexto = { ...ctxBase, materia: t.disciplinas.nome, professor: t.disciplinas.professor, tema: t.nome, prova: t.prova, itens: itensDe(t.itens) };
+    const r = await pedirJSON(promptPainel(c, base, mem), MAX_TOKENS.painel, "painel", gasto, ctx.fim);
+    const dados = limparPainel(r.out, t.nome);
+    if (!dados) throw new ErroIA("A IA não devolveu um painel válido. Tente de novo.", 502);
+    const linha = { tema_id: t.id, aluno_id: uid, dados, criado_em: new Date().toISOString() };
+    const { error } = await admin.from("paineis").upsert(linha, { onConflict: "tema_id" });
+    if (error) { console.error("salvar painel:", error.message); throw new ErroIA(falta12(error.message) ? FALTA_12 : "O painel ficou pronto, mas não consegui salvar. Tente de novo.", 500); }
+    return { resposta: { painel: linha }, resultado: { tema_id: t.id, disciplina_id: t.disciplina_id, tema: t.nome }, usadas: 1 };
   }
 
   if (plano.tipo === "questoes") {
