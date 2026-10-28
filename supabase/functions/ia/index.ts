@@ -23,7 +23,8 @@ export const MODELO_PADRAO = "claude-haiku-5-5";
 const modelo = () => (Deno.env.get("IA_MODELO") || MODELO_PADRAO).trim();
 const API_ANTHROPIC = "https://api.anthropic.com/v1/messages";
 const PRAZO_MS = 125_000;                    // a função do Supabase tem ~150 s no total
-const MAX_TOKENS = { resumo: 8000, mapa: 3500, questoes: 7000, calendario: 4000 };
+const MAX_TOKENS = { resumo: 8000, mapa: 5000, questoes: 7000, calendario: 8000 };
+const TETO_TOKENS = 16000;                   // segunda tentativa quando a resposta é cortada (stop_reason "max_tokens")
 const LIMITE_CALENDARIO = 60_000;            // letras do texto do calendário
 const MAX_IMAGEM_B64 = 4_000_000;            // ~3 MB de imagem (o site manda até 1600 px em JPEG)
 const LIMITE_MATERIAL = { resumo: 60_000, mapa: 40_000, questoes: 24_000 }; // letras do material do professor
@@ -210,12 +211,53 @@ Responda SOMENTE com JSON: {"ramos":[{"t":"...","filhos":[{"t":"...","filhos":[]
 ${base.trim() ? `${AVISO_FONTES}\n<${deResumo ? "resumo_do_tema" : "material_do_professor"}>\n${base}\n</${deResumo ? "resumo_do_tema" : "material_do_professor"}>` : "Não há material; use os livros-base (Robbins, Harrison, Goodman & Gilman)."}`;
 }
 
-/** Tira o JSON da resposta (aceita ```json ... ``` e texto antes/depois). */
+/** Posição do fecho do objeto/lista que começa em s[i] (respeita textos entre aspas); -1 se a resposta foi cortada antes. */
+function fimDoBloco(s: string, i: number): number {
+  let prof = 0, str = false, barra = false;
+  for (let k = i; k < s.length; k++) {
+    const c = s[k];
+    if (str) { if (barra) barra = false; else if (c === "\\") barra = true; else if (c === '"') str = false; continue; }
+    if (c === '"') str = true;
+    else if (c === "{" || c === "[") prof++;
+    else if ((c === "}" || c === "]") && --prof === 0) return k;
+  }
+  return -1;
+}
+const objeto = (x: string): Record<string, unknown> | null => {
+  try { const o = JSON.parse(x); return o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { return null; }
+};
+/**
+ * Tira o JSON da resposta da IA. Aceita: só o JSON; ```json ... ```; texto antes/depois;
+ * texto com chaves soltas antes do JSON. Devolve null se não houver um objeto JSON completo.
+ */
 export function extrairJSON(texto: string): Record<string, unknown> | null {
   const s = String(texto || "");
+  for (const m of s.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) { const o = objeto(m[1].trim()); if (o) return o; }
   const a = s.indexOf("{"), b = s.lastIndexOf("}");
-  if (a < 0 || b <= a) return null;
-  try { const o = JSON.parse(s.slice(a, b + 1)); return o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { return null; }
+  if (a < 0) return null;
+  if (b > a) { const o = objeto(s.slice(a, b + 1)); if (o) return o; }
+  // cada bloco {...} de primeiro nível, do começo ao fim
+  for (let i = a, n = 0; i >= 0 && n < 40; n++) {
+    const f = fimDoBloco(s, i); if (f < 0) break;
+    const o = objeto(s.slice(i, f + 1)); if (o) return o;
+    i = s.indexOf("{", f + 1);
+  }
+  return null;
+}
+/** Resposta cortada no meio: os objetos COMPLETOS da lista "chave" (ex.: "provas":[{..},{..},{..cortado). */
+export function objetosDaLista(texto: string, chave: string): Record<string, unknown>[] {
+  const s = String(texto || "");
+  const m = new RegExp(`"${chave}"\\s*:\\s*\\[`).exec(s); if (!m) return [];
+  const out: Record<string, unknown>[] = [];
+  let i = m.index + m[0].length;
+  while (out.length < 200) {
+    while (i < s.length && /[\s,]/.test(s[i])) i++;
+    if (s[i] !== "{") break;
+    const f = fimDoBloco(s, i); if (f < 0) break;
+    const o = objeto(s.slice(i, f + 1)); if (o) out.push(o);
+    i = f + 1;
+  }
+  return out;
 }
 
 type Q = Record<string, unknown>;
