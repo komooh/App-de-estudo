@@ -1,4 +1,11 @@
 <!doctype html>
+<!--
+  MODELO (RASCUNHO). Este texto foi escrito para descrever o funcionamento real do site, mas NÃO é
+  revisão jurídica. Antes de vender o acesso, peça para um advogado (Brasil e Paraguai) revisar este
+  arquivo e o privacidade.html, e preencha os campos entre colchetes, como [CIDADE/PAÍS].
+  Mudou algo importante aqui? Atualize a "Versão" e a data abaixo e suba a versão no banco
+  (update public.termos_vigente set versao = versao + 1;) para todos aceitarem de novo.
+-->
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
@@ -8,52 +15,95 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=DM+Mono:wght@400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap">
 <link rel="stylesheet" href="/assets/style.css">
-<style>.legal h2{font-size:19px;margin:26px 0 8px}.legal p,.legal li{max-width:70ch}</style>
+<style>.legal h2{font-size:19px;margin:28px 0 8px}.legal p,.legal li{max-width:70ch}.legal li{margin-bottom:4px}.legal .es{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 18px 10px;margin:18px 0 8px}.legal .es h2{margin-top:12px}</style>
 </head>
 <body>
 <div class="wrap legal">
   <header class="top"><a class="brand" href="/">Painel de Estudos</a></header>
   <h1 style="font-family:var(--f-display);font-size:34px;letter-spacing:-.02em;margin:24px 0 4px">Termos de uso</h1>
-  <p class="mono">Última atualização: 27 de outubro de 2026</p>
+  <p class="mono">Versão 1 · Última atualização: 28 de outubro de 2026</p>
 
-  <h2>1. O serviço</h2>
-  <p>O Painel de Estudos é uma ferramenta para organizar matérias, provas, notas e revisões. O site não vende conteúdo de aulas nem livros: cada aluno monta o próprio painel com o próprio material.</p>
+  <section class="es" lang="es">
+    <h2>Resumen en español</h2>
+    <ul>
+      <li>El Painel de Estudos es una herramienta para organizar tus estudios. Lo administra <span data-contato="responsavel"></span>.</li>
+      <li>La cuenta la crea el administrador. El pago se hace fuera del sitio. Si el plan vence o no se renueva, el acceso se bloquea.</li>
+      <li>Los resúmenes, preguntas y mapas los genera una inteligencia artificial: pueden tener errores y no reemplazan los libros, al profesor ni la orientación profesional. Siempre revisá el contenido.</li>
+      <li>Uso solo educativo. Nada en el sitio es consejo médico.</li>
+      <li>Lo que subís sigue siendo tuyo. Sos responsable de tener derecho a usar los archivos y libros que subís. Guardamos el texto, no los archivos.</li>
+      <li>Tenés que tener 18 años o más.</li>
+      <li>Si los términos cambian, te vamos a pedir que los aceptes de nuevo.</li>
+    </ul>
+    <p>La versión en portugués es la que vale. Dudas: contacto en el pie de página.</p>
+  </section>
 
-  <h2>2. Conta e acesso</h2>
+  <h2>1. Quem somos</h2>
+  <p>O Painel de Estudos é um site criado e administrado por <span data-contato="responsavel"></span>. Nestes termos, "nós" é o responsável pelo site e "você" é quem usa o site. O contato está no rodapé de todas as páginas.</p>
+
+  <h2>2. O que o site faz</h2>
+  <p>O site ajuda estudantes universitários a organizar o semestre: matérias, provas, notas, agenda de estudo e materiais. Quando você pede, uma inteligência artificial gera resumos, questões e mapas mentais a partir do material que você mesmo colocou no site.</p>
+  <p>O site não vende livros, aulas nem conteúdo pronto. Cada aluno monta o próprio painel com o próprio material.</p>
+
+  <h2>3. Uso educativo, não é orientação médica</h2>
+  <p>O site é só para estudo. Nada do que aparece nele é orientação médica, diagnóstico, prescrição ou recomendação para atender pacientes. Para isso, valem os livros, os professores, os protocolos oficiais e um profissional habilitado.</p>
+
+  <h2>4. Conteúdo gerado por inteligência artificial</h2>
   <ul>
-    <li>A conta é pessoal. Não compartilhe o seu acesso.</li>
-    <li>O acesso é liberado pelo administrador depois do pagamento combinado e vale até a data de vencimento do seu plano.</li>
-    <li>Se o pagamento não for renovado, o acesso fica bloqueado e seus dados continuam guardados por até 6 meses.</li>
+    <li>Resumos, questões, mapas e a leitura de documentos (como calendários) são feitos por inteligência artificial e <b>podem conter erros, omissões ou informações desatualizadas</b>.</li>
+    <li>Eles não substituem os livros, o professor nem orientação profissional. Confira sempre com o material oficial antes de estudar ou de usar em prova.</li>
+    <li>Não garantimos resultado em provas nem aprovação.</li>
+    <li>Cada plano tem um limite mensal de gerações, que aparece no painel.</li>
   </ul>
 
-  <h2>3. Pagamento</h2>
-  <p>O pagamento é feito por fora do site, pela forma combinada com o administrador. O valor e o período de cada plano são informados antes da compra. Pedidos de reembolso são analisados caso a caso em até 7 dias após o pagamento.</p>
-
-  <h2>4. Inteligência artificial</h2>
+  <h2>5. Conta e acesso</h2>
   <ul>
-    <li>Resumos e questões são gerados por inteligência artificial e <b>podem conter erros</b>. Confira sempre com o livro, a aula e o professor.</li>
-    <li>O conteúdo gerado não substitui o material oficial da disciplina nem orientação médica.</li>
-    <li>Cada plano tem um limite mensal de gerações, informado no painel.</li>
+    <li>A conta é criada pelo administrador. Você entra com o seu e-mail e senha (ou com um link enviado por e-mail).</li>
+    <li>A conta é pessoal. Não compartilhe a sua senha nem o seu acesso. Você é responsável pelo que for feito com a sua conta.</li>
+    <li>Para usar o site, você precisa ter <b>18 anos ou mais</b>.</li>
+    <li>Na primeira entrada (e sempre que estes termos mudarem), o site pede que você leia e aceite estes termos e a política de privacidade. Guardamos qual versão você aceitou e quando.</li>
   </ul>
 
-  <h2>5. Material enviado por você</h2>
-  <p>Você é responsável pelo que envia ao site. Envie apenas material que você tem direito de usar para estudo pessoal. Seu material fica visível só para você e não é distribuído a outros alunos.</p>
+  <h2>6. Pagamento, vencimento e suspensão</h2>
+  <ul>
+    <li>O pagamento é feito por fora do site, pela forma combinada com o administrador. O valor e o período de cada plano são informados antes da compra. O site não recebe dados de cartão nem de conta bancária.</li>
+    <li>O acesso vale até a data de vencimento do seu plano. Se não for renovado, o acesso fica bloqueado. Seus dados continuam guardados por até 6 meses para você poder voltar (veja a <a href="/privacidade.html">política de privacidade</a>).</li>
+    <li>O administrador pode suspender ou encerrar uma conta que descumpra estes termos (item 8).</li>
+    <li>Pedidos de reembolso são analisados caso a caso. Fale com o contato do rodapé.</li>
+  </ul>
 
-  <h2>6. Uso proibido</h2>
+  <h2>7. O seu conteúdo</h2>
+  <ul>
+    <li>O que você coloca no site (materiais, anotações, notas, livros, textos) <b>continua sendo seu</b>. Você nos autoriza apenas a guardar e processar esse conteúdo para fazer o site funcionar para você, inclusive enviando o texto para a inteligência artificial quando você pede um resumo, questões ou um mapa.</li>
+    <li>Você declara que tem o direito de usar os arquivos e livros que envia e assume a responsabilidade por eles. Envie apenas material que você pode usar para estudo pessoal.</li>
+    <li>De arquivos como PDF, PowerPoint, Word e livros, o site guarda <b>só o texto</b>, não o arquivo. As exceções são imagens que você mesmo envia para aparecer no site: a foto de perfil e as imagens do laminário. A imagem de um documento importado fica guardada só até a IA terminar de ler.</li>
+    <li>O seu conteúdo fica visível só para você e não é mostrado nem distribuído a outros alunos. O administrador tem acesso técnico ao banco de dados (veja a política de privacidade).</li>
+  </ul>
+
+  <h2>8. O que não é permitido</h2>
   <ul>
     <li>Tentar acessar dados de outros alunos ou partes restritas do site.</li>
-    <li>Revender ou repassar o acesso.</li>
+    <li>Revender, emprestar ou repassar o acesso.</li>
     <li>Usar o site para distribuir material protegido por direitos autorais.</li>
+    <li>Atrapalhar o funcionamento do site ou usar a IA de forma automatizada ou abusiva.</li>
   </ul>
-  <p>Nesses casos, o acesso pode ser bloqueado sem reembolso.</p>
+  <p>Nesses casos, o acesso pode ser suspenso ou encerrado.</p>
 
-  <h2>7. Disponibilidade</h2>
-  <p>Fazemos o possível para o site ficar no ar o tempo todo, mas podem ocorrer interrupções para manutenção ou por falha de serviços de terceiros.</p>
+  <h2>9. Serviços de terceiros</h2>
+  <p>O site funciona com serviços de outras empresas: Supabase (banco de dados, login e arquivos), Cloudflare (hospedagem), Anthropic (inteligência artificial) e, se você conectar uma pasta, Google Drive (só leitura). Detalhes na <a href="/privacidade.html">política de privacidade</a>.</p>
 
-  <h2>8. Mudanças</h2>
-  <p>Estes termos podem mudar. Avisaremos por e-mail ou no painel antes de mudanças importantes.</p>
+  <h2>10. Disponibilidade e limites de responsabilidade</h2>
+  <p>Fazemos o possível para o site funcionar bem e ficar no ar, mas ele é oferecido como está. Podem ocorrer interrupções, erros ou perda de dados por manutenção ou por falhas nossas ou de serviços de terceiros. Guarde cópia dos seus materiais importantes. Na medida permitida pela lei, não respondemos por notas, resultados de prova ou decisões tomadas com base no conteúdo do site.</p>
 
-  <h2>9. Contato</h2>
+  <h2>11. Mudanças nestes termos</h2>
+  <p>Estes termos podem mudar. Quando isso acontecer, a versão sobe e, na próxima vez que você entrar, o site pede que você leia e aceite a versão nova antes de continuar. Se não concordar, você pode recusar e pedir a exclusão da sua conta.</p>
+
+  <h2>12. Cancelamento e exclusão</h2>
+  <p>Você pode parar de usar o site quando quiser e pedir a exclusão da sua conta e dos seus dados pelo link "Excluir minha conta" no rodapé ou pelo contato abaixo.</p>
+
+  <h2>13. Lei aplicável e foro</h2>
+  <p>Estes termos seguem as leis de [PAÍS]. Fica eleito o foro de [CIDADE/PAÍS], sem prejuízo dos direitos que a lei do seu país garante a você como consumidor.</p>
+
+  <h2>14. Contato</h2>
   <p>Dúvidas, cancelamento ou exclusão da conta: e-mail <span data-contato="email"></span> ou <span data-contato="telefone"></span>. Veja também a <a href="/privacidade.html">política de privacidade</a>.</p>
 </div>
 <script src="/assets/config.js"></script>

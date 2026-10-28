@@ -98,18 +98,92 @@
   document.getElementById("eu").onclick = () => perfilTela();
   document.getElementById("cfgBtn").onclick = () => abrirConfig();
   if (P.is_admin) document.getElementById("lnkAdmin").hidden = false;
-  // veio do e-mail de "esqueci a senha": pede a senha nova antes de tudo
+  // termos de uso: a versão atual vem do banco (09_termos.sql); aceite pendente = tela de aceite antes de tudo
+  const TERMOS = { atual: null, pendente: false, erro: null };
+  const ITENS_TERMOS = [
+    `Li e aceito os <a href="/termos.html" target="_blank" rel="noopener">Termos de Uso</a> e a <a href="/privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a>.`,
+    "Entendo que os resumos, questões e mapas são gerados por inteligência artificial, podem conter erros e não substituem os livros, o professor nem orientação profissional; devo conferir o conteúdo.",
+    "Entendo que as informações que eu colocar no site (materiais, notas, textos, livros) ficam gravadas e armazenadas para o funcionamento do serviço.",
+    "Declaro que tenho direito de usar os arquivos e livros que eu enviar e assumo a responsabilidade por eles.",
+    "Declaro ter 18 anos ou mais.",
+  ];
+  await checarTermos();
+  // veio do e-mail de "esqueci a senha": pede a senha nova antes de tudo (depois vem o aceite dos termos)
   if (sessionStorage.getItem("recuperando") === "1") return perfilTela(true);
+  return seguir();
 
-  if (!App.acessoOk(P)) {
-    const venceu = P.ativo && P.vence_em;
-    V.innerHTML = `<div class="hero"><h1>Acesso<span class="script">${venceu ? "vencido" : "pendente"}</span></h1></div>` + win("Seu acesso",
-      `<p style="margin:0">${venceu ? `Sua assinatura venceu em <b>${new Date(P.vence_em + "T12:00").toLocaleDateString("pt-BR")}</b>. Fale com o administrador para renovar; seus dados continuam guardados.` : "Sua conta ainda não foi liberada. Fale com o administrador da sua turma."}</p>`);
-    if (!P.is_admin) return;
+  // Depois do login: aceite dos termos, depois acesso, configuração guiada e o painel.
+  async function seguir() {
+    if (TERMOS.erro) return termosErro();
+    if (TERMOS.pendente) return termosTela();
+    if (!App.acessoOk(P)) {
+      const venceu = P.ativo && P.vence_em;
+      V.innerHTML = `<div class="hero"><h1>Acesso<span class="script">${venceu ? "vencido" : "pendente"}</span></h1></div>` + win("Seu acesso",
+        `<p style="margin:0">${venceu ? `Sua assinatura venceu em <b>${new Date(P.vence_em + "T12:00").toLocaleDateString("pt-BR")}</b>. Fale com o administrador para renovar; seus dados continuam guardados.` : "Sua conta ainda não foi liberada. Fale com o administrador da sua turma."}</p>`);
+      if (!P.is_admin) return;
+    }
+    if (!P.onboarding_ok) return onboarding();
+    document.getElementById("cfgBtn").hidden = false;
+    return home();
   }
-  if (!P.onboarding_ok) return onboarding();
-  document.getElementById("cfgBtn").hidden = false;
-  return home();
+
+  /* ================= ACEITE DOS TERMOS (primeira entrada e quando a versão muda) ================= */
+  async function checarTermos() {
+    const { data, error } = await sb.rpc("termos_versao_atual");
+    if (error) {
+      // 09_termos.sql ainda não rodou no Supabase: o site segue como antes (sem a tela de aceite)
+      if (/termos_versao_atual|schema cache|could not find/i.test(error.message || "")) { TERMOS.pendente = false; return; }
+      TERMOS.erro = error.message || "erro"; return;
+    }
+    TERMOS.atual = data; TERMOS.erro = null;
+    TERMOS.pendente = Number.isInteger(data) && !(P.termos_versao >= data);
+  }
+  function termosErro() {
+    V.innerHTML = win("Termos de uso", `<p style="margin:0">Não consegui conferir os termos de uso agora. Confira a internet e tente de novo.</p>
+      <div class="row" style="margin-top:14px"><button class="btn solid" id="termosDeNovo">Tentar de novo</button></div>`);
+    document.getElementById("termosDeNovo").onclick = () => location.reload();
+  }
+  function termosTela() {
+    window.Painel?.fechar(); V.onclick = null; V.onchange = null;
+    V.innerHTML = "";
+    const topo = ["eu", "lnkAdmin", "cfgBtn", "tarefasBtn"].map((id) => document.getElementById(id));
+    const antes = topo.map((el) => el.hidden); topo.forEach((el) => { el.hidden = true; });
+    const fundo = [...document.body.children]; fundo.forEach((el) => { el.inert = true; el.setAttribute("aria-hidden", "true"); });
+    const mudou = P.termos_versao != null;
+    const g = document.createElement("div");
+    g.className = "gate"; g.id = "termosGate"; g.setAttribute("role", "dialog"); g.setAttribute("aria-modal", "true"); g.setAttribute("aria-labelledby", "termosTit"); g.setAttribute("aria-describedby", "termosDesc");
+    g.innerHTML = `<div class="gate-in"><span class="brand">${esc(App.C.NOME_PRODUTO || "Painel de Estudos")}</span>
+      <h1 id="termosTit" tabindex="-1">${mudou ? "Os termos mudaram" : "Antes de começar"}</h1>
+      <p id="termosDesc" style="margin:0 0 4px">${mudou ? "Atualizamos os termos de uso desde o seu último aceite. Leia a versão nova e marque os itens para continuar." : "Leia e marque os itens abaixo para usar o site. Você faz isso uma vez (e de novo só se os termos mudarem)."}</p>`
+      + win("Termos de uso", `<form id="fTermos" novalidate><fieldset style="border:0;margin:0;padding:0"><legend class="mono" style="padding:0;margin-bottom:10px">Marque todos os itens</legend>
+        <ul class="gate-lista">${ITENS_TERMOS.map((t, i) => `<li><label class="gate-item" for="tAc${i}"><input type="checkbox" id="tAc${i}" name="t${i}" required><span>${t}</span></label></li>`).join("")}</ul></fieldset>
+        <p class="gate-falta" id="termosFalta" aria-live="polite"></p><div id="termosMsg" role="alert"></div>
+        <div class="gate-acoes"><button type="button" class="gate-recusar" id="termosRecusar">Recusar e sair</button>
+        <button class="btn solid" id="termosOk" disabled aria-describedby="termosFalta">Aceitar e continuar</button></div></form>`) + `</div>`;
+    document.body.appendChild(g);
+    const caixas = [...g.querySelectorAll('input[type="checkbox"]')], ok = g.querySelector("#termosOk"), falta = g.querySelector("#termosFalta");
+    const atualizar = () => { const n = caixas.filter((c) => c.checked).length; ok.disabled = n < caixas.length;
+      falta.textContent = n < caixas.length ? `Marque os ${caixas.length} itens para continuar (${n} de ${caixas.length}).` : "Tudo marcado. Pode continuar."; };
+    g.addEventListener("change", atualizar); atualizar();
+    g.querySelector("#termosRecusar").onclick = () => App.sair();
+    g.querySelector("#fTermos").onsubmit = async (e) => {
+      e.preventDefault(); if (caixas.some((c) => !c.checked)) return;
+      ok.disabled = true; ok.textContent = "Salvando…"; g.querySelector("#termosMsg").innerHTML = "";
+      const { error } = await sb.rpc("aceitar_termos", { p_versao: TERMOS.atual });
+      if (error) {
+        const mudouAgora = /mudaram|recarregue/i.test(error.message || "");
+        g.querySelector("#termosMsg").innerHTML = `<div class="msg bad">${mudouAgora ? "Os termos acabaram de mudar. Recarregue a página para ler a versão nova." : "Não consegui salvar o aceite: " + esc(error.message)}</div>`
+          + (mudouAgora ? `<button type="button" class="btn" style="margin-top:8px" onclick="location.reload()">Recarregar</button>` : "");
+        ok.textContent = "Aceitar e continuar"; atualizar(); return;
+      }
+      try { P = await App.meuPerfil(); } catch (_) { P.termos_versao = TERMOS.atual; }
+      TERMOS.pendente = false;
+      g.remove(); fundo.forEach((el) => { el.inert = false; el.removeAttribute("aria-hidden"); });
+      topo.forEach((el, i) => { el.hidden = antes[i]; });
+      toast("Termos aceitos"); seguir();
+    };
+    g.querySelector("#termosTit").focus();
+  }
 
   /* ================= CONFIGURAÇÃO GUIADA (primeira entrada) ================= */
   // novo=true: "Adicionar semestre" (o semestre de agora fica guardado; só o novo é montado)
@@ -270,7 +344,7 @@
   }
   function perfilTela(recuperando) {
     if (recuperando) sessionStorage.setItem("recuperando", "1");
-    const voltar = () => { if (location.hash) history.replaceState(null, "", location.pathname); if (!App.acessoOk(P) && !P.is_admin) return location.reload(); return P.onboarding_ok ? home() : onboarding(); };
+    const voltar = () => { if (location.hash) history.replaceState(null, "", location.pathname); if (TERMOS.pendente || TERMOS.erro) return seguir(); if (!App.acessoOk(P) && !P.is_admin) return location.reload(); return P.onboarding_ok ? home() : onboarding(); };
     window.Painel?.fechar(); V.onclick = null; V.onchange = null;
     V.innerHTML = `<div class="hero"><h1>Meu<span class="script">perfil</span></h1></div>`
       + (recuperando ? "" : win("Foto e nome", `<div class="perfil">

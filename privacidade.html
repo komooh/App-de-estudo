@@ -1,4 +1,11 @@
 <!doctype html>
+<!--
+  MODELO (RASCUNHO). Este texto foi escrito para descrever o que o site realmente coleta e faz, mas
+  NÃO é revisão jurídica. Antes de vender o acesso, peça para um advogado (Brasil e Paraguai) revisar
+  este arquivo e o termos.html, e preencha os campos entre colchetes, como [CIDADE/PAÍS].
+  Se o site passar a coletar outro dado ou a usar outro serviço, atualize esta página, a "Versão"
+  e suba a versão no banco (update public.termos_vigente set versao = versao + 1;).
+-->
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
@@ -8,52 +15,92 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=DM+Mono:wght@400&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&display=swap">
 <link rel="stylesheet" href="/assets/style.css">
-<style>.legal h2{font-size:19px;margin:26px 0 8px}.legal p,.legal li{max-width:70ch}</style>
+<style>.legal h2{font-size:19px;margin:28px 0 8px}.legal p,.legal li{max-width:70ch}.legal li{margin-bottom:4px}.legal .es{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px 18px 10px;margin:18px 0 8px}.legal .es h2{margin-top:12px}</style>
 </head>
 <body>
 <div class="wrap legal">
   <header class="top"><a class="brand" href="/">Painel de Estudos</a></header>
   <h1 style="font-family:var(--f-display);font-size:34px;letter-spacing:-.02em;margin:24px 0 4px">Política de privacidade</h1>
-  <p class="mono">Última atualização: 27 de outubro de 2026</p>
+  <p class="mono">Versão 1 · Última atualização: 28 de outubro de 2026</p>
 
-  <p>O Painel de Estudos é uma ferramenta de organização de estudos para estudantes universitários. Esta página explica quais dados guardamos, para que servem e como você pode pedir para apagá-los.</p>
+  <section class="es" lang="es">
+    <h2>Resumen en español</h2>
+    <ul>
+      <li>Guardamos: nombre, e-mail, nombre de usuario, foto (opcional), facultad, semestre y turma, y lo que vos agregás (materias, notas, materiales, libros como texto).</li>
+      <li>Lo usamos solo para que el sitio funcione. No vendemos tus datos y no usamos publicidad ni herramientas de seguimiento.</li>
+      <li>Los datos quedan en Supabase (base de datos, login y archivos). El sitio está alojado en Cloudflare. Cuando pedís un resumen, preguntas o un mapa, el texto de tus materiales se envía a Anthropic (la IA). Si conectás Google Drive, el sitio solo lee la carpeta.</li>
+      <li>El administrador tiene acceso técnico a la base de datos.</li>
+      <li>Podés pedir una copia, corrección o eliminación de tus datos por el contacto del pie de página.</li>
+    </ul>
+    <p>La versión en portugués es la que vale.</p>
+  </section>
 
-  <h2>Quais dados guardamos</h2>
+  <h2>1. Quem é o responsável</h2>
+  <p>O Painel de Estudos é administrado por <span data-contato="responsavel"></span>, que decide como os dados são usados e responde pelos pedidos sobre eles. O contato está no rodapé e no fim desta página.</p>
+
+  <h2>2. Quais dados guardamos</h2>
   <ul>
-    <li><b>Conta:</b> nome, e-mail, faculdade, semestre e turma.</li>
+    <li><b>Conta:</b> nome, e-mail, nome de usuário e, se você quiser, uma foto de perfil.</li>
+    <li><b>Estudo:</b> faculdade, semestre e turma.</li>
+    <li><b>O que você coloca no site:</b> matérias, professores, datas de provas, notas, temas, agenda, anotações, o texto dos materiais e livros que você envia ou importa do Google Drive, imagens do laminário, e os resumos, questões e mapas gerados para você.</li>
     <li><b>Assinatura:</b> plano, data de vencimento e se o acesso está liberado. O pagamento é feito por fora do site; não guardamos dados de cartão nem de conta bancária.</li>
-    <li><b>Seu painel:</b> matérias, professores, datas de prova, notas, temas, resumos, questões e respostas que você cria ou envia.</li>
-    <li><b>Uso de inteligência artificial:</b> quantos resumos e questões você gerou no mês, para controlar o limite do plano.</li>
+    <li><b>Uso da IA:</b> quantos resumos, questões, mapas e leituras de documento você pediu no mês, para controlar o limite do plano, e a lista dos pedidos em andamento.</li>
+    <li><b>Aceite dos termos:</b> qual versão dos termos você aceitou e quando. Não guardamos o seu endereço IP nesse registro.</li>
+    <li><b>Google Drive (só se você conectar):</b> o endereço da pasta e, se você entrar com o Google, a autorização de leitura, guardada de forma criptografada.</li>
   </ul>
-  <p>Não pedimos CPF, cédula de identidade, data de nascimento, endereço nem telefone.</p>
+  <p>Não pedimos CPF, cédula de identidade, data de nascimento, endereço nem telefone. De arquivos como PDF, PowerPoint, Word e livros, guardamos só o texto, não o arquivo.</p>
 
-  <h2>Para que usamos</h2>
+  <h2>3. Para que usamos</h2>
   <ul>
     <li>Fazer o login e mostrar o seu painel só para você.</li>
-    <li>Saber se o seu acesso está em dia.</li>
-    <li>Gerar resumos e questões quando você pedir.</li>
-    <li>Mandar e-mails da própria conta: link de acesso e aviso de vencimento. Não mandamos propaganda.</li>
+    <li>Saber se o seu acesso está em dia e controlar os limites do plano.</li>
+    <li>Gerar resumos, questões e mapas e ler documentos quando você pede.</li>
+    <li>Mandar e-mails da própria conta (convite, link de acesso, troca de senha ou de e-mail). Não mandamos propaganda.</li>
+    <li>Dar suporte e corrigir problemas.</li>
   </ul>
-  <p>Não vendemos nem compartilhamos seus dados com anunciantes.</p>
+  <p>Não vendemos seus dados e não os compartilhamos com anunciantes.</p>
 
-  <h2>Quem processa os dados</h2>
+  <h2>4. Onde os dados ficam e quem processa</h2>
   <ul>
-    <li><b>Supabase:</b> banco de dados e login.</li>
+    <li><b>Supabase:</b> banco de dados, login e armazenamento de arquivos (foto de perfil, imagens do laminário e, por pouco tempo, a imagem de um documento importado).</li>
     <li><b>Cloudflare:</b> hospedagem do site.</li>
-    <li><b>Anthropic (Claude):</b> geração de resumos e questões. Só o texto necessário para cada pedido é enviado, e não é usado para treinar modelos.</li>
+    <li><b>Anthropic (Claude):</b> a inteligência artificial. Quando você pede um resumo, questões, um mapa ou a leitura de um documento, o texto dos seus materiais (ou a imagem do documento) é enviado para a Anthropic para gerar a resposta. A Anthropic trata esses dados conforme as condições dela para uso comercial da API.</li>
+    <li><b>Google Drive:</b> só se você conectar uma pasta. O site tem acesso apenas de leitura à pasta, para importar o texto dos materiais. Você pode desconectar quando quiser.</li>
+    <li><b>Bibliotecas e fontes:</b> o site carrega fontes do Google Fonts e bibliotecas do jsDelivr. Como em qualquer site, esses serviços recebem dados técnicos da conexão (como o endereço IP).</li>
   </ul>
+  <p>Esses serviços podem guardar os dados em servidores fora do Brasil e do Paraguai. Eles também mantêm registros técnicos próprios de acesso e segurança (por exemplo, endereço IP e navegador).</p>
 
-  <h2>Segurança</h2>
-  <p>Cada aluno só consegue ver os próprios dados, por regra do banco de dados. As chaves de acesso aos serviços ficam no servidor, nunca no navegador. O administrador consegue ver os dados de conta e de assinatura para dar suporte.</p>
+  <h2>5. Quem vê os seus dados</h2>
+  <p>Regras do banco de dados fazem cada aluno ver só os próprios dados. O <b>administrador tem acesso técnico ao banco de dados</b>: usa os dados de conta e de assinatura no dia a dia e só abre o conteúdo do seu painel quando for necessário para suporte, segurança ou para atender um pedido seu.</p>
 
-  <h2>Material que você envia</h2>
-  <p>Slides, PDFs e anotações que você envia ficam visíveis só para você. Envie apenas material que você tem direito de usar para estudar.</p>
+  <h2>6. Segurança</h2>
+  <p>Usamos conexão criptografada (HTTPS), regras de acesso no banco de dados, chaves dos serviços guardadas só no servidor e criptografia da autorização do Google. Nenhum sistema é totalmente seguro: não podemos prometer segurança absoluta, mas avisaremos você se algo grave acontecer com os seus dados.</p>
 
-  <h2>Seus direitos</h2>
-  <p>Você pode pedir a qualquer momento uma cópia dos seus dados, a correção de algo errado ou a exclusão da sua conta e de tudo o que está nela. Basta escrever para o contato abaixo. A exclusão é feita em até 15 dias.</p>
-  <p>Se a assinatura vencer, seus dados continuam guardados por até 6 meses para você poder voltar. Depois disso, são apagados.</p>
+  <h2>7. Cookies e armazenamento no navegador</h2>
+  <p>O site não usa cookies de propaganda, ferramentas de análise nem rastreamento. Ele usa o armazenamento do próprio navegador só para funcionar:</p>
+  <ul>
+    <li>a sessão de login (para você não precisar entrar toda hora);</li>
+    <li>pequenas preferências da tela e quais avisos você já viu;</li>
+    <li>a fila de arquivos que ainda estão sendo lidos neste aparelho (some quando o envio termina).</li>
+  </ul>
+  <p>Ao sair da conta, a sessão é apagada deste navegador.</p>
 
-  <h2>Contato</h2>
+  <h2>8. Por quanto tempo guardamos</h2>
+  <p>Enquanto a sua conta existir. Se a assinatura vencer, os dados continuam guardados por até 6 meses para você poder voltar; depois disso, são apagados. Cópias de segurança dos provedores podem levar mais algum tempo para sumir.</p>
+
+  <h2>9. Seus direitos</h2>
+  <p>Você pode pedir a qualquer momento uma cópia dos seus dados, a correção de algo errado ou a exclusão da sua conta e de tudo o que está nela. Use o link "Excluir minha conta" no rodapé ou o contato abaixo. A exclusão é feita em até 15 dias. A foto de perfil e os dados de conta você também pode mudar no seu perfil.</p>
+
+  <h2>10. Menores de idade</h2>
+  <p>O site é só para maiores de 18 anos. Se soubermos que uma conta é de alguém menor de idade, ela será encerrada e os dados apagados.</p>
+
+  <h2>11. Mudanças nesta política</h2>
+  <p>Se esta política mudar de forma importante, a versão sobe e o site pede que você leia e aceite de novo na próxima entrada.</p>
+
+  <h2>12. Lei aplicável</h2>
+  <p>Esta política segue as leis de proteção de dados de [PAÍS], sem prejuízo dos direitos que a lei do seu país garante a você. Foro: [CIDADE/PAÍS].</p>
+
+  <h2>13. Contato</h2>
   <p>Responsável: <span data-contato="responsavel"></span>. E-mail: <span data-contato="email"></span>, ou <span data-contato="telefone"></span>.</p>
 </div>
 <script src="/assets/config.js"></script>

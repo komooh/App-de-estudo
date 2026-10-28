@@ -31,6 +31,10 @@
   if (!(await App.sessao())) { location.replace("/"); return; }
   const eu = await App.meuPerfil().catch(() => null);
   if (!eu?.is_admin) { V.innerHTML = `<div class="msg bad">Esta página é só do administrador.</div>`; return; }
+  // termos de uso: a versão atual (09_termos.sql). O admin também aceita antes (a tela de aceite fica no painel).
+  const tv = await sb.rpc("termos_versao_atual");
+  const termosAtual = tv.error ? null : tv.data;
+  if (termosAtual && !(eu.termos_versao >= termosAtual)) { location.replace("/app.html"); return; }
 
   let alunos = [], facs = [], uso = {}, filtro = "";
   const mes = App.isoHoje().slice(0, 8) + "01";
@@ -42,6 +46,13 @@
     if (a.vence_em && a.vence_em < App.isoHoje()) return ["Vencido", "s-bad"];
     if (a.vence_em) { const n = Math.round((new Date(a.vence_em + "T00:00") - App.hoje()) / 864e5); if (n <= 5) return [`Vence em ${n}d`, "s-warn"]; }
     return ["Em dia", "s-ok"];
+  }
+  // coluna "Termos": ✓ e a data do aceite da versão atual, ou "pendente"
+  function termosCel(a) {
+    if (!termosAtual) return `<span class="muted">sem dados</span>`;
+    if (a.termos_versao >= termosAtual && a.termos_aceitos_em) { const d = new Date(a.termos_aceitos_em);
+      return `<span class="chip s-ok" title="Versão ${esc(a.termos_versao)} aceita em ${esc(d.toLocaleString("pt-BR"))}">✓ ${esc(d.toLocaleDateString("pt-BR"))}</span>`; }
+    return `<span class="chip s-warn"${a.termos_versao ? ` title="Aceitou a versão ${esc(a.termos_versao)}; falta a ${esc(termosAtual)}"` : ""}>pendente</span>`;
   }
   async function carregar() {
     const [a, f, u] = await Promise.all([
@@ -64,6 +75,7 @@
         <td><select data-k="plano"><option ${a.plano === "mensal" ? "selected" : ""}>mensal</option><option ${a.plano === "semestral" ? "selected" : ""}>semestral</option><option ${a.plano === "teste" ? "selected" : ""}>teste</option></select></td>
         <td><input type="date" data-k="vence_em" value="${esc(a.vence_em || "")}"><div class="row" style="gap:4px;margin-top:4px"><button class="btn ghost" style="padding:2px 6px;font-size:12px" data-a="mais" data-n="30">+30d</button><button class="btn ghost" style="padding:2px 6px;font-size:12px" data-a="mais" data-n="180">+6m</button></div></td>
         <td><span class="chip ${s[1]}">${s[0]}</span></td>
+        <td style="font-size:12.5px;white-space:nowrap">${termosCel(a)}</td>
         <td class="tnum" style="font-size:13px"><div class="ia-uso">${IA.map(([k, lim, nome]) => `<label title="Limite de ${nome} por mês"><span>${u?.[k] || 0} /</span><input type="number" min="0" max="100000" step="1" data-k="${lim}" value="${esc(a[lim] ?? "")}" aria-label="Limite de ${nome} por mês de ${esc(a.nome || a.email)}"> <span class="muted">${nome}</span></label>`).join("")}</div></td>
         <td><div class="row" style="gap:6px"><button class="btn" data-a="salvar">Salvar</button><button class="btn ghost" data-a="ativo">${a.ativo ? "Bloquear" : "Liberar"}</button></div></td></tr>`; }).join("");
     V.innerHTML = win("Novo aluno", `<form id="novo" class="row">
@@ -75,7 +87,7 @@
         <button class="btn solid">Criar aluno</button></form>
         <p class="muted" style="font-size:13px;margin:10px 0 0">Com senha: a conta já fica pronta e você passa o e-mail e a senha para o aluno (ele pode trocar depois). Sem senha: ele recebe um convite por e-mail. Na primeira entrada, ele monta o painel.</p>${msg ? `<div class="msg ${msg.bad ? "bad" : ""}">${esc(msg.t)}</div>` : ""}`)
       + win(`Alunos · ${emDia} em dia de ${alunos.filter((a) => !a.is_admin).length}`, `<div class="row" style="margin-bottom:10px"><input class="inp" id="busca" placeholder="Buscar por nome ou e-mail" value="${esc(filtro)}" style="max-width:320px"></div>
-        <div class="tablewrap"><table><thead><tr><th>Aluno</th><th>Faculdade</th><th>Plano</th><th>Vencimento</th><th>Situação</th><th>IA no mês (usado / limite)</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="7" class="muted">Nenhum aluno.</td></tr>`}</tbody></table></div>`);
+        <div class="tablewrap"><table><thead><tr><th>Aluno</th><th>Faculdade</th><th>Plano</th><th>Vencimento</th><th>Situação</th><th>Termos</th><th>IA no mês (usado / limite)</th><th></th></tr></thead><tbody>${rows || `<tr><td colspan="8" class="muted">Nenhum aluno.</td></tr>`}</tbody></table></div>`);
   }
   async function salvarLinha(tr, extra) {
     const id = tr.dataset.id;
