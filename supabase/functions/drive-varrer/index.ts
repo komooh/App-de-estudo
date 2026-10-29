@@ -398,7 +398,9 @@ async function varrerFonte(admin: SupabaseClient, f: Fonte, inicio: number, r: R
     const [{ data: materias, error: e1 }, { data: temas, error: e2 }, { data: existentes, error: e3 }] = await Promise.all([
       consultaMaterias,
       admin.from("temas").select("id,disciplina_id,nome").eq("aluno_id", f.aluno_id),
-      admin.from("materiais").select("id,fonte_id,drive_file_id,modificado_em,status,tema_id,disciplina_id,ignorado").eq("aluno_id", f.aluno_id),
+      admin.from("materiais").select("id,fonte_id,drive_file_id,modificado_em,status,tema_id,disciplina_id,ignorado,materia_manual").eq("aluno_id", f.aluno_id)
+        .then((r) => r.error && /materia_manual/.test(r.error.message) // sem o 14_materia_manual.sql: lê como antes
+          ? admin.from("materiais").select("id,fonte_id,drive_file_id,modificado_em,status,tema_id,disciplina_id,ignorado").eq("aluno_id", f.aluno_id) : r),
     ]);
     if (e1 || e2 || e3) throw new Error("banco: " + (e1 || e2 || e3)!.message);
     const atuais = new Set((materias || []).map((m) => m.id));
@@ -412,7 +414,9 @@ async function varrerFonte(admin: SupabaseClient, f: Fonte, inicio: number, r: R
       const velho = porArquivo.get(a.id);
       // arquivo já ligado a uma matéria de semestre anterior: continua lá (o histórico não muda)
       const antigo = !!velho?.disciplina_id && !atuais.has(velho.disciplina_id);
-      const disciplina_id = antigo ? velho!.disciplina_id : materiaDoCaminho(a.caminho, materias || []);
+      // matéria escolhida pelo aluno no site (14_materia_manual.sql): a leitura da pasta não muda
+      const manual = !!(velho as { materia_manual?: boolean } | undefined)?.materia_manual;
+      const disciplina_id = antigo || manual ? (velho!.disciplina_id ?? null) : materiaDoCaminho(a.caminho, materias || []);
       return { a, disciplina_id, antigo, temaNome: nomeDoTema(a.name), velho };
     });
     const novosTemas = new Map<string, { aluno_id: string; disciplina_id: number; nome: string; origem: string }>();

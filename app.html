@@ -726,9 +726,9 @@
       : `<h3 style="margin-top:6px">Materiais importados (${mats.length})</h3>
         <p class="muted" style="margin:0;font-size:13.5px">Cada arquivo vira um tema da matéria. Os resumos não são feitos sozinhos: você pede o resumo de um tema quando quiser.</p>
         <div>${grupos.map((x) => `<details class="drv-grupo" ${abrir ? "open" : ""}><summary><b>${esc(x.nome)}</b> <span class="muted">· ${x.itens.length} ${x.itens.length === 1 ? "arquivo" : "arquivos"}</span></summary>
-          ${x.sem ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Para ligar à matéria, coloque o arquivo numa subpasta com o nome dela (ex.: "${esc((disc || [])[0]?.nome || "Farmacologia 2")}").</p>` : ""}
+          ${x.sem ? `<p class="muted" style="margin:6px 0 0;font-size:13px">Escolha a matéria ao lado de cada arquivo. A escolha fica guardada e a próxima leitura da pasta não muda. (Outro jeito: colocar o arquivo numa subpasta com o nome da matéria, ex.: "${esc((disc || [])[0]?.nome || "Farmacologia 2")}".)</p>` : ""}
           <ul class="drv-lista">${x.itens.map((m) => { const [cls, txt] = MAT_STATUS[m.status] || ["s-warn", m.status];
-            return `<li><span class="drv-nome" title="${esc(m.caminho || "")}">${esc(m.nome)}</span><span class="row" style="gap:6px;align-items:center;flex-wrap:nowrap"><span class="chip ${cls}" ${m.erro ? `title="${esc(m.erro)}"` : ""}>${esc(txt)}</span><button class="x" data-drv="ocultar" data-id="${m.id}" aria-label="Ocultar ${esc(m.nome)}" title="Ocultar (não volta na próxima leitura)">×</button></span></li>`; }).join("")}</ul></details>`).join("")}</div>`;
+            return `<li><span class="drv-nome" title="${esc(m.caminho || "")}">${esc(m.nome)}</span><span class="row" style="gap:6px;align-items:center;flex-wrap:nowrap">${(disc || []).length && (x.sem || (disc || []).some((d) => d.id === m.disciplina_id)) ? `<select class="drv-mat" data-drv-mat="${m.id}" aria-label="Matéria de ${esc(m.nome)}"><option value="">Sem matéria</option>${(disc || []).map((d) => `<option value="${d.id}" ${d.id === m.disciplina_id ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select>` : ""}<span class="chip ${cls}" ${m.erro ? `title="${esc(m.erro)}"` : ""}>${esc(txt)}</span><button class="x" data-drv="ocultar" data-id="${m.id}" aria-label="Ocultar ${esc(m.nome)}" title="Ocultar (não volta na próxima leitura)">×</button></span></li>`; }).join("")}</ul></details>`).join("")}</div>`;
     const listaOcultos = ocultos.length ? `<details class="drv-grupo" id="drvOcultos"><summary><b>Ocultos (${ocultos.length})</b> <span class="muted">· arquivos que você apagou ou cujo tema apagou; não voltam na leitura da pasta</span></summary>
         <ul class="drv-lista">${ocultos.map((m) => `<li><span class="drv-nome" title="${esc(m.caminho || "")}">${esc(m.nome)}</span><button class="btn" data-drv="restaurar" data-id="${m.id}">Restaurar</button></li>`).join("")}</ul></details>` : "";
 
@@ -746,6 +746,22 @@
       const pasta = e.target.pasta.value.trim();
       if (!pasta) return toast("Cole o link da pasta.");
       varrer(disc, { pasta, tipo: e.target.dataset.tipo });
+    };
+    box.onchange = async (e) => {
+      const sel = e.target.closest && e.target.closest("select[data-drv-mat]"); if (!sel || DRV.ocupado) return;
+      const m = (mats || []).find((x) => String(x.id) === sel.dataset.drvMat); if (!m) return;
+      const disc_id = sel.value ? +sel.value : null;
+      sel.disabled = true;
+      const { error } = await sb.rpc("mudar_materia_material", { p_id: m.id, p_disciplina_id: disc_id, p_tema_nome: window.Leitor ? Leitor.nomeDoTema(m.nome) : m.nome });
+      if (error) {
+        sel.disabled = false;
+        if (App.erroDeSessao(error)) return App.conferirSessao(true, "materia_material");
+        toast(/mudar_materia_material|Could not find/i.test(error.message) ? "Falta rodar o 14_materia_manual.sql no Supabase." : "Não consegui mudar: " + error.message);
+        return driveTela(disc);
+      }
+      const d = (disc || []).find((x) => x.id === disc_id);
+      toast(d ? `${m.nome} → ${d.nome}` : `${m.nome} → Sem matéria`);
+      window.Painel?.aoMudarDrive(); return driveTela(disc);
     };
     box.onclick = async (e) => {
       const b = e.target.closest("[data-drv]"); if (!b || DRV.ocupado) return;
