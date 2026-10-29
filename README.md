@@ -25,6 +25,7 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `supabase/functions/drive-arquivo` | Função que entrega ao navegador os PDF/Word/PowerPoint do Drive para ele ler o texto |
 | `assets/painel.js` | As abas do painel (Agenda, Disciplinas, Questões, Média, Aulas, Calendário, Vida acadêmica, Laminário) e a tela Configurações |
 | `assets/leitor.js` | Leitura de arquivos no navegador (texto do PDF com as colunas, nome do tema, calendário) |
+| `assets/importardoc.js` | Importar vários documentos da faculdade de uma vez (qualquer formato) e juntar tudo numa revisão só |
 | `supabase/07_uploads.sql` | Enviar arquivos sem o Drive e o limite de importações do calendário |
 | `supabase/08_tarefas.sql` | Tarefas da IA em segundo plano, turma só com letras, e-mail do perfil, arquivos do Drive ocultos, documentos importados |
 | `assets/fila.js` | Fila do navegador (ler e enviar arquivos e livros; continua neste aparelho) |
@@ -283,3 +284,16 @@ O que fazer (uma vez, nesta ordem):
 2. **Funções do servidor:** nenhuma muda nesta etapa (não precisa publicar de novo).
 3. Mais nada: o site atualiza sozinho quando a etapa for para a `etapa-2`. Antes do passo 1, o resto funciona; Minha conta avisa "falta rodar o 13_minha_conta.sql" e não deixa apagar.
 4. Para testar do zero: entre com a sua conta → Configurações → Minha conta → **Apagar meus dados e começar do zero** → escreva APAGAR. (A sua conta é de administrador, então "Excluir minha conta" não aparece para ela.)
+
+## Etapa 12: documentos da faculdade de qualquer formato, vários de uma vez
+
+- **Qualquer formato, vários arquivos.** No passo 3 da configuração (Provas) e em Configurações → **Enviar arquivos e documentos**, o aluno escolhe de uma vez quantos documentos quiser (até 10 por vez): PDF, Word, Excel, PowerPoint, OpenDocument, .rtf, .csv, .html, .txt ou foto. Cada arquivo é lido no navegador (`assets/extrair.js`; nas planilhas a posição de cada célula é mantida, então horário com horas vagas não embaralha). Foto e página escaneada vão como imagem pela pasta privada `tarefas` do Storage; antes, as sobras antigas (mais de 15 minutos) são apagadas e o site nunca passa de 19 imagens na pasta: com muitos arquivos, cada um manda menos páginas em foto (e avisa "a IA leu só o começo").
+- **A IA entende cada um.** Uma tarefa por arquivo (até 3 ao mesmo tempo, cada uma conta 1 no limite do mês, como antes). Cada arquivo ganha um selo com o que a IA entendeu: **Horário de aulas**, **Cronograma de provas**, **Calendário acadêmico**, **Material de estudo: não usado aqui**… e o aviso dela. O progresso é real ("2 de 3 lidos · 1 com erro"); um arquivo com erro não trava os outros; se um passa de 3 minutos, o site avisa e o aluno continua preenchendo à mão.
+- **Uma revisão só, que acumula.** Os resultados de todos os arquivos (e de importações feitas depois, uma após a outra) entram na mesma revisão, sem repetir (mesma prova, mesmo feriado, mesma aula) e **sem apagar o que já estava**. Se dois documentos (ou um documento e o que já está preenchido) dão datas diferentes para a mesma prova, as duas aparecem com o nome do arquivo de cada uma e vem marcada a do documento mais específico: cronograma de provas > outros > calendário acadêmico; empate, fica a que já estava (o que o aluno digitou conta como "outros"). Nada é salvo antes de o aluno confirmar.
+- **Configuração (passo 3).** "Usar estas datas" preenche data e hora das provas. O **horário das aulas** e os **feriados / semanas de provas** ficam na tela (com caixinhas para desmarcar) e são salvos em Aulas e no Calendário quando o aluno conclui; o passo 4 avisa quantos vão. Se ele sair do passo 3 sem clicar em "Usar estas datas", as linhas marcadas são usadas.
+- **Função `ia`.** A ação `documento` continua igual para quem chama (mesmo formato de resposta). O pedido para a IA agora explica de que formato veio o texto (planilha com TAB, Word, slides), classifica pelo conteúdo, lê horário semanal (dia, início, fim, matéria, sala; ignora recreo) e procura a **hora** das provas (`hora_provas` vale para as provas sem hora própria). As aulas em hora-aula seguidas viram um bloco só (07:00-07:45 + 07:45-08:30 = 07:00-08:30).
+
+O que fazer (uma vez):
+1. **Função `ia`:** Edge Functions → **ia** → **Code** → apague tudo, cole o novo `supabase/functions/ia/index.ts` → **Deploy**. Confira que **"Verify JWT" continua DESLIGADO**.
+2. **Banco:** nada novo nesta etapa (usa as tabelas e a pasta `tarefas` do `08_tarefas.sql`).
+3. Mais nada: o site atualiza sozinho quando a etapa for para a `etapa-2`. Antes do passo 1, a importação funciona, só sem as melhorias do pedido à IA (hora geral das provas, junção das aulas).
