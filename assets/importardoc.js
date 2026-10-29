@@ -162,7 +162,7 @@
   }
 
   // orçamento de imagens da pasta "tarefas", dividido entre todas as leituras desta página
-  const IMG = { livres: 0, ativos: 0, fila: [] };
+  const IMG = { livres: 0, cap: 0, ativos: 0, fila: [] };
   function reservar(n, prazo) {
     if (n <= IMG.livres) { IMG.livres -= n; return Promise.resolve(); }
     return new Promise((ok, falha) => {
@@ -218,7 +218,7 @@
    */
   function lerArquivos(files, d) {
     const itens = [...files].map((f, i) => ({ id: `${Date.now()}-${i}`, nome: f.name, f, st: "fila", msg: "", tipo: null, tarefa: null }));
-    const prazo = d.prazoMs || PRAZO_MS, intervalo = d.intervalo || 4000, paralelo = d.paralelo || 3;
+    const prazo = d.prazoMs || g.__prazoImportarMs || PRAZO_MS, intervalo = d.intervalo || 4000, paralelo = d.paralelo || 3;
     const mudou = () => { try { d.aoMudar && d.aoMudar(itens); } catch (e) { console.error(e); } };
     const criar = d.criar || ((corpo) => d.chamar("ia", { ...corpo, fundo: true }));
     const buscar = d.buscar || (async () => { const { data, error } = await d.sb.rpc("minhas_tarefas", { p_limite: 30 }); if (error) throw error; return data || []; });
@@ -252,10 +252,11 @@
         it.st = "preparando"; prog("Abrindo…");
         // imagens por arquivo: o que cabe na pasta dividido entre os que vão ao mesmo tempo
         const fotos = itens.filter((x) => (ehImagem(x.f) || ehPdf(x.f)) && x.st !== "pronto" && x.st !== "erro").length || 1;
-        const porArquivo = Math.max(1, Math.min(MAX_IMG_ARQ, Math.floor(LIMITE_PASTA / Math.min(paralelo, fotos))));
+        const porArquivo = Math.max(1, Math.min(MAX_IMG_ARQ, Math.floor(Math.max(1, IMG.cap) / Math.min(paralelo, fotos))));
         const prep = await preparar(it.f, d, prog, porArquivo);
         if (prep.imagens.length) {
-          if (prep.imagens.length > LIMITE_PASTA) throw new Error("Arquivo grande demais: tem páginas em foto demais.");
+          if (!IMG.cap) throw new Error("A pasta das fotos está cheia agora (outras leituras terminando). Tente este arquivo de novo daqui a alguns minutos.");
+          if (prep.imagens.length > IMG.cap) { prep.imagens = prep.imagens.slice(0, IMG.cap); prep.cortado = true; }
           it.st = "enviando"; prog(prep.imagens.length > 1 ? "Esperando a vez para enviar as páginas em foto…" : "Esperando a vez para enviar a foto…");
           await reservar(prep.imagens.length, prazo); reservadas = prep.imagens.length;
           for (let i = 0; i < prep.imagens.length; i++) {
@@ -276,7 +277,7 @@
         it.tarefa = r.tarefa_id; caminhos = []; // agora as imagens são da tarefa (o servidor apaga quando termina)
         it.st = "lendo"; prog(`A IA está lendo${prep.cortado ? " (o arquivo é grande: vai só o começo)" : ""}…`);
         const res = await esperar(r.tarefa_id);
-        it.st = "pronto"; it.tipo = res.tipo || "outro"; it.msg = prep.cortado ? "Arquivo grande: li só o começo." : "";
+        it.st = "pronto"; it.tipo = res.tipo || "outro"; it.msg = prep.cortado ? "Arquivo grande: a IA leu só o começo (até " + (prep.imagens.length ? prep.imagens.length + " páginas em foto" : "120 mil letras") + ")." : "";
         try { await vista([r.tarefa_id]); } catch (_) { }
         try { d.aoPronto && d.aoPronto(it, res); } catch (e) { console.error(e); }
       } catch (e) {
@@ -289,7 +290,7 @@
       }
     }
     const fim = (async () => {
-      if (!IMG.ativos) { IMG.livres = Math.max(0, LIMITE_PASTA - (d.sb ? await imagensNaPasta(d.sb, d.uid) : 0)); IMG.fila = []; }
+      if (!IMG.ativos) { IMG.livres = IMG.cap = Math.max(0, LIMITE_PASTA - (d.sb ? await imagensNaPasta(d.sb, d.uid) : 0)); IMG.fila = []; }
       IMG.ativos++;
       try {
         const fila = itens.slice();

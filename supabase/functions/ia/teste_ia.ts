@@ -403,6 +403,115 @@ ok("sem EdgeRuntime: espera terminar", esperou);
   ok("memoriaDe: sem o 12 devolve null", await ia.memoriaDe(P2, "u1", "questoes") === null);
 }
 
+// ======================= Etapa 12: qualquer formato, vários arquivos, uma revisão só =======================
+{
+  const H12 = "2026-10-28";
+  const ctx12 = { semestre: 6, turma: "F", materias: M6.map((m) => m.nome), hoje: H12 };
+  // ---- horário semanal vindo de uma planilha (texto do extrair.js: células separadas por TAB, vazia = TAB a mais) ----
+  const planilha = "Planilha: horario\nHORARIO DE CLASES - SEXTO SEMESTRE F - TURNO MAÑANA\nHORA\tLUNES\tMARTES\tMIÉRCOLES\tJUEVES\tVIERNES\n07:00 - 07:45\tFARMACOLOGIA II\tSEMIOLOGIA II\t\tFISIOPATOLOGIA II\tANATOMIA PATOLOGICA\n07:45 - 08:30\tFARMACOLOGIA II\tSEMIOLOGIA II\tGESTION EN SALUD\tFISIOPATOLOGIA II\tANATOMIA PATOLOGICA\n08:30 - 08:45\tRECREO\tRECREO\tRECREO\tRECREO\tRECREO\n08:45 - 09:30\tMEDICINA TROPICAL\t\tGESTION EN SALUD\tPRIMEROS AUXILIOS";
+  const vaiPl = `${ia.sobreOTexto("xlsx")}\n<documento>\n${planilha}\n</documento>`;
+  const pPl = ia.promptDocumento(ctx12, vaiPl);
+  ok("12 prompt: explica a planilha (TAB, célula vazia, cabeçalho)", pPl.includes("separadas por TAB") && pPl.includes("célula vazia = TAB a mais") && pPl.includes(planilha));
+  ok("12 prompt: horário semanal com dia, faixa de hora, sala e só a turma do aluno; ignora recreo", pPl.includes('"horario_aulas"') && pPl.includes("faixas de hora") && pPl.includes("RECREO") && pPl.includes("use SÓ a do aluno"));
+  ok("12 prompt: classifica pelo conteúdo e qualquer formato", pPl.includes("Use o CONTEÚDO para decidir o tipo") && pPl.includes("Excel/CSV") && pPl.includes("PowerPoint"));
+  ok("12 prompt: PDF continua com a frase das colunas; Word e slides têm a sua", ia.sobreOTexto("pdf").includes("[dd/mm/aaaa]") && ia.sobreOTexto(undefined).includes("[dd/mm/aaaa]") && ia.sobreOTexto("docx").includes("Word") && ia.sobreOTexto("pptx").includes("slides"));
+  // resposta falsa da IA, como ela costuma devolver (uma linha por hora-aula)
+  const horIA = { tipo: "horario_aulas", titulo: "Horario 6º F", resumo: "Horário semanal.", horarios: [
+    { materia: "FARMACOLOGIA II", dia_semana: "LUNES", hora_ini: "07:00", hora_fim: "07:45", sala: "Aula 12" },
+    { materia: "FARMACOLOGIA II", dia_semana: "Lunes", hora_ini: "7:45", hora_fim: "8:30", sala: null },
+    { materia: "SEMIOLOGIA II", dia_semana: "martes", hora_ini: "07:00 hs", hora_fim: "07:45 hs" },
+    { materia: "SEMIOLOGIA II", dia_semana: 2, hora_ini: "07:45", hora_fim: "08:30" },
+    { materia: "RECREO", dia_semana: 1, hora_ini: "08:30", hora_fim: "08:45" },
+    { materia: "GESTION EN SALUD", dia_semana: "Miércoles", hora_ini: "07:45", hora_fim: "08:30" },
+    { materia: "GESTION EN SALUD", dia_semana: "MIERCOLES", hora_ini: "08:45", hora_fim: "09:30" },   // depois do recreo: 15 min, outro bloco
+    { materia: "MEDICINA TROPICAL", dia_semana: "Seg", hora_ini: "8:45", hora_fim: "9:30" },
+    { materia: "FISIOPATOLOGIA II", dia_semana: "Quinta-feira", hora_ini: "7:00 a.m.", hora_fim: "8:30 am" }] };
+  const hl = ia.limparDocumento(horIA, M6, H12);
+  const bloco = (m: string, d: number) => hl.horarios.filter((h) => h.disciplina_id === m as unknown as number && h.dia_semana === d);
+  void bloco;
+  const farm = hl.horarios.filter((h) => h.disciplina_id === 14);
+  ok("12 horário: hora-aulas seguidas viram um bloco (07:00-08:30) com a sala", farm.length === 1 && farm[0].hora_ini === "07:00" && farm[0].hora_fim === "08:30" && farm[0].sala === "Aula 12" && farm[0].dia_semana === 1, farm);
+  ok("12 horário: 'hs' e dia em número; semiologia 07:00-08:30 na terça", hl.horarios.some((h) => h.disciplina_id === 12 && h.dia_semana === 2 && h.hora_ini === "07:00" && h.hora_fim === "08:30"));
+  ok("12 horário: recreo fora; intervalo de 15 min separa os blocos", !hl.horarios.some((h) => /recreo/i.test(h.materia)) && hl.horarios.filter((h) => h.disciplina_id === 13).length === 2);
+  ok("12 horário: 'Seg', 'Quinta-feira' e 'a.m.'", hl.horarios.some((h) => h.disciplina_id === 16 && h.dia_semana === 1 && h.hora_ini === "08:45") && hl.horarios.some((h) => h.disciplina_id === 11 && h.dia_semana === 4 && h.hora_ini === "07:00" && h.hora_fim === "08:30"), hl.horarios);
+  ok("12 HM: formatos de hora", ia.HM("7:00") === "07:00" && ia.HM("07.30") === "07:30" && ia.HM("7h30") === "07:30" && ia.HM("14:00h") === "14:00" && ia.HM("7 hs") === "07:00" && ia.HM("2:30 pm") === "14:30" && ia.HM("12:00 a.m.") === "00:00" && ia.HM("7") === null && ia.HM("25:00") === null && ia.HM("null") === null);
+  ok("12 diaSemana: espanhol, português, abreviado", ia.diaSemana("MIÉRCOLES") === 3 && ia.diaSemana("Sábado") === 6 && ia.diaSemana("qui") === 4 && ia.diaSemana("Sexta-feira") === 5 && ia.diaSemana("domingo") === null && ia.diaSemana(7) === null);
+  // ---- grade de provas com horário (linha do 6º F) ----
+  const gradeTxt = "SEGUNDA PRUEBA PARCIAL - TEORÍA - 2026\nHorario: 07:00 hs (turno mañana) / 13:30 hs (turno tarde)\n             02/11/2026    04/11/2026    06/11/2026    09/11/2026\nSEXTO       SEMIOLOGIA [02/11/2026]   FARMACOLOGIA [04/11/2026]   GESTION [06/11/2026]   ANATOMIA [09/11/2026]\nSEMESTRE F\nSEXTO       FARMACOLOGIA [02/11/2026] SEMIOLOGIA [04/11/2026]\nSEMESTRE G";
+  const pG = ia.promptDocumento(ctx12, `${ia.sobreOTexto("pdf")}\n<documento>\n${gradeTxt}\n</documento>`);
+  ok("12 prompt: hora da prova (célula, título, observação, hora_provas) e a linha do aluno", pG.includes('"hora_provas"') && pG.includes("Hora da prova") && pG.includes('"SEXTO SEMESTRE F"') && pG.includes("Nunca invente") && pG.includes(gradeTxt));
+  const gIA = { tipo: "cronograma_provas", titulo: "Segunda prueba parcial", hora_provas: "07:00 hs", provas: [
+    { materia: "SEMIOLOGIA", tipo: "SEGUNDA PARCIAL", modalidade: "teorica", data: "2026-11-02", hora: null },
+    { materia: "FARMACOLOGIA", tipo: "P2", modalidade: "teorica", data: "2026-11-04", hora: "08:00" },
+    { materia: "GESTION", tipo: "P2", modalidade: "teorica", data: "2026-11-06" },
+    { materia: "ANATOMIA PATOLOGICA", tipo: "2", modalidade: "TEORÍA", data: "2026-11-09", hora: "13.30" }] };
+  const gl = ia.limparDocumento(gIA, M6, H12);
+  ok("12 grade: 4 provas da linha F, P2, com as matérias casadas", gl.provas.length === 4 && gl.provas.every((p) => p.tipo === "P2" && p.disciplina_id), gl.provas);
+  ok("12 grade: hora geral nas provas sem hora; a própria fica", gl.provas.find((p) => p.disciplina_id === 12)?.hora === "07:00" && gl.provas.find((p) => p.disciplina_id === 14)?.hora === "08:00" && gl.provas.find((p) => p.disciplina_id === 18)?.hora === "13:30" && gl.provas.find((p) => p.disciplina_id === 13)?.hora === "07:00");
+  ok("12 grade: sem hora geral, hora fica null", ia.limparDocumento({ ...gIA, hora_provas: null }, M6, H12).provas.find((p) => p.disciplina_id === 12)?.hora === null);
+  // ---- calendário acadêmico com feriados e semanas de prova (em 2 pedaços) ----
+  const cal1 = { tipo: "calendario_geral", titulo: "Calendario Académico 2026", resumo: "Calendário do 2º período.", eventos: [
+    { titulo: "Semana de Primeras Pruebas Parciales", data_ini: "2026-09-14", data_fim: "2026-09-19", categoria: "prova" },
+    { titulo: "Día de la Victoria de Boquerón", data_ini: "2026-09-29", categoria: "feriado" },
+    { titulo: "Receso de primavera", data_ini: "2026-09-21", data_fim: "2026-09-25", categoria: "recesso" }] };
+  const cal2 = { tipo: "calendario_geral", eventos: [
+    { titulo: "Semana de Segundas Pruebas Parciales", data_ini: "2026-11-02", data_fim: "2026-11-13", categoria: "prova" },
+    { titulo: "Día de la Victoria de Boquerón", data_ini: "2026-09-29", categoria: "feriado" },        // repetido no outro pedaço
+    { titulo: "Exámenes Finales", data_ini: "2026-12-07", data_fim: "2026-12-12", categoria: "prova" },
+    { titulo: "Navidad", data_ini: "2026-12-25", categoria: "feriado" }], aviso: "" };
+  const cl = ia.limparDocumento(ia.juntarDocumentos([cal1, cal2]), M6, H12);
+  ok("12 calendário: 6 eventos sem repetir, em ordem, semanas de prova com início e fim", cl.tipo === "calendario_geral" && cl.eventos.length === 6 && cl.eventos[0].titulo.startsWith("Semana de Primeras") && cl.eventos[0].data_fim === "2026-09-19" && cl.eventos.filter((e) => e.categoria === "prova").length === 3 && cl.eventos.filter((e) => e.categoria === "feriado").length === 2, cl.eventos);
+  ok("12 calendário: num calendário geral as semanas de prova não viram provas", cl.provas.length === 0);
+
+  // ---- junção no site (assets/importardoc.js): os 3 arquivos numa revisão só, e importações seguidas acumulam ----
+  await import("../../../assets/importardoc.js");
+  // deno-lint-ignore no-explicit-any
+  const ID: any = (globalThis as any).ImportarDoc;
+  const casar = (n: string, id: number | null) => id ?? (ia.casarMateria(n, M6.map((m) => m.nome)) >= 0 ? M6[ia.casarMateria(n, M6.map((m) => m.nome))].id : null);
+  const calGeral = { tipo: "calendario_geral", titulo: "Calendario", eventos: cl.eventos, provas: [{ materia: "Semiología II", tipo: "P2", modalidade: "teorica", data: "2026-11-03", hora: null }], horarios: [], materias: [], notas: [], aviso: "" };
+  const R = ID.novaRevisao();
+  ID.adicionar(R, hl, "horario.xlsx", { casar, tarefa_id: 1 });
+  ID.adicionar(R, calGeral, "Calendario.pdf", { casar, tarefa_id: 2 });
+  ok("12 junção: calendário primeiro (P2 de Semiologia 03/11), sem conflito ainda", R.provas.length === 1 && !R.provas[0].conflito && R.provas[0].ok);
+  ID.adicionar(R, gl, "Segunda parcial.pdf", { casar, tarefa_id: 3 });
+  const semio = R.provas.filter((p: { disciplina_id: number }) => p.disciplina_id === 12);
+  ok("12 junção: datas diferentes ficam as duas, com o arquivo de cada uma", semio.length === 2 && semio.every((p: { conflito: boolean }) => p.conflito) && semio.some((p: { fontes: string[] }) => p.fontes[0] === "Calendario.pdf") && semio.some((p: { fontes: string[] }) => p.fontes[0] === "Segunda parcial.pdf"), semio);
+  ok("12 junção: vem marcada a do cronograma de provas (mais específico)", semio.find((p: { ok: boolean }) => p.ok)?.data === "2026-11-02" && semio.filter((p: { ok: boolean }) => p.ok).length === 1);
+  ok("12 junção: as outras 3 provas, os 6 eventos e o horário juntos", R.provas.length === 5 && R.eventos.length === 6 && R.horarios.length === hl.horarios.length && R.arquivos.length === 3 && R.arquivos.map((a: { tipo: string }) => a.tipo).join() === "horario_aulas,calendario_geral,cronograma_provas");
+  // a mesma tarefa de novo (abrir em Tarefas depois) não duplica
+  ok("12 junção: a mesma tarefa não entra duas vezes", ID.adicionar(R, gl, "Segunda parcial.pdf", { casar, tarefa_id: 3 }) === 0 && R.provas.length === 5 && R.arquivos.length === 3);
+  // outro arquivo com o mesmo feriado, a mesma aula e a mesma prova: só junta a fonte
+  ID.adicionar(R, { tipo: "aviso", eventos: [{ titulo: "Navidad", data_ini: "2026-12-25", categoria: "feriado" }], horarios: [{ materia: "FARMACOLOGIA II", disciplina_id: 14, dia_semana: 1, hora_ini: "07:00", hora_fim: "08:30", sala: null }], provas: [{ materia: "GESTION", tipo: "P2", modalidade: "teorica", data: "2026-11-06", hora: "07:00" }] }, "aviso.docx", { casar, tarefa_id: 4 });
+  ok("12 junção: repetidos não duplicam (feriado, aula, prova igual) e ganham a fonte", R.eventos.length === 6 && R.horarios.length === hl.horarios.length && R.provas.length === 5 && R.eventos.find((e: { titulo: string }) => e.titulo === "Navidad").fontes.length === 2 && R.provas.find((p: { disciplina_id: number }) => p.disciplina_id === 13).fontes.includes("aviso.docx"));
+  ok("12 junção: material de estudo entra só como chip, sem itens", ID.adicionar(R, { tipo: "material_de_estudo", eventos: [{ titulo: "x", data_ini: "2026-11-01" }] }, "Aula 3.pptx", { casar, tarefa_id: 5 }) === 0 && R.arquivos[4].tipo === "material_de_estudo" && R.eventos.length === 6);
+  // ---- importações SEPARADAS acumulam: o que já está preenchido fica, e o conflito aparece ----
+  const campos: Record<string, { data: string; hora: string | null; prio: number; fonte: string }> = {};
+  const existente = (p: { disciplina_id: number; tipo: string; modalidade: string }) => campos[`${p.disciplina_id}|${p.tipo}|${p.modalidade}`] || null;
+  const A = ID.novaRevisao();
+  ID.adicionar(A, gl, "cronograma.pdf", { casar, existente });
+  // o aluno usa as datas do cronograma (preenche os campos) e depois importa o calendário geral
+  for (const p of A.provas.filter((x: { ok: boolean }) => x.ok)) campos[`${p.disciplina_id}|${p.tipo}|${p.modalidade}`] = { data: p.data, hora: p.hora, prio: p.prio, fonte: p.fontes.join(", ") };
+  A.provas = [];
+  ID.adicionar(A, calGeral, "calendario.pdf", { casar, existente });
+  const cs = A.provas.filter((p: { disciplina_id: number }) => p.disciplina_id === 12);
+  ok("12 acumula: a 2ª importação mostra o conflito com o que já estava preenchido", cs.length === 2 && cs.some((p: { existente: boolean; data: string }) => p.existente && p.data === "2026-11-02") && cs.some((p: { data: string }) => p.data === "2026-11-03"), cs);
+  ok("12 acumula: fica marcado o que já estava (veio do cronograma, mais específico)", cs.find((p: { ok: boolean }) => p.ok)?.data === "2026-11-02" && Object.keys(campos).length === 4 && A.eventos.length === 6 && A.arquivos.length === 2);
+  // ao contrário: primeiro o calendário geral, depois o cronograma -> o cronograma vem marcado
+  const B = ID.novaRevisao(); const campos2: typeof campos = {};
+  ID.adicionar(B, calGeral, "calendario.pdf", { casar, existente: (p: { disciplina_id: number; tipo: string; modalidade: string }) => campos2[`${p.disciplina_id}|${p.tipo}|${p.modalidade}`] || null });
+  for (const p of B.provas) campos2[`${p.disciplina_id}|${p.tipo}|${p.modalidade}`] = { data: p.data, hora: p.hora, prio: p.prio, fonte: "calendario.pdf" };
+  B.provas = [];
+  ID.adicionar(B, gl, "cronograma.pdf", { casar, existente: (p: { disciplina_id: number; tipo: string; modalidade: string }) => campos2[`${p.disciplina_id}|${p.tipo}|${p.modalidade}`] || null });
+  const bs = B.provas.filter((p: { disciplina_id: number }) => p.disciplina_id === 12);
+  ok("12 acumula: cronograma depois do calendário vem marcado; eventos do 1º continuam", bs.length === 2 && bs.find((p: { ok: boolean }) => p.ok)?.data === "2026-11-02" && B.eventos.length === 6 && B.provas.length === 5);
+  // digitado à mão (prioridade 2) contra calendário geral (1): fica o digitado
+  const C = ID.novaRevisao();
+  ID.adicionar(C, calGeral, "cal.pdf", { casar, existente: () => ({ data: "2026-11-05", hora: "07:00", fonte: "Já preenchido", prio: ID.PRIO_EXISTENTE }) });
+  ok("12 acumula: o que o aluno digitou ganha do calendário geral", C.provas.length === 2 && C.provas.find((p: { ok: boolean }) => p.ok)?.data === "2026-11-05");
+  ok("12 telas: nomes escapados", !ID.arquivosHTML({ arquivos: [{ nome: "<img src=x onerror=1>", tipo: "outro", aviso: "<b>", itens: 0 }] }).includes("<img") && !ID.horariosHTML([{ materia: "<svg onload=1>", dia_semana: 1, hora_ini: "07:00", hora_fim: "08:00", sala: "<i>", fontes: ["<x>"], ok: true }], [{ id: 1, nome: "<b>" }]).match(/<(svg|i|x|b)>/));
+  ok("12 progresso: '2 de 3 lidos'", ID.progressoTexto([{ st: "pronto" }, { st: "pronto" }, { st: "lendo" }]) === "2 de 3 lidos…" && ID.progressoTexto([{ st: "pronto" }, { st: "erro" }]) === "1 de 2 lidos · 1 com erro");
+}
+
 console.log(falhas ? `\n${falhas} FALHA(S)` : "\nTudo certo.");
 // regressão: lista de nomes vinda do site (sem ids reais) não pode juntar todas as provas numa só
 {

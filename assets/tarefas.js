@@ -22,7 +22,8 @@
     if (t.tipo === "questoes") return `Suas questões de ${nomeDe(t)} ficaram prontas`;
     if (t.tipo === "flashcards") return `Seus flash cards de ${nomeDe(t)} ficaram prontos`;
     if (t.tipo === "painel") return `Seu painel de ${nomeDe(t)} ficou pronto`;
-    return (t.resultado?.provas || []).length ? "A leitura do calendário ficou pronta: confira as provas" : "A leitura do calendário terminou: veja o aviso";
+    const doc = String(t.titulo || "").replace(/^Documento:\s*/, "");
+    return `A leitura de ${doc || "documento"} ficou pronta: confira em Configurações`;
   }
 
   /* ---------- servidor ---------- */

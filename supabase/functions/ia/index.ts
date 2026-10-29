@@ -686,7 +686,7 @@ export function limparDocumento(out: Record<string, unknown> | null, materias: {
   const hr = new Set<string>();
   for (const h of lista("horarios")) {
     const materia = txt(h.materia, 120), dia = diaSemana(h.dia_semana), a = HM(h.hora_ini), b = HM(h.hora_fim);
-    if (!materia || !dia || !a || !b || b <= a) continue;
+    if (!materia || !dia || !a || !b || b <= a || /^(recreo|intervalo|almuerzo|almoco|receso|descanso|libre|vago)$/.test(semAcento(materia).replace(/[^a-z]/g, ""))) continue;
     const k = `${semAcento(materia)}|${dia}|${a}`; if (hr.has(k)) continue; hr.add(k);
     vazio.horarios.push({ materia, disciplina_id: idMateria(materia), dia_semana: dia, hora_ini: a, hora_fim: b, sala: txt(h.sala, 60) || null });
     if (vazio.horarios.length >= 80) break;
