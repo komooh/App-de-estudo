@@ -571,3 +571,5 @@ table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-to
 .conta-falta{color:var(--bad);font-weight:500}
 .conta-gate .field input{font-size:16px;letter-spacing:.06em;max-width:260px}
 .escolha select{width:100%}
+.drv-mat{max-width:190px;min-width:0;font-size:13px;padding:4px 8px;border-radius:8px}
+@media (max-width:560px){.drv-lista li{flex-wrap:wrap}.drv-lista li>.row{flex-wrap:wrap!important}.drv-mat{max-width:100%;flex:1 1 160px}}
