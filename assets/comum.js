@@ -19,8 +19,29 @@
     } catch (_) { }
     return res;
   };
+  // Relógio do computador errado (ex.: adiantado algumas horas) fazia o Supabase achar que todo login novo já
+  // tinha vencido: renovava sem parar, batia no limite (429) e saía da conta. Ao guardar a sessão, ajustamos o
+  // vencimento para o relógio deste computador, usando a hora em que o servidor criou o token (iat).
+  const corrigirRelogio = (v) => {
+    try {
+      const o = JSON.parse(v);
+      if (!o || typeof o.access_token !== "string" || !o.expires_at) return v;
+      const b = o.access_token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+      const p = JSON.parse(atob(b + "===".slice((b.length + 3) % 4)));
+      if (!p.iat || !p.exp) return v;
+      const dif = Math.floor(Date.now() / 1000) - p.iat; // quanto o relógio daqui está à frente do servidor
+      if (Math.abs(dif) < 30) return v;
+      o.expires_at = p.exp + dif;
+      return JSON.stringify(o);
+    } catch (_) { return v; }
+  };
+  const guardaSessao = {
+    getItem: (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } },
+    setItem: (k, v) => { try { localStorage.setItem(k, corrigirRelogio(v)); } catch (_) { } },
+    removeItem: (k) => { try { localStorage.removeItem(k); } catch (_) { } },
+  };
   const sb = window.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true, storage: guardaSessao },
     global: { fetch: fetchDiag },
   });
   try { sb.auth.onAuthStateChange((ev) => { if (ev !== "INITIAL_SESSION") diag({ evento: ev, pagina: location.pathname }); }); } catch (_) { }
@@ -161,6 +182,6 @@
     return data;
   }
 
-  window.App = { diagLogin: () => { try { return JSON.parse(localStorage.getItem(DIAG_K) || "[]"); } catch (_) { return []; } }, sb, esc, toast, hoje, isoHoje, acessoOk, sessao, meuPerfil, sair, win, C, limparTurma, campoTurma,
+  window.App = { _corrigirRelogio: corrigirRelogio, diagLogin: () => { try { return JSON.parse(localStorage.getItem(DIAG_K) || "[]"); } catch (_) { return []; } }, sb, esc, toast, hoje, isoHoje, acessoOk, sessao, meuPerfil, sair, win, C, limparTurma, campoTurma,
     guardarSessao, conferirSessao, sessaoAcabou, aoTerminarSessao, vaiSair, erroDeSessao, msgErro, invocar, chamar, MSG_FIM };
 })();
