@@ -34,7 +34,8 @@
     const { data, error } = await sb.from("perfis").select("*").eq("id", s.user.id).single();
     if (error) throw error; return data;
   }
-  async function sair() { SESS.saindo = true; await sb.auth.signOut(); location.href = "/"; }
+  // "local": sai só deste navegador. O padrão do Supabase ("global") derrubava o login em todas as outras abas e aparelhos.
+  async function sair() { SESS.saindo = true; try { await sb.auth.signOut({ scope: "local" }); } catch (_) { } location.href = "/"; }
   function win(title, body) {
     return `<section class="win"><div class="win-bar"><span class="dots"><i></i><i></i><i></i></span>${esc(title)}</div><div class="win-body">${body}</div></section>`;
   }
@@ -72,24 +73,10 @@
     SESS.ouvintes.forEach((fn) => { try { fn(motivo); } catch (_) { } });
     avisoFim();
   }
+  // Sem aviso na tela: se o login realmente acabou (e renovar não deu), volta para a tela de entrada.
   function avisoFim() {
-    if (document.getElementById("sessaoFim")) return;
-    const fila = (() => { try { return window.Fila ? Fila.pendentes().length : 0; } catch (_) { return 0; } })();
-    const el = document.createElement("div");
-    el.className = "sessao-fim"; el.id = "sessaoFim";
-    el.setAttribute("role", "alertdialog"); el.setAttribute("aria-modal", "true"); el.setAttribute("aria-labelledby", "sfTit"); el.setAttribute("aria-describedby", "sfDesc");
-    el.innerHTML = `<div class="sessao-caixa"><span class="mono">${esc(C.NOME_PRODUTO || "Painel de Estudos")}</span>
-      <h2 id="sfTit" tabindex="-1">${esc(MSG_FIM)}</h2>
-      <p id="sfDesc">Isso acontece quando o computador fica muito tempo parado, quando você sai da conta em outra aba ou quando o login vence. Seus dados continuam guardados.${fila ? ` Os ${fila === 1 ? "arquivo que estava" : fila + " arquivos que estavam"} na fila de envio deste aparelho ${fila === 1 ? "fica guardado e continua" : "ficam guardados e continuam"} quando você entrar.` : ""}</p>
-      <button class="btn solid" id="sfEntrar">Entrar de novo</button></div>`;
-    [...document.body.children].forEach((x) => { x.inert = true; x.setAttribute("aria-hidden", "true"); });
-    document.body.appendChild(el);
-    el.querySelector("#sfEntrar").onclick = async (ev) => {
-      ev.currentTarget.disabled = true; SESS.saindo = true;
-      try { await sb.auth.signOut({ scope: "local" }); } catch (_) { }
-      location.href = "/";
-    };
-    el.querySelector("#sfTit").focus();
+    SESS.saindo = true;
+    (async () => { try { await sb.auth.signOut({ scope: "local" }); } catch (_) { } location.href = "/?sessao=1"; })();
   }
   /** Confere se a sessão ainda vale (forcar: renova o token agora). Devolve true se está tudo bem. */
   function conferirSessao(forcar, motivo) {
@@ -103,7 +90,7 @@
         const s = data && data.session;
         if (!s) { sessaoTerminou(motivo || "sem_sessao"); return false; }
         const falta = (s.expires_at || 0) * 1000 - Date.now();
-        if (forcar || falta < 90000) {
+        if (forcar || falta < 0) {
           const r = await sb.auth.refreshSession();
           if (r.error || !r.data || !r.data.session) {
             if (redeFora(r.error)) return true;
@@ -130,7 +117,7 @@
     const aoVoltar = () => { if (document.visibilityState !== "hidden") conferirSessao(false, "voltou"); };
     document.addEventListener("visibilitychange", aoVoltar);
     window.addEventListener("focus", aoVoltar);
-    window.addEventListener("online", () => conferirSessao(true, "voltou_internet"));
+    window.addEventListener("online", () => conferirSessao(false, "voltou_internet"));
     setInterval(() => { if (document.visibilityState !== "hidden") conferirSessao(false, "intervalo"); }, 4 * 60 * 1000);
   }
   const aoTerminarSessao = (fn) => { SESS.ouvintes.add(fn); return () => SESS.ouvintes.delete(fn); };

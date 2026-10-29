@@ -35,6 +35,7 @@
   const out = document.getElementById("out"), go = document.getElementById("go"), $ = (id) => document.getElementById(id);
   let porLink = false;
   const aviso = (t, ruim) => { out.innerHTML = `<div class="msg ${ruim ? "bad" : ""}">${t}</div>`; };
+  if (new URLSearchParams(location.search).has("sessao")) aviso("Seu login terminou (por exemplo, você saiu da conta em outro lugar). Entre de novo: seus dados continuam guardados.");
   const erroAmigavel = (m) => /invalid login|credentials/i.test(m) ? "E-mail ou senha incorretos." : /rate|seconds|limit/i.test(m) ? "Muitas tentativas seguidas. Espere um minuto e tente de novo." : /signups not allowed|not found/i.test(m) ? "Não achamos uma conta com esse e-mail. Fale com o administrador." : /not confirmed/i.test(m) ? "Sua conta ainda não foi confirmada. Fale com o administrador." : "Não consegui agora: " + esc(m);
   $("modo").onclick = () => { porLink = !porLink; $("campoSenha").hidden = porLink; $("esqueci").hidden = porLink; go.textContent = porLink ? "Receber link de acesso" : "Entrar"; $("modo").textContent = porLink ? "Entrar com senha" : "Entrar com link no e-mail"; out.innerHTML = ""; };
   $("esqueci").onclick = async () => {
