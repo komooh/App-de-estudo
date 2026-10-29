@@ -326,7 +326,7 @@
         if (lendo()) return;
         const R = st.imp.rev, L = st.imp.lote, n = R ? R.provas.length + R.eventos.length + R.horarios.length : 0;
         st.imp.msg = n ? { t: `Leitura terminada (${ImportarDoc.progressoTexto(L)}). Confira: ${R.provas.length ? `clique em "Usar estas datas" para preencher as provas` : "não achei datas de provas da sua turma"}${R.eventos.length || R.horarios.length ? "; feriados e horário ficam guardados até você concluir" : ""}.` }
-          : { bad: true, t: L.every((x) => x.st === "erro") ? "Não consegui ler os documentos. Veja o motivo em cada um; você pode preencher à mão." : "Não achei datas de provas, feriados nem horário nesses documentos. Confira o semestre e a turma no passo 1, ou preencha à mão." };
+          : { bad: true, t: L.every((x) => x.st === "erro") ? "Não consegui ler os documentos. Veja o motivo em cada um; você pode preencher à mão." : ["Não achei datas de provas, feriados nem horário nesses documentos. Confira o semestre e a turma no passo 1, ou preencha à mão.", ...new Set((R ? R.arquivos : []).map((x) => x.aviso).filter(Boolean))].join(" ") };
         pintarImp();
       });
     }

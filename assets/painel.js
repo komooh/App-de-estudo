@@ -406,7 +406,7 @@
     const c = ui.cal, L = c.lote || [], R = c.rev, n = ImportarDoc.totalItens(R);
     const er = L.filter((x) => x.st === "erro").length, estudo = R && R.arquivos.some((a) => a.tipo === "material_de_estudo");
     c.msg = n ? { t: `Leitura terminada (${ImportarDoc.progressoTexto(L)}): ${n} ${n === 1 ? "item" : "itens"} para o painel. Nada foi salvo ainda: confira e clique em "Salvar no painel".${estudo ? ' Os arquivos marcados "Material de estudo" não entram aqui: para usar nos resumos, escolha de novo e clique em "É material de estudo".' : ""}` }
-      : { bad: true, t: er === L.length ? "Não consegui ler os arquivos. Veja o motivo em cada um." : estudo ? 'Isso parece material de estudo. Escolha o arquivo de novo e, se ele cair em Documentos da faculdade, clique em "É material de estudo": aí ele vira tema da matéria e é usado nos resumos e questões.' : "Não achei nada para colocar no painel nesses documentos." };
+      : { bad: true, t: er === L.length ? "Não consegui ler os arquivos. Veja o motivo em cada um." : estudo ? 'Isso parece material de estudo. Escolha o arquivo de novo e, se ele cair em Documentos da faculdade, clique em "É material de estudo": aí ele vira tema da matéria e é usado nos resumos e questões.' : ["Não achei nada para colocar no painel nesses documentos.", ...new Set((R ? R.arquivos : []).map((x) => x.aviso).filter(Boolean))].join(" ") };
     atualizarUso().then(() => { if (ui.tab === "config") render(); });
   }
   /** "Ler com IA": todos os documentos escolhidos de uma vez (até 3 ao mesmo tempo); o resultado de cada um entra na mesma revisão. */
