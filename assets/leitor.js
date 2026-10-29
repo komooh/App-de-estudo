@@ -211,13 +211,14 @@
    * provas: [{materia, disciplina_id?, tipo, modalidade, data, hora}]; disc: [{id, nome}]
    */
   function revisaoHTML(provas, disc) {
-    if (!provas.length) return `<div class="empty">A IA não achou provas para a sua turma nesse arquivo.</div>`;
+    if (!provas.length) return `<div class="empty">A IA não achou provas para a sua turma nesses arquivos.</div>`;
     const ids = (disc || []).map((d) => d.id), nomes = (disc || []).map((d) => d.nome);
     const linhas = provas.map((p, i) => {
       const k = p.disciplina_id != null && ids.includes(p.disciplina_id) ? p.disciplina_id : p.disciplina_id === null ? "" : (ids[casarMateria(p.materia, nomes)] ?? "");
       const usar = typeof p.ok === "boolean" ? p.ok && k !== "" : k !== "";
-      return `<tr data-rev="${i}"><td><input type="checkbox" data-k="ok" ${usar ? "checked" : ""} aria-label="Importar ${esc(p.materia)}"></td>
-        <td><span class="rev-doc">${esc(p.materia)}</span><select data-k="disc" aria-label="Matéria do painel para ${esc(p.materia)}"><option value="">Não importar</option>${(disc || []).map((d) => `<option value="${esc(d.id)}" ${String(d.id) === String(k) ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select></td>
+      const fonte = (p.fontes || []).length ? `<span class="rev-fonte">${p.conflito ? `<b>Data diferente entre documentos.</b> ` : ""}De: ${esc(p.fontes.join(", "))}</span>` : "";
+      return `<tr data-rev="${i}"${p.conflito ? ' class="rev-conf"' : ""}><td><input type="checkbox" data-k="ok" ${usar ? "checked" : ""} aria-label="Importar ${esc(p.materia)}${p.conflito ? ` (${esc(p.data)})` : ""}"></td>
+        <td><span class="rev-doc">${esc(p.materia)}</span>${fonte}<select data-k="disc" aria-label="Matéria do painel para ${esc(p.materia)}"><option value="">Não importar</option>${(disc || []).map((d) => `<option value="${esc(d.id)}" ${String(d.id) === String(k) ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select></td>
         <td><select data-k="tipo" aria-label="Prova">${["P1", "P2", "Final"].map((t) => `<option ${t === p.tipo ? "selected" : ""}>${t}</option>`).join("")}</select></td>
         <td><select data-k="mod" aria-label="Teórica ou prática"><option value="teorica">teórica</option><option value="pratica" ${p.modalidade === "pratica" ? "selected" : ""}>prática</option></select></td>
         <td><input type="date" data-k="data" value="${esc(p.data || "")}" aria-label="Data"></td>
