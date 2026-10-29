@@ -35,6 +35,7 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `assets/importar.js` | Configurações → Importar dados do painel antigo (só o administrador) |
 | `supabase/11_importar_painel.sql` | Função que grava os resumos, mapas e questões trazidos do painel antigo (só para o administrador) |
 | `supabase/12_estudo_extra.sql` | Flash cards, painel do tema, limite de flash cards e memória de estudo (questões, mapa, flash cards e painel) |
+| `assets/laminario.js` | Configurações → Laminário → Importar laminário: lê vários arquivos (PDF, PowerPoint, Word, OpenDocument, fotos, .zip) e transforma cada página/slide/foto numa lâmina para conferir antes de salvar |
 | `assets/extrair.js` | Leitura do texto de todos os formatos no navegador: PDF, PowerPoint (.ppt e .pptx), Word (.doc e .docx), Excel, OpenDocument (.odp, .odt, .ods), .rtf, .csv, .html, .txt e .md |
 | `assets/conta.js` | Configurações → Minha conta (e Meu perfil → Minha conta): apagar os dados e começar do zero, ou excluir a conta |
 | `supabase/13_minha_conta.sql` | Funções que apagam os dados do aluno logado (e a conta, se ele pedir) |
@@ -115,7 +116,7 @@ O painel agora tem as mesmas abas do painel original: **Agenda**, **Disciplinas*
 - **Resumo:** só é feito quando o aluno clica em "Gerar resumo", no formato **resumo ativo** (tópicos diretos, sem texto corrido). Se o tema aparece nos livros do aluno, o site pergunta: **Do jeito do professor** ou **Corrigido pelos livros**. Nos dois, o resumo separa o que diz o material do professor e o que diz cada livro (com título e página) e avisa quando discordam. Dá para baixar em **PDF** e **Word**. O jeito do resumo fica em Configurações → Memória de estudo → Resumos (com o modelo completo em "Avançado").
 - **PDF, Word e PowerPoint do Drive:** são lidos no navegador do aluno na hora do primeiro resumo daquele tema (a função do Supabase não aguenta ler arquivos pesados).
 - **Questões:** 4 tipos (marcar X, verdadeiro ou falso, relacionar, dissertativa), até 20 de cada e 40 por vez, estilo prova com caso clínico. A IA nunca repete as que o aluno já recebeu (mesmo as que ele apagou).
-- **Laminário:** o aluno envia as fotos das lâminas/slides dele, com a resposta, e treina (mostrar resposta, acertei/errei, só as que errei). As imagens ficam numa pasta privada; cada aluno pode ter até 300 (cada uma é reduzida para cerca de 300 KB no aparelho).
+- **Laminário:** o aluno guarda as lâminas dele, com a resposta, e treina (mostrar resposta, acertei/errei, só as que errei). Dá para guardar uma foto por vez ou **importar o laminário inteiro** (PDF, PowerPoint, Word, fotos ou .zip, vários de uma vez; veja a Etapa 14). As imagens ficam numa pasta privada; cada aluno pode ter até 300 (cada uma é reduzida no aparelho: até cerca de 300 KB na foto avulsa e 450 KB na importação, abaixo do limite de 600 KB da pasta).
 - **Média:** calculadora "quanto falta" com a regra de notas da faculdade (a mesma do passo 4 da configuração).
 - **Aulas**, **Calendário** (provas, seminários, entregas, feriados e semanas de prova) e **Vida acadêmica** (eventos, ligas, horas e certificados): o aluno cadastra em Configurações e a aba mostra.
 
@@ -297,3 +298,19 @@ O que fazer (uma vez):
 1. **Função `ia`:** Edge Functions → **ia** → **Code** → apague tudo, cole o novo `supabase/functions/ia/index.ts` → **Deploy**. Confira que **"Verify JWT" continua DESLIGADO**.
 2. **Banco:** nada novo nesta etapa (usa as tabelas e a pasta `tarefas` do `08_tarefas.sql`).
 3. Mais nada: o site atualiza sozinho quando a etapa for para a `etapa-2`. Antes do passo 1, a importação funciona, só sem as melhorias do pedido à IA (hora geral das provas, junção das aulas).
+
+## Etapa 14: importar o laminário de qualquer arquivo
+
+- **O problema:** o Laminário só aceitava uma foto por vez; o laminário que o professor manda (PDF ou PowerPoint, uma lâmina por página com o nome embaixo) não entrava.
+- **Importar laminário (vários de uma vez).** Em Configurações → **Laminário**, novo campo no alto. Aceita vários arquivos juntos (até 20 por vez):
+  - **PDF:** uma lâmina por página. Se a página tem foto e texto, a imagem guardada é **só a área das fotos** (o nome escrito na página não aparece no treino); duas fotos na mesma página entram juntas. A resposta sugerida é a linha mais destacada da página (letra maior), sem o cabeçalho e o rodapé que se repetem em todas, sem "Lámina 3:" no começo; "Diagnóstico: X" e "Órgano: Y" vão para a resposta e o órgão. Página só com texto (capa) vem desmarcada; página em branco é pulada.
+  - **PowerPoint (.pptx) e OpenDocument (.odp):** uma lâmina por slide, com a maior foto e o título do slide como resposta. Slide com várias fotos: caixinha "Uma lâmina para cada foto". O logo que se repete nos slides não vira lâmina. Slides sem foto ficam de fora (com aviso).
+  - **Word (.docx) e .odt:** cada foto, na ordem, com a legenda logo abaixo (ou o parágrafo de cima).
+  - **Fotos** (JPG, PNG, WebP, GIF, BMP; HEIC quando o navegador abre) e **.zip com fotos:** resposta = nome do arquivo (nome de câmera, como IMG_2034, fica em branco).
+  - **PowerPoint antigo (.ppt):** as fotos saem, mas o arquivo não diz de qual slide é cada uma: as respostas vêm em branco, com a lista dos títulos para escolher, e o aviso para salvar como .pptx ou PDF. Word antigo (.doc), planilhas e outros formatos: aviso dizendo o que fazer, sem travar os outros arquivos.
+- **Revisão antes de salvar.** Grade com a miniatura de cada lâmina, caixinha **Usar**, resposta, conteúdo e órgão editáveis; **Matéria de todas** e **Conteúdo de todas** (botão "Aplicar a todas"); marcar/desmarcar todas; contador "X marcadas · cabem mais Y de 300". Passou do limite ou tem marcada sem resposta: o botão Salvar fica desligado e aparece o atalho para resolver ("deixar só as primeiras", "desmarcar as sem resposta"). Uma segunda importação soma na mesma revisão. **Nada é salvo antes de "Salvar lâminas".**
+- **Salvar.** Uma por vez, com "Salvando 12 de 40…". Se uma falha, as outras continuam; a que falhou fica em vermelho e o próximo clique tenta só as que faltaram. Se a imagem subiu e o registro não entrou, a imagem é apagada (nada fica perdido na pasta). Se o banco recusar pelo limite de 300, para e avisa.
+- **Memória.** As páginas são lidas uma de cada vez (o navegador respira entre elas); só ficam guardadas a imagem final (até ~450 KB) e uma miniatura. Um PDF de 62 páginas leva uns 5 segundos.
+- O formulário de **uma lâmina por vez** continua igual; se o aluno escolher ali um PDF/PowerPoint/Word, ele vai para a importação.
+
+O que fazer: **nada.** Sem SQL novo e sem função nova (usa a tabela `laminas` e a pasta `laminas` do `06_estudo.sql`, que já aceitam JPEG até 600 KB). O site atualiza sozinho quando a etapa for para a `etapa-2`.

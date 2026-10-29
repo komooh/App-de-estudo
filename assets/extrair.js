@@ -841,7 +841,9 @@
 
   const API = { tipoDoArquivo, extrair, naoAceito, ACCEPT, FORMATOS_TEXTO, MIMES: M, LIM,
     // partes, para os testes
-    lerCFB, textoRtf, textoHtml, decodificar, limparWord, farejar, cp1252, utf16le, desfazEntidades };
+    lerCFB, textoRtf, textoHtml, decodificar, limparWord, farejar, cp1252, utf16le, desfazEntidades,
+    // usados pelo importador do laminário (assets/laminario.js)
+    abrirZip, relacoes, resolver, textoDoXml, atributo };
   g.Extrair = API;
   if (typeof module !== "undefined" && module.exports) module.exports = API;
 })(typeof window !== "undefined" ? window : globalThis);

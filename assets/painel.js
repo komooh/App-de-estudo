@@ -792,7 +792,7 @@
     const temas = [...new Set(L.map((c) => c.tema || ""))].filter(Boolean).sort();
     const vistos = L.filter((x) => x.acertos || x.erros).length, ac = L.filter((x) => x.ultima).length;
     const gerenciar = dicaCfg("lam", `adicionar ou apagar lâminas (${L.length} de 300)`);
-    if (!L.length) return `<h2 style="font-size:19px">Laminário</h2><p class="muted" style="margin:6px 0 12px">Envie as fotos das lâminas ou dos slides que caem na prova prática, com a resposta. Depois treine aqui: a imagem aparece, você diz o órgão e a doença em voz alta e confere.</p><div class="empty">Nenhuma lâmina ainda. Guarde as suas em ${lnkCfg("lam")}.</div>`;
+    if (!L.length) return `<h2 style="font-size:19px">Laminário</h2><p class="muted" style="margin:6px 0 12px">Guarde as lâminas que caem na prova prática: fotos, ou o laminário inteiro em PDF, PowerPoint ou Word (cada página vira uma lâmina, com o nome como resposta). Depois treine aqui: a imagem aparece, você diz o órgão e a doença em voz alta e confere.</p><div class="empty">Nenhuma lâmina ainda. Guarde as suas em ${lnkCfg("lam")}.</div>`;
     const pool = lamPool(); if (!ui.lamCur || !pool.some((c) => c.id === ui.lamCur)) lamNext();
     const c = L.find((x) => x.id === ui.lamCur);
     const head = `<div class="row" style="justify-content:space-between;align-items:center">
@@ -817,7 +817,9 @@
     if (!S.laminas) { carregarQuestoes().then(() => { if (ui.tab === "config") render(); }).catch((e) => toast("Não consegui carregar o laminário: " + e.message)); return `<div class="win-body"><p class="muted" style="margin:0">Carregando…</p></div>`; }
     const L = S.laminas, f = ui.lamForm || {}, temas = [...new Set(L.map((c) => c.tema || ""))].filter(Boolean).sort();
     return `<div class="win-body"><p class="muted" style="margin:0;font-size:13.5px">${L.length} de 300 lâminas. Treine na aba Laminário.</p>
-      <form data-form="addLam" class="stack" style="margin-top:10px">
+      ${vLamImp()}
+      <h3 class="lam-h">Ou guarde uma lâmina por vez</h3>
+      <form data-form="addLam" class="stack" style="margin-top:6px">
         <label class="field"><span class="mono">Imagem (foto da lâmina ou do slide)</span><input type="file" name="arq" id="lamArq" accept="image/*" required></label>
         <div class="row"><label class="field" style="flex:1 1 180px"><span class="mono">Resposta (diagnóstico)</span><input name="resposta" maxlength="300" required placeholder="Ex.: Cirrose hepática" value="${esc(f.resposta || "")}"></label>
           ${campoConteudo({ name: "tema", id: "lamTemaTxt", rotulo: "Conteúdo (para filtrar)", temas, valor: f.tema, outro: ui.lamOutro, max: 120, ph: "Ex.: Fígado", vazio: "Sem conteúdo", flex: "1 1 160px" })}</div>
@@ -848,7 +850,7 @@
     const fd = Object.fromEntries(new FormData(form));
     const file = form.querySelector("#lamArq")?.files?.[0];
     if (!file) return toast("Escolha a imagem.");
-    if (!/^image\//.test(file.type) && !/\.(jpe?g|png|webp|heic|gif|bmp)$/i.test(file.name)) return toast("Use uma imagem (foto ou print).");
+    if (!/^image\//.test(file.type) && !/\.(jpe?g|png|webp|heic|gif|bmp)$/i.test(file.name)) { form.querySelector("#lamArq").value = ""; return lamImpLer([file]); } // PDF, PowerPoint…: vai para a importação
     if (file.size > 40 * 1024 * 1024) return toast("Imagem grande demais.");
     if ((S.laminas || []).length >= 300) return toast("Limite de 300 lâminas. Apague algumas para enviar outras.");
     ui.lamBusy = true; ui.lamForm = { resposta: fd.resposta, tema: fd.tema, orgao: fd.orgao, vista: fd.vista, disc: fd.disc }; render();
@@ -869,6 +871,162 @@
       toast(/limite/i.test(e.message || "") ? e.message : "Não consegui guardar: " + (e.message || e));
     }
     ui.lamBusy = false; render();
+  }
+
+  /* ---------- Importar laminário: vários arquivos (PDF, PowerPoint, Word, fotos, .zip) -> revisão -> salvar ---------- */
+  // ui.lamImp = { lendo, msg, itens, avisos, sugestoes, disc, temaTodos, sep:{grupo:true}, salvando:{feito,total}, res }
+  let lamSeq = 0, lamImpN = 0;
+  const lamVis = (it) => !it.salvo && (!it.extra || !!(ui.lamImp && ui.lamImp.sep[it.grupo]));
+  function lamImpConta() {
+    const I = ui.lamImp, vis = I.itens.filter(lamVis), marc = vis.filter((x) => x.usar);
+    const livres = Math.max(0, 300 - (S.laminas || []).length);
+    return { vis: vis.length, marc: marc.length, semResp: marc.filter((x) => !String(x.resposta || "").trim()).length, livres, passa: Math.max(0, marc.length - livres) };
+  }
+  function lamImpResumo() {
+    const c = lamImpConta();
+    const partes = [`<b>${c.marc}</b> de ${c.vis} marcada${c.vis === 1 ? "" : "s"} para salvar. Você tem ${(S.laminas || []).length} de 300: cabem mais ${c.livres}.`];
+    if (c.passa) partes.push(`<span class="lam-alerta">Passa do limite em ${c.passa}. Desmarque ${c.passa} (ou apague lâminas antigas). <button type="button" class="lnk" data-a="lamImpCabe">Deixar marcadas só as ${c.livres} primeiras</button></span>`);
+    if (c.semResp) partes.push(`<span class="lam-alerta">${c.semResp} marcada${c.semResp === 1 ? "" : "s"} sem resposta: escreva a resposta ou <button type="button" class="lnk" data-a="lamImpSemResp">desmarque essas</button>.</span>`);
+    return partes.join(" ");
+  }
+  function lamImpAtualizar() { // contador e botão sem redesenhar a tela (o aluno está digitando)
+    const el = document.getElementById("lamImpConta"); if (el) el.innerHTML = lamImpResumo();
+    const b = document.getElementById("lamImpSalvar"), c = lamImpConta();
+    if (b) { b.disabled = !c.marc || !!c.passa || !!c.semResp || !!ui.lamImp.salvando; b.textContent = `Salvar lâminas (${c.marc})`; }
+  }
+  function vLamImp() {
+    const I = ui.lamImp;
+    const topo = `<section class="lamimp" aria-labelledby="lamImpTit"><h3 class="lam-h" id="lamImpTit">Importar laminário (vários de uma vez)</h3>
+      <p class="muted" style="margin:0 0 8px;font-size:13.5px">PDF, PowerPoint (.pptx, .ppt), Word (.docx), OpenDocument (.odp, .odt), fotos (JPG, PNG, WebP, GIF, HEIC) ou .zip com fotos. Cada página ou slide vira uma lâmina, com o nome escrito nela como resposta. Você confere tudo antes de salvar.</p>
+      <label class="field"><span class="mono">Arquivos do laminário</span><input type="file" id="lamImpArq" data-a="lamImpArq" multiple accept="${esc(Laminario.ACCEPT)}" ${I && (I.lendo || I.salvando) ? "disabled" : ""}></label>`;
+    if (!I) return topo + `</section>`;
+    if (I.lendo) return topo + `<p class="msg" id="lamImpProg" role="status" aria-live="polite">${esc(I.msg || "Lendo…")}</p></section>`;
+    const avisos = I.avisos.length ? `<ul class="lam-avisos">${I.avisos.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>` : "";
+    const res = I.res ? `<p class="msg ${I.res.bad ? "bad" : ""}" role="status">${esc(I.res.t)}</p>` : "";
+    const vis = I.itens.filter(lamVis);
+    if (!vis.length) return topo + res + avisos + (I.itens.length ? "" : `<p class="muted" style="font-size:13.5px">Nenhuma lâmina encontrada nesses arquivos.</p>`) + `<div class="row" style="margin-top:8px"><button type="button" class="btn ghost" data-a="lamImpFechar">Fechar</button></div></section>`;
+    const temas = [...new Set((S.laminas || []).map((c) => c.tema || "").concat(I.itens.map((x) => x.tema || "")))].filter(Boolean).sort();
+    const sv = I.salvando;
+    const cards = vis.map((it) => {
+      const k = it.k, dis = sv ? " disabled" : "";
+      return `<li class="lamc${it.usar ? "" : " fora"}${it.erro ? " erro" : ""}">
+        <img src="${esc(it.thumbUrl)}" alt="${esc(`${it.origem}${it.onde ? ", " + it.onde : ""}`)}" loading="lazy">
+        <div class="lamc-c">
+          <div class="lamc-top"><label class="check"><input type="checkbox" id="li-u-${k}" data-li="usar" data-k="${k}"${it.usar ? " checked" : ""}${dis}><span>Usar</span></label><span class="mono lamc-de" title="${esc(it.origem)}">${it.onde ? esc(it.onde) + " · " : ""}${esc(it.origem)}</span></div>
+          <label class="field"><span class="mono">Resposta (diagnóstico)</span><input id="li-r-${k}" data-li="resposta" data-k="${k}" maxlength="300" value="${esc(it.resposta)}" list="lamImpSug" autocomplete="off" placeholder="Escreva a resposta"${dis}></label>
+          <div class="row"><label class="field" style="flex:1 1 110px"><span class="mono">Conteúdo</span><input id="li-t-${k}" data-li="tema" data-k="${k}" maxlength="120" value="${esc(it.tema)}" list="lamImpTemas" autocomplete="off"${dis}></label>
+            <label class="field" style="flex:1 1 110px"><span class="mono">Órgão</span><input id="li-o-${k}" data-li="orgao" data-k="${k}" maxlength="120" value="${esc(it.orgao)}" autocomplete="off"${dis}></label></div>
+          ${it.nFotos > 1 && !it.extra ? `<label class="check lamc-sep"><input type="checkbox" id="li-s-${k}" data-li="separar" data-k="${k}"${I.sep[it.grupo] ? " checked" : ""}${dis}><span>Uma lâmina para cada foto deste slide (${it.nFotos} fotos)</span></label>` : ""}
+          ${it.motivo ? `<p class="lamc-nota">${esc(it.motivo)}</p>` : ""}${it.erro ? `<p class="lamc-nota bad">Não salvou: ${esc(it.erro)}</p>` : ""}
+        </div></li>`;
+    }).join("");
+    return topo + res + avisos + `
+      <div class="lam-lote">
+        <label class="field" style="flex:1 1 180px"><span class="mono">Matéria de todas</span><select id="lamImpDisc" data-li="disc"${sv ? " disabled" : ""}><option value="">Nenhuma</option>${S.disc.map((d) => `<option value="${d.id}" ${I.disc == d.id ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select></label>
+        <label class="field" style="flex:1 1 180px"><span class="mono">Conteúdo de todas</span><input id="lamImpTema" data-li="temaTodos" maxlength="120" value="${esc(I.temaTodos)}" list="lamImpTemas" autocomplete="off" placeholder="Ex.: Fígado"${sv ? " disabled" : ""}></label>
+        <button type="button" class="btn" data-a="lamImpAplicar"${sv ? " disabled" : ""}>Aplicar a todas</button>
+      </div>
+      <div class="row" style="margin-top:8px"><button type="button" class="btn ghost" data-a="lamImpTodas"${sv ? " disabled" : ""}>Marcar todas</button><button type="button" class="btn ghost" data-a="lamImpNenhuma"${sv ? " disabled" : ""}>Desmarcar todas</button></div>
+      <datalist id="lamImpSug">${(I.sugestoes || []).map((t) => `<option value="${esc(t)}"></option>`).join("")}</datalist>
+      <datalist id="lamImpTemas">${temas.map((t) => `<option value="${esc(t)}"></option>`).join("")}</datalist>
+      <ul class="lamgrid">${cards}</ul>
+      <p class="lam-conta" id="lamImpConta" aria-live="polite">${lamImpResumo()}</p>
+      ${sv ? `<p class="msg" id="lamImpProg" role="status" aria-live="polite">Salvando ${sv.feito + 1 > sv.total ? sv.total : sv.feito + 1} de ${sv.total}…</p>` : ""}
+      <div class="row" style="margin-top:8px"><button type="button" class="btn solid" id="lamImpSalvar" data-a="lamImpSalvar" disabled>Salvar lâminas</button>
+        <button type="button" class="btn ghost" data-a="lamImpDescartar"${sv ? " disabled" : ""}>Descartar a importação</button>
+        <span class="muted" style="font-size:13px">Nada foi salvo ainda. As imagens ficam só na sua conta.</span></div>
+    </section>`;
+  }
+  // depois de desenhar: liga o botão Salvar conforme o contador
+  function lamImpDepois() { if (ui.lamImp && !ui.lamImp.lendo && document.getElementById("lamImpSalvar")) lamImpAtualizar(); }
+  function lamImpLiberar(itens) { for (const it of itens) { try { if (it.thumbUrl) URL.revokeObjectURL(it.thumbUrl); } catch (_) { } it.thumb = null; } }
+  async function lamImpLer(files) {
+    files = [...(files || [])]; if (!files.length) return;
+    const I0 = ui.lamImp;
+    if (I0 && (I0.lendo || I0.salvando)) return toast("Espere terminar a leitura anterior.");
+    if (!window.Laminario) return toast("Não consegui carregar o importador. Recarregue a página.");
+    const I = ui.lamImp = I0 || { itens: [], avisos: [], sugestoes: [], disc: "", temaTodos: "", sep: {} };
+    I.lendo = true; I.msg = "Abrindo os arquivos…"; I.res = null; I.avisos = []; render();
+    try {
+      const n = ++lamImpN;
+      const r = await Laminario.lerArquivos(files, { carregarPdfjs: H.carregarPdfjs, carregarJSZip: H.carregarJSZip,
+        prog: (m) => { I.msg = m; const el = document.getElementById("lamImpProg"); if (el) el.textContent = m; } });
+      r.itens.forEach((it) => { it.k = ++lamSeq; it.grupo = it.grupo ? `${n}-${it.grupo}` : ""; it.thumbUrl = URL.createObjectURL(it.thumb); it.resposta = it.resposta || ""; it.tema = it.tema || ""; it.orgao = it.orgao || ""; });
+      I.itens.push(...r.itens); I.avisos = r.avisos; I.sugestoes = [...new Set([...(I.sugestoes || []), ...r.sugestoes])].slice(0, 500);
+      if (!I.disc && S.disc.length) { const nomes = S.disc.map((d) => d.nome); for (const f of files) { const i = Leitor.casarMateria(f.name, nomes); if (i >= 0) { I.disc = String(S.disc[i].id); break; } } }
+      const novas = r.itens.filter((x) => !x.extra).length;
+      I.res = { t: novas ? `${novas} lâmina${novas === 1 ? "" : "s"} encontrada${novas === 1 ? "" : "s"}. Confira as respostas, desmarque o que não quer e clique em "Salvar lâminas".` : "Não achei lâminas nesses arquivos.", bad: !novas };
+    } catch (e) {
+      I.res = { t: "Não consegui ler: " + ((e && e.message) || e), bad: true };
+    }
+    I.lendo = false; render();
+  }
+  function lamImpCampo(el) { // guarda o que o aluno muda na revisão (o painel redesenha e não pode perder)
+    const I = ui.lamImp; if (!I || !el.dataset || !el.dataset.li) return false;
+    const campo = el.dataset.li;
+    if (campo === "disc") { I.disc = el.value; return true; }
+    if (campo === "temaTodos") { I.temaTodos = el.value; return true; }
+    const it = I.itens.find((x) => x.k === +el.dataset.k); if (!it) return true;
+    if (campo === "usar") { it.usar = el.checked; el.closest(".lamc")?.classList.toggle("fora", !el.checked); }
+    else if (campo === "separar") {
+      I.sep[it.grupo] = el.checked;
+      I.itens.filter((x) => x.extra && x.grupo === it.grupo).forEach((x) => { x.usar = el.checked; if (el.checked && !x.resposta) { x.resposta = it.resposta; x.orgao = it.orgao; x.tema = it.tema; } });
+      render(); return true;
+    } else if (campo === "resposta" || campo === "tema" || campo === "orgao") it[campo] = el.value;
+    lamImpAtualizar(); return true;
+  }
+  function lamImpFechar() { if (ui.lamImp) lamImpLiberar(ui.lamImp.itens); ui.lamImp = null; render(); }
+  async function lamImpSalvar() {
+    const I = ui.lamImp; if (!I || I.salvando || I.lendo) return;
+    const c = lamImpConta();
+    if (!c.marc) return toast("Marque pelo menos uma lâmina.");
+    if (c.semResp) return toast("Escreva a resposta das lâminas marcadas (ou desmarque).");
+    if (c.passa) return toast(`Passa do limite de 300 em ${c.passa}. Desmarque algumas.`);
+    const fila = I.itens.filter((x) => lamVis(x) && x.usar);
+    const disc = I.disc && S.disc.some((d) => d.id == I.disc) ? +I.disc : null;
+    I.salvando = { feito: 0, total: fila.length }; I.res = null; render();
+    let ok = 0, falhas = 0, parou = "";
+    for (const it of fila) {
+      const el = document.getElementById("lamImpProg"); if (el) el.textContent = `Salvando ${I.salvando.feito + 1} de ${fila.length}…`;
+      const caminho = `${H.P.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+      let enviado = false;
+      try {
+        const up = await sb.storage.from("laminas").upload(caminho, it.blob, { contentType: "image/jpeg", upsert: false });
+        if (up.error) throw up.error;
+        enviado = true;
+        const { data, error } = await sb.from("laminas").insert({ caminho, resposta: String(it.resposta).replace(/\s+/g, " ").trim().slice(0, 300),
+          tema: String(it.tema || "").trim().slice(0, 120) || null, orgao: String(it.orgao || "").trim().slice(0, 120) || null, disciplina_id: disc }).select("*").single();
+        if (error) throw error;
+        S.laminas.push(data); LAMURL[caminho] = { url: URL.createObjectURL(it.blob), ate: Date.now() + 50 * 60 * 1000 };
+        it.salvo = true; it.erro = null; ok++;
+      } catch (e) {
+        // nunca deixa imagem sem lâmina na pasta: se a linha não entrou, apaga o que subiu
+        if (enviado) { try { await sb.storage.from("laminas").remove([caminho]); } catch (_) { } }
+        it.erro = String((e && e.message) || e || "erro").slice(0, 200); falhas++;
+        if (/limite/i.test(it.erro)) { parou = it.erro; break; }
+      }
+      I.salvando.feito++;
+    }
+    lamImpLiberar(I.itens.filter((x) => x.salvo));
+    I.itens = I.itens.filter((x) => !x.salvo);
+    I.salvando = null;
+    const resto = I.itens.filter(lamVis).length;
+    if (!resto && !falhas) { ui.lamImp = null; toast(`${ok} lâmina${ok === 1 ? "" : "s"} guardada${ok === 1 ? "" : "s"}. Treine na aba Laminário.`); render(); return; }
+    I.res = { t: parou ? `${ok} salva${ok === 1 ? "" : "s"}. Parei: ${parou}` : falhas ? `${ok} salva${ok === 1 ? "" : "s"}, ${falhas} com erro (marcadas em vermelho abaixo). Clique em "Salvar lâminas" para tentar de novo só essas.` : `${ok} salva${ok === 1 ? "" : "s"}. Ficaram as desmarcadas: salve depois ou descarte.`, bad: !!(falhas || parou) };
+    render();
+  }
+  async function lamImpClique(a) {
+    const I = ui.lamImp; if (!I) return;
+    if (a === "lamImpSalvar") return lamImpSalvar();
+    if (I.salvando || I.lendo) return;
+    const vis = I.itens.filter(lamVis);
+    if (a === "lamImpTodas") vis.forEach((x) => { x.usar = true; });
+    else if (a === "lamImpNenhuma") vis.forEach((x) => { x.usar = false; });
+    else if (a === "lamImpSemResp") vis.forEach((x) => { if (x.usar && !String(x.resposta || "").trim()) x.usar = false; });
+    else if (a === "lamImpCabe") { let n = Math.max(0, 300 - (S.laminas || []).length); vis.forEach((x) => { if (x.usar) { if (n > 0) n--; else x.usar = false; } }); }
+    else if (a === "lamImpAplicar") { const t = String(I.temaTodos || "").trim().slice(0, 120); vis.forEach((x) => { x.tema = t; }); toast(t ? `Conteúdo "${t}" em todas` : "Conteúdo apagado de todas"); }
+    else if (a === "lamImpDescartar" || a === "lamImpFechar") return lamImpFechar();
+    render();
   }
 
   /* ================= MÉDIA (pontos: P1 + P2 + Final + processo) ================= */
@@ -1803,6 +1961,7 @@
     document.getElementById("pcfg").innerHTML = ui.tab === "config" ? vConfigFim() : "";
     if (focusId) { const el = document.getElementById(focusId); if (el && el !== document.activeElement) { el.focus(); try { const l = el.value.length; el.setSelectionRange(l, l); } catch (_) { } } }
     renderSheet();
+    if (ui.tab === "config") lamImpDepois();
   }
   // Janelas "Meu Google Drive" e "Meus livros" (em Configurações): ficam montadas, não somem a cada clique
   const FIXOS = [["drive", "Meu Google Drive", "drv"], ["livros", "Meus livros", "liv"]];
@@ -1837,6 +1996,7 @@
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b) || b.tagName === "SELECT" || (b.tagName === "INPUT" && b.type !== "checkbox")) return;
     const a = b.dataset.a, id = b.dataset.id;
     if (a.startsWith("imp") && b.closest("#impBox")) { if (verAntigo()) await Importar.clique(a, ctxImp()); return; }
+    if (a.startsWith("lamImp") && a !== "lamImpArq") { await lamImpClique(a); return; }
     switch (a) {
       case "goCfg": { const k = b.dataset.s; if (b.dataset.d && discById(b.dataset.d)) ui.cfgDisc = +b.dataset.d; if (b.dataset.m) ui.cvMode = b.dataset.m; irCfg(k); break; }
       case "goPerfil": H.perfilTela(); break;
@@ -1970,6 +2130,8 @@
       return;
     }
     if (guardarDoc(e.target)) return;
+    if (e.target.dataset && e.target.dataset.li && e.target.closest && e.target.closest(".lamimp")) { lamImpCampo(e.target); return; }
+    if (e.target.id === "lamImpArq") { const fs = [...(e.target.files || [])]; e.target.value = ""; lamImpLer(fs); return; }
     if (e.target.matches && e.target.matches("select[data-escolha]")) { escolhaMudou(e.target); return; }
     if (e.target.closest && e.target.closest("#impBox")) { if (verAntigo()) Importar.mudou(e.target, ctxImp()); return; }
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b)) return; const a = b.dataset.a;
@@ -2011,6 +2173,7 @@
   }
   function onInput(e) {
     if (guardarDoc(e.target)) return;
+    if (e.target && e.target.dataset && e.target.dataset.li && e.target.type !== "checkbox" && e.target.closest && e.target.closest(".lamimp")) { lamImpCampo(e.target); return; }
     if (e.target && e.target.id === "disTxt" && ui.qst && ui.qst.id == e.target.dataset.qid) ui.qst.txt = e.target.value;
     if (e.target && e.target.id === "upTemaNome") ui.up.temaNome = e.target.value;
     if (e.target && e.target.id === "genTemaTxt") ui.genTema = e.target.value;
