@@ -144,11 +144,10 @@ Deno.serve(async (req) => {
       response_type: "code",
       scope: ESCOPO,
       access_type: "offline",
-      prompt: "consent",
+      prompt: "select_account consent", // deixa o aluno escolher a conta do Google
       include_granted_scopes: "true",
       state: await assinarState(uid),
     });
-    if (quem.user.email) p.set("login_hint", quem.user.email);
     return json(req, { url: "https://accounts.google.com/o/oauth2/v2/auth?" + p.toString() });
   }
 
