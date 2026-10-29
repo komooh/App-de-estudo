@@ -1,9 +1,29 @@
 // Funções compartilhadas entre as páginas.
 (function () {
   const C = window.APP_CONFIG;
+  // Diagnóstico do login (sem senhas nem tokens): guarda as últimas respostas de erro do /auth/v1 e os eventos
+  // do login neste navegador; a tela de entrada mostra quando o login cai, para descobrir a causa.
+  const DIAG_K = "painel:diagLogin";
+  function diag(x) {
+    try { const L = JSON.parse(localStorage.getItem(DIAG_K) || "[]"); L.push({ em: new Date().toISOString().slice(11, 19), ...x }); localStorage.setItem(DIAG_K, JSON.stringify(L.slice(-15))); } catch (_) { }
+  }
+  const fetchDiag = async (input, init) => {
+    const res = await fetch(input, init);
+    try {
+      const url = typeof input === "string" ? input : (input && input.url) || "";
+      if (/\/auth\/v1\//.test(url) && !res.ok) {
+        const rota = url.replace(/^.*\/auth\/v1\//, "").replace(/\?.*$/, "") + (/grant_type=refresh/.test(url) ? "(refresh)" : /grant_type=password/.test(url) ? "(senha)" : "");
+        let cod = ""; try { const j = await res.clone().json(); cod = j.error_code || j.code || j.error || ""; cod += j.msg || j.message || j.error_description ? ": " + String(j.msg || j.message || j.error_description).slice(0, 80) : ""; } catch (_) { }
+        diag({ auth: rota, status: res.status, cod });
+      }
+    } catch (_) { }
+    return res;
+  };
   const sb = window.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    global: { fetch: fetchDiag },
   });
+  try { sb.auth.onAuthStateChange((ev) => { if (ev !== "INITIAL_SESSION") diag({ evento: ev, pagina: location.pathname }); }); } catch (_) { }
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function toast(m) {
     // erro de sessão cru ("permission denied for table ...", "JWT expired") vira a frase simples e confere a sessão
@@ -141,6 +161,6 @@
     return data;
   }
 
-  window.App = { sb, esc, toast, hoje, isoHoje, acessoOk, sessao, meuPerfil, sair, win, C, limparTurma, campoTurma,
+  window.App = { diagLogin: () => { try { return JSON.parse(localStorage.getItem(DIAG_K) || "[]"); } catch (_) { return []; } }, sb, esc, toast, hoje, isoHoje, acessoOk, sessao, meuPerfil, sair, win, C, limparTurma, campoTurma,
     guardarSessao, conferirSessao, sessaoAcabou, aoTerminarSessao, vaiSair, erroDeSessao, msgErro, invocar, chamar, MSG_FIM };
 })();
