@@ -65,18 +65,21 @@
   const msgErro = (e) => erroDeSessao(e) ? MSG_FIM : (e && (e.message || e.erro)) || String(e || "");
   const redeFora = (e) => (typeof navigator !== "undefined" && navigator.onLine === false) || !!e && (e.name === "AuthRetryableFetchError" || /failed to fetch|network|load failed|fetch failed/i.test(e.message || ""));
   const sessaoAcabou = () => SESS.fim;
+  // Nunca sai da conta sozinho. Só volta para a tela de entrada se o navegador realmente não tem mais login
+  // (getSession vazio). Qualquer outro problema (servidor recusou, permissão) vira mensagem, sem tirar o aluno.
   function sessaoTerminou(motivo) {
     if (SESS.fim || SESS.saindo) return;
-    SESS.fim = true;
-    console.warn("[sessão] terminou:", motivo);
-    try { window.Fila && Fila.pausar && Fila.pausar(); } catch (_) { }
-    SESS.ouvintes.forEach((fn) => { try { fn(motivo); } catch (_) { } });
-    avisoFim();
-  }
-  // Sem aviso na tela: se o login realmente acabou (e renovar não deu), volta para a tela de entrada.
-  function avisoFim() {
-    SESS.saindo = true;
-    (async () => { try { await sb.auth.signOut({ scope: "local" }); } catch (_) { } location.href = "/?sessao=1"; })();
+    console.warn("[sessão] suspeita:", motivo);
+    try { localStorage.setItem("painel:sessaoMotivo", JSON.stringify({ motivo: String(motivo || ""), em: new Date().toISOString() })); } catch (_) { }
+    (async () => {
+      let s = null;
+      try { const r = await sb.auth.getSession(); s = r && r.data && r.data.session; } catch (_) { return; }
+      if (s) { console.warn("[sessão] continua valendo; nada a fazer"); return; }
+      SESS.fim = true;
+      try { window.Fila && Fila.pausar && Fila.pausar(); } catch (_) { }
+      SESS.ouvintes.forEach((fn) => { try { fn(motivo); } catch (_) { } });
+      location.href = "/?sessao=1&m=" + encodeURIComponent(String(motivo || "").slice(0, 40));
+    })();
   }
   /** Confere se a sessão ainda vale (forcar: renova o token agora). Devolve true se está tudo bem. */
   function conferirSessao(forcar, motivo) {
@@ -94,7 +97,7 @@
           const r = await sb.auth.refreshSession();
           if (r.error || !r.data || !r.data.session) {
             if (redeFora(r.error)) return true;
-            sessaoTerminou(motivo || "renovar_falhou"); return false;
+            sessaoTerminou(motivo || "renovar_falhou"); return true;
           }
         }
         SESS.ultima = Date.now(); return true;
@@ -146,9 +149,9 @@
         if (!rf.error && rf.data && rf.data.session) { SESS.ultima = Date.now(); continue; }
         if (redeFora(rf.error)) return { data: null, error: new Error("Sem conexão com o servidor. Confira a internet e tente de novo."), corpo: { erro: "Sem conexão com o servidor. Confira a internet e tente de novo." }, status: 0 };
       }
-      sessaoTerminou("funcao_" + nome);
-      const e = new Error(MSG_FIM); e.sessao = true;
-      return { data: null, error: e, corpo: { erro: MSG_FIM }, status: 401, sessao: true };
+      sessaoTerminou("funcao_" + nome); // só volta para a entrada se o navegador não tiver mais login
+      const m2 = "O servidor não aceitou seu login agora. Tente de novo em instantes; se continuar, saia e entre de novo.";
+      return { data: null, error: new Error(m2), corpo: { erro: m2 }, status: 401 };
     }
   }
   /** Chama a função e devolve o data; erro vira Error com a mensagem do servidor (e.generico se ele não respondeu) */
