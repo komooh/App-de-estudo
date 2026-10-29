@@ -1,27 +1,33 @@
 // Funções compartilhadas entre as páginas.
 (function () {
   const C = window.APP_CONFIG;
-  // Vigia as respostas do banco: 401 em /rest/v1 ou /storage/v1 quer dizer que o pedido foi sem login válido
-  // (o PostgREST responde 401 a "permission denied" quando o pedido vai como anônimo, e a "JWT expired").
-  // Aí confere a sessão (e mostra o aviso "Sua sessão terminou" se ela acabou mesmo).
-  const fetchVigiado = async (input, init) => {
+  // Diagnóstico do login (sem senhas nem tokens): guarda as últimas respostas de erro do /auth/v1 e os eventos
+  // do login neste navegador; a tela de entrada mostra quando o login cai, para descobrir a causa.
+  const DIAG_K = "painel:diagLogin";
+  function diag(x) {
+    try { const L = JSON.parse(localStorage.getItem(DIAG_K) || "[]"); L.push({ em: new Date().toISOString().slice(11, 19), ...x }); localStorage.setItem(DIAG_K, JSON.stringify(L.slice(-15))); } catch (_) { }
+  }
+  const fetchDiag = async (input, init) => {
     const res = await fetch(input, init);
     try {
-      if (res.status === 401 && SESS.ligado && !SESS.fim && !SESS.saindo) {
-        const url = typeof input === "string" ? input : (input && input.url) || "";
-        if (/\/(rest|storage)\/v1\//.test(url)) setTimeout(() => conferirSessao(true, "http_401"), 0);
+      const url = typeof input === "string" ? input : (input && input.url) || "";
+      if (/\/auth\/v1\//.test(url) && !res.ok) {
+        const rota = url.replace(/^.*\/auth\/v1\//, "").replace(/\?.*$/, "") + (/grant_type=refresh/.test(url) ? "(refresh)" : /grant_type=password/.test(url) ? "(senha)" : "");
+        let cod = ""; try { const j = await res.clone().json(); cod = j.error_code || j.code || j.error || ""; cod += j.msg || j.message || j.error_description ? ": " + String(j.msg || j.message || j.error_description).slice(0, 80) : ""; } catch (_) { }
+        diag({ auth: rota, status: res.status, cod });
       }
     } catch (_) { }
     return res;
   };
   const sb = window.supabase.createClient(C.SUPABASE_URL, C.SUPABASE_KEY, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-    global: { fetch: fetchVigiado },
+    global: { fetch: fetchDiag },
   });
+  try { sb.auth.onAuthStateChange((ev) => { if (ev !== "INITIAL_SESSION") diag({ evento: ev, pagina: location.pathname }); }); } catch (_) { }
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   function toast(m) {
     // erro de sessão cru ("permission denied for table ...", "JWT expired") vira a frase simples e confere a sessão
-    if (erroDeSessao(m)) { m = MSG_FIM; conferirSessao(true, "erro_na_tela"); }
+    if (erroDeSessao(m)) m = "O servidor não aceitou o pedido agora. Tente de novo em instantes.";
     const t = document.createElement("div"); t.className = "toast"; t.textContent = m;
     document.body.appendChild(t); setTimeout(() => t.remove(), 2600);
   }
@@ -92,14 +98,6 @@
         if (error && redeFora(error)) return true; // sem internet: não dá para saber; tenta de novo depois
         const s = data && data.session;
         if (!s) { sessaoTerminou(motivo || "sem_sessao"); return false; }
-        const falta = (s.expires_at || 0) * 1000 - Date.now();
-        if (forcar || falta < 0) {
-          const r = await sb.auth.refreshSession();
-          if (r.error || !r.data || !r.data.session) {
-            if (redeFora(r.error)) return true;
-            sessaoTerminou(motivo || "renovar_falhou"); return true;
-          }
-        }
         SESS.ultima = Date.now(); return true;
       } catch (e) { if (!redeFora(e)) console.warn("[sessão] não consegui conferir:", e && e.name); return true; }
       finally { SESS.conferindo = null; }
@@ -120,7 +118,7 @@
     const aoVoltar = () => { if (document.visibilityState !== "hidden") conferirSessao(false, "voltou"); };
     document.addEventListener("visibilitychange", aoVoltar);
     window.addEventListener("focus", aoVoltar);
-    window.addEventListener("online", () => conferirSessao(false, "voltou_internet"));
+    
     setInterval(() => { if (document.visibilityState !== "hidden") conferirSessao(false, "intervalo"); }, 4 * 60 * 1000);
   }
   const aoTerminarSessao = (fn) => { SESS.ouvintes.add(fn); return () => SESS.ouvintes.delete(fn); };
@@ -145,7 +143,7 @@
       console.warn("[sessão] a função", nome, "recusou o login", status || "");
       if (!renovou) {
         renovou = true;
-        let rf; try { rf = await sb.auth.refreshSession(); } catch (e) { rf = { error: e }; }
+        let rf; try { rf = await sb.auth.getSession(); } catch (e) { rf = { error: e }; }
         if (!rf.error && rf.data && rf.data.session) { SESS.ultima = Date.now(); continue; }
         if (redeFora(rf.error)) return { data: null, error: new Error("Sem conexão com o servidor. Confira a internet e tente de novo."), corpo: { erro: "Sem conexão com o servidor. Confira a internet e tente de novo." }, status: 0 };
       }
@@ -163,6 +161,6 @@
     return data;
   }
 
-  window.App = { sb, esc, toast, hoje, isoHoje, acessoOk, sessao, meuPerfil, sair, win, C, limparTurma, campoTurma,
+  window.App = { diagLogin: () => { try { return JSON.parse(localStorage.getItem(DIAG_K) || "[]"); } catch (_) { return []; } }, sb, esc, toast, hoje, isoHoje, acessoOk, sessao, meuPerfil, sair, win, C, limparTurma, campoTurma,
     guardarSessao, conferirSessao, sessaoAcabou, aoTerminarSessao, vaiSair, erroDeSessao, msgErro, invocar, chamar, MSG_FIM };
 })();
