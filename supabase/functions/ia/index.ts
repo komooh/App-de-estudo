@@ -505,6 +505,15 @@ Responda SOMENTE com JSON válido, sem texto antes ou depois:
 {"provas":[{"materia":"...","tipo":"P1|P2|Final","modalidade":"teorica|pratica","data":"AAAA-MM-DD","hora":"HH:MM ou null"}],"aviso":""}${temTexto ? `\n\n${AVISO_FONTES}\n<calendario>\n` : ""}`;
 }
 
+/** Hora "HH:MM" a partir do que a IA ou o documento escreveu: "7:00", "07.30", "7h30", "07:00 hs", "14:00h", "7 hs", "7:00 a.m.", "2:30 pm". */
+export function HM(s: unknown): string | null {
+  const t = semAcento(String(s ?? "")).trim().replace(/\s+/g, " ");
+  const m = t.match(/^([01]?\d|2[0-3])(?:\s*[:h.]\s*([0-5]\d))?\s*(hs?|horas?)?\s*(a\.? ?m\.?|p\.? ?m\.?)?$/);
+  if (!m || (!m[2] && !m[3] && !m[4])) return null;
+  let h = +m[1]; const pm = m[4] && m[4][0] === "p", am = m[4] && m[4][0] === "a";
+  if (pm && h < 12) h += 12; if (am && h === 12) h = 0;
+  return `${String(h).padStart(2, "0")}:${m[2] || "00"}`;
+}
 const ROMANOS: Record<string, string> = { i: "1", ii: "2", iii: "3", iv: "4", v: "5", vi: "6" };
 const palavrasMat = (s: string) => semAcento(s).replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).map((w) => ROMANOS[w] || w)
   .filter((w) => !["de", "da", "do", "la", "el", "en", "e", "y"].includes(w));
@@ -549,8 +558,7 @@ export function limparCalendario(out: Record<string, unknown> | null, materias: 
     const tipo = TIPO_PROVA(p.tipo), data = dataValida(p.data, hoje);
     if (!materia || !tipo || !data) continue;
     const modalidade = /prat|prac/.test(semAcento(String(p.modalidade ?? ""))) ? "pratica" : "teorica";
-    const hm = String(p.hora ?? "").trim().match(/^([01]?\d|2[0-3])[:h.]([0-5]\d)$/);
-    const hora = hm ? `${hm[1].padStart(2, "0")}:${hm[2]}` : null;
+    const hora = HM(p.hora);
     const exato = nomes.findIndex((n) => semAcento(n).trim() === semAcento(materia));
     const i = exato >= 0 ? exato : casarMateria(materia, nomes);
     const disciplina_id = i >= 0 ? materias[i].id : null;
@@ -581,6 +589,17 @@ const CATEGORIAS = ["feriado", "prova", "matricula", "aula", "recesso", "prazo",
 export const LIMITE_DOCUMENTO = 120_000;     // letras do texto (até 3 partes de 40 mil)
 export const PARTE_DOCUMENTO = 40_000;
 export const MAX_IMAGENS_DOC = 10;
+/** De onde veio o texto (o site manda): muda só a frase que explica o texto para a IA. */
+export const FORMATOS_DOC: Record<string, string> = { pdf: "PDF", docx: "Word", doc: "Word", odt: "Word (OpenDocument)", rtf: "RTF", xlsx: "Excel", xls: "Excel", ods: "planilha (OpenDocument)", csv: "CSV",
+  pptx: "PowerPoint", ppt: "PowerPoint", odp: "apresentação (OpenDocument)", html: "página HTML", txt: "texto" };
+/** A frase que apresenta o texto extraído do arquivo, conforme o formato. */
+export function sobreOTexto(formato: unknown): string {
+  const f = String(formato || "pdf");
+  if (f === "pdf" || !FORMATOS_DOC[f]) return "Abaixo, o texto extraído do PDF mantendo as colunas; quando um texto termina com [dd/mm/aaaa], essa é a data da coluna em que ele está.";
+  if (/^(xlsx|xls|ods|csv)$/.test(f)) return `Abaixo, o texto extraído de uma planilha (${FORMATOS_DOC[f]}): cada linha do texto é uma linha da planilha e as células estão separadas por TAB (célula vazia = TAB a mais, então a posição indica a coluna). Use o cabeçalho (dias, datas, horas) para saber o que cada coluna é.`;
+  if (/^(pptx|ppt|odp)$/.test(f)) return `Abaixo, o texto extraído dos slides (${FORMATOS_DOC[f]}).`;
+  return `Abaixo, o texto extraído do arquivo (${FORMATOS_DOC[f]}); tabelas viram linhas com as células na ordem.`;
+}
 
 export function promptDocumento(c: CtxCalendario, oQueVai: string, parte?: { i: number; n: number }): string {
   const ord = c.semestre && ORDINAIS[c.semestre] ? ORDINAIS[c.semestre] : "";
@@ -589,10 +608,12 @@ export function promptDocumento(c: CtxCalendario, oQueVai: string, parte?: { i: 
   return `Você lê documentos de uma faculdade de medicina (Paraguai; em espanhol ou português) e coloca no painel de estudo de UM aluno o que for útil para ele.
 Aluno: ${aluno}. Hoje é ${c.hoje}.
 ${parte && parte.n > 1 ? `Este é o pedaço ${parte.i} de ${parte.n} do documento: devolva só o que aparece neste pedaço.\n` : ""}
-1) CLASSIFIQUE o documento em "tipo":
-- "calendario_geral": calendário acadêmico/anual da faculdade, igual para todos (períodos, feriados, matrícula, recesso, semanas de provas, exames finais, prazos).
-- "cronograma_provas": grade de provas com linhas por semestre/turma (ex.: "SEXTO SEMESTRE F") e colunas por data.
-- "horario_aulas": horário semanal de aulas.
+O arquivo pode ter vindo de qualquer formato: PDF, foto, Word (tabelas viram linhas com as células separadas), Excel/CSV (cada linha da planilha é uma linha do texto, com as células separadas por TAB; "Planilha: nome" separa as abas; células vazias ficam como TAB a mais, então a posição da célula indica a coluna) ou PowerPoint (texto dos slides). Use o CONTEÚDO para decidir o tipo, não o nome do arquivo.
+
+1) CLASSIFIQUE o documento em "tipo" (o que ele é principalmente):
+- "calendario_geral": calendário acadêmico/anual da faculdade, igual para todos (períodos, feriados, asuetos, matrícula, recesso, semanas de provas, exames finais, prazos), em geral com datas espalhadas pelos meses do ano.
+- "cronograma_provas": datas (e às vezes horários) das provas de cada matéria, em geral numa grade com linhas por semestre/turma (ex.: "SEXTO SEMESTRE F") e colunas por data, ou uma lista "matéria, data, hora".
+- "horario_aulas": horário SEMANAL de aulas (dias da semana nas colunas ou nas linhas, faixas de hora como "07:00 - 07:45", e em cada célula a matéria, às vezes com sala e professor). Não tem datas do ano, só dias da semana.
 - "programa_materia": programa/plano de uma matéria (conteúdo, bibliografia, avaliação).
 - "regulamento": regras, normas, resoluções, instruções.
 - "aviso": comunicado, edital, informativo.
@@ -601,7 +622,8 @@ ${parte && parte.n > 1 ? `Este é o pedaço ${parte.i} de ${parte.n} do document
 2) EXTRAIA tudo que servir ao aluno:
 - "eventos": datas do calendário (feriados, matrícula, início/fim de aulas, recesso, semanas de provas parciais e finais, prazos, atividades). Um calendário GERAL vale para todos: importe TODAS as datas dele como eventos, sem procurar turma. Período de vários dias: data_ini e data_fim.
 - "provas": só provas de matéria com data (P1/P2/Final). Numa grade por semestre/turma use SÓ a linha do aluno (semestre e turma exatos; nomes podem ocupar 2 ou 3 linhas: junte; devolva TODAS as matérias da linha, uma prova por matéria, geralmente 6 a 8). Se a linha dele não existir no documento, deixe "provas" vazia e explique em "aviso" (mas devolva os outros itens). Num calendário geral, semanas de provas são eventos (categoria "prova"), não provas.
-- "horarios": aulas semanais (dia_semana 1=segunda ... 6=sábado; hora_ini e hora_fim HH:MM; sala se houver). Numa grade por turma, só a turma do aluno.
+- Hora da prova: procure na célula, na coluna, no título ou numa observação ("Horario: 07:00 hs", "turno mañana 07:30", "a las 13:00"). Se a hora valer para todas as provas do documento (ou do turno do aluno), escreva-a em "hora_provas" (HH:MM); se cada prova tiver a sua, escreva em cada "hora". Se o documento não disser a hora, null. Nunca invente.
+- "horarios": aulas semanais. Para cada célula com matéria: dia_semana (1=segunda/lunes ... 6=sábado), hora_ini e hora_fim HH:MM 24 h (da faixa de hora da linha ou coluna), materia e sala/aula se houver. Se o documento tiver uma grade para cada semestre/turma, use SÓ a do aluno. Ignore intervalos ("RECREO", "INTERVALO", "ALMUERZO") e células vazias. Pode devolver cada hora-aula separada (o site junta as seguidas).
 - "materias": matérias citadas com professor (se houver), só quando o documento lista as matérias do aluno.
 - "notas": regras, instruções, critérios de avaliação, prazos e avisos que valem guardar como texto (título curto + texto em tópicos, em português do Brasil, até 600 letras cada).
 Regras:
@@ -612,7 +634,7 @@ Matérias do aluno:
 ${c.materias.length ? c.materias.map((m, i) => `${i + 1}. ${m}`).join("\n") : "(nenhuma cadastrada)"}
 - "titulo": nome curto do documento; "resumo": até 3 frases em português do Brasil dizendo o que é e o que tem.
 Responda SOMENTE com JSON:
-{"tipo":"...","titulo":"...","resumo":"...","provas":[{"materia":"...","tipo":"P1|P2|Final","modalidade":"teorica|pratica","data":"AAAA-MM-DD","hora":"HH:MM ou null"}],"eventos":[{"titulo":"...","data_ini":"AAAA-MM-DD","data_fim":"AAAA-MM-DD ou null","categoria":"${CATEGORIAS.join("|")}","descricao":"..."}],"horarios":[{"materia":"...","dia_semana":1,"hora_ini":"HH:MM","hora_fim":"HH:MM","sala":null}],"materias":[{"nome":"...","professor":null}],"notas":[{"titulo":"...","texto":"..."}],"aviso":""}
+{"tipo":"...","titulo":"...","resumo":"...","hora_provas":"HH:MM ou null","provas":[{"materia":"...","tipo":"P1|P2|Final","modalidade":"teorica|pratica","data":"AAAA-MM-DD","hora":"HH:MM ou null"}],"eventos":[{"titulo":"...","data_ini":"AAAA-MM-DD","data_fim":"AAAA-MM-DD ou null","categoria":"${CATEGORIAS.join("|")}","descricao":"..."}],"horarios":[{"materia":"...","dia_semana":1,"hora_ini":"HH:MM","hora_fim":"HH:MM","sala":null}],"materias":[{"nome":"...","professor":null}],"notas":[{"titulo":"...","texto":"..."}],"aviso":""}
 
 ${AVISO_FONTES} ${oQueVai}`;
 }
@@ -626,9 +648,10 @@ export function partesDoTexto(texto: string, tam = PARTE_DOCUMENTO, max = 3): { 
   }
   return { partes: partes.filter(Boolean), cortado: i < t.length };
 }
-const HM = (s: unknown) => { const m = String(s ?? "").trim().match(/^([01]?\d|2[0-3])[:h.]([0-5]\d)$/); return m ? `${m[1].padStart(2, "0")}:${m[2]}` : null; };
-const DIAS_SEM: Record<string, number> = { lunes: 1, segunda: 1, martes: 2, terca: 2, miercoles: 3, quarta: 3, jueves: 4, quinta: 4, viernes: 5, sexta: 5, sabado: 6 };
-const diaSemana = (x: unknown) => { const n = Number(x); if (Number.isInteger(n) && n >= 1 && n <= 6) return n; const k = semAcento(String(x ?? "")).replace(/-feira/, "").trim(); return DIAS_SEM[k] ?? null; };
+const DIAS_SEM: Record<string, number> = { lunes: 1, segunda: 1, lun: 1, seg: 1, martes: 2, terca: 2, mar: 2, ter: 2, miercoles: 3, quarta: 3, mie: 3, qua: 3,
+  jueves: 4, quinta: 4, jue: 4, qui: 4, viernes: 5, sexta: 5, vie: 5, sex: 5, sabado: 6, sab: 6 };
+/** Dia da semana: 1 (segunda) a 6 (sábado), em número, espanhol ou português ("Lunes", "MIÉRCOLES", "Seg", "Quarta-feira"). */
+export const diaSemana = (x: unknown): number | null => { const n = Number(x); if (Number.isInteger(n) && n >= 1 && n <= 6) return n; const k = semAcento(String(x ?? "")).replace(/-?feira/, "").replace(/[^a-z]/g, ""); return DIAS_SEM[k] ?? null; };
 const txt = (x: unknown, max: number) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 export type DocLido = {
   tipo: string; titulo: string; resumo: string; provas: ProvaLida[];
@@ -647,6 +670,9 @@ export function limparDocumento(out: Record<string, unknown> | null, materias: {
   const vazio: DocLido = { tipo, titulo: txt(o.titulo, 160), resumo: txt(o.resumo, 600), provas: [], eventos: [], horarios: [], materias: [], notas: [], aviso: txt(o.aviso, 300) };
   if (tipo === "material_de_estudo") return vazio;
   vazio.provas = limparCalendario({ provas: lista("provas") }, materias, hoje);
+  // "todas as provas às 07:00": a hora geral do documento vale para as provas sem hora própria
+  const horaGeral = HM(o.hora_provas);
+  if (horaGeral) vazio.provas = vazio.provas.map((p) => p.hora ? p : { ...p, hora: horaGeral });
   const ev = new Set<string>();
   for (const e of lista("eventos")) {
     const titulo = txt(e.titulo, 120), ini = dataValida(e.data_ini ?? e.data, hoje); if (!titulo || !ini) continue;
@@ -663,8 +689,9 @@ export function limparDocumento(out: Record<string, unknown> | null, materias: {
     if (!materia || !dia || !a || !b || b <= a) continue;
     const k = `${semAcento(materia)}|${dia}|${a}`; if (hr.has(k)) continue; hr.add(k);
     vazio.horarios.push({ materia, disciplina_id: idMateria(materia), dia_semana: dia, hora_ini: a, hora_fim: b, sala: txt(h.sala, 60) || null });
-    if (vazio.horarios.length >= 60) break;
+    if (vazio.horarios.length >= 80) break;
   }
+  vazio.horarios = juntarAulas(vazio.horarios).slice(0, 60);
   const mt = new Set<string>();
   for (const m of lista("materias")) {
     const nome = txt(m.nome, 120); if (!nome || mt.has(semAcento(nome))) continue; mt.add(semAcento(nome));
@@ -677,6 +704,26 @@ export function limparDocumento(out: Record<string, unknown> | null, materias: {
   }
   return vazio;
 }
+/** Aulas seguidas da mesma matéria no mesmo dia (07:00-07:45 e 07:45-08:30) viram um bloco só (07:00-08:30).
+ *  Numa grade de horário cada célula costuma ser uma "hora-aula"; para o painel o que importa é o bloco. */
+export function juntarAulas<T extends { materia: string; disciplina_id: number | null; dia_semana: number; hora_ini: string; hora_fim: string; sala: string | null }>(lista: T[]): T[] {
+  const min = (h: string) => +h.slice(0, 2) * 60 + +h.slice(3, 5);
+  const chave = (h: T) => `${h.disciplina_id ?? semAcento(h.materia).replace(/[^a-z0-9]+/g, " ").trim()}|${h.dia_semana}`;
+  const ord = lista.slice().sort((a, b) => a.dia_semana - b.dia_semana || a.hora_ini.localeCompare(b.hora_ini));
+  const out: T[] = [];
+  for (const h of ord) {
+    const ant = [...out].reverse().find((x) => chave(x) === chave(h));
+    // encosta (até 10 min de intervalo) e é a mesma sala (ou uma delas sem sala)
+    if (ant && min(h.hora_ini) >= min(ant.hora_fim) && min(h.hora_ini) - min(ant.hora_fim) <= 10 && (!ant.sala || !h.sala || semAcento(ant.sala) === semAcento(h.sala))) {
+      if (h.hora_fim > ant.hora_fim) ant.hora_fim = h.hora_fim;
+      if (!ant.sala && h.sala) ant.sala = h.sala;
+      continue;
+    }
+    if (ant && h.hora_ini < ant.hora_fim && h.hora_ini >= ant.hora_ini) { if (h.hora_fim > ant.hora_fim) ant.hora_fim = h.hora_fim; continue; } // sobreposta
+    out.push({ ...h });
+  }
+  return out;
+}
 /** Junta as respostas dos pedaços de um documento grande. */
 export function juntarDocumentos(lidos: Record<string, unknown>[]): Record<string, unknown> {
   const base: Record<string, unknown> = { tipo: "outro", titulo: "", resumo: "", provas: [], eventos: [], horarios: [], materias: [], notas: [], aviso: "" };
@@ -687,6 +734,7 @@ export function juntarDocumentos(lidos: Record<string, unknown>[]): Record<strin
     if (!base.resumo && o.resumo) base.resumo = o.resumo;
     for (const k of ["provas", "eventos", "horarios", "materias", "notas"]) if (Array.isArray(o[k])) (base[k] as unknown[]).push(...(o[k] as unknown[]));
     if (o.aviso && !avisos.includes(String(o.aviso))) avisos.push(String(o.aviso));
+    if (!base.hora_provas && o.hora_provas) base.hora_provas = o.hora_provas;
   }
   base.aviso = avisos.join(" ");
   return base;
@@ -937,6 +985,8 @@ export async function validar(ctx: Ctx, b: Record<string, unknown>, fundo: boole
     if (Array.isArray(b.materias)) entrada.materias = (b.materias as unknown[]).map((x) => String(x ?? "").replace(/\s+/g, " ").trim().slice(0, 120)).filter(Boolean).slice(0, 40);
     const nome = typeof b.nome === "string" ? b.nome.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 150) : "";
     if (nome) entrada.nome = nome;
+    const formato = typeof b.formato === "string" ? b.formato.toLowerCase() : "";
+    if (FORMATOS_DOC[formato]) entrada.formato = formato;
     return { tipo: "documento", titulo: nome ? `Documento: ${nome}` : "Importar documento", entrada, reserva: { tipo: "calendarios", n: 1 } };
   }
   throw new ErroIA("Ação desconhecida.", 400);
@@ -1149,7 +1199,7 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
   if (!partes.length) partes.push("");
   const pedidos = partes.map((parte, i) => {
     const vai = [imgs.length && i === 0 ? `As ${imgs.length > 1 ? `${imgs.length} imagens acima são páginas` : "imagem acima é uma página ou foto"} do documento (alinhe cada célula com a data do cabeçalho da coluna).` : "",
-      parte ? `Abaixo, o texto extraído do PDF mantendo as colunas; quando um texto termina com [dd/mm/aaaa], essa é a data da coluna em que ele está.\n<documento>\n${parte}\n</documento>` : ""].filter(Boolean).join("\n");
+      parte ? `${sobreOTexto(e.formato)}\n<documento>\n${parte}\n</documento>` : ""].filter(Boolean).join("\n");
     const prompt = promptDocumento(cc, vai, { i: i + 1, n: partes.length });
     const conteudo: Conteudo = imgs.length && i === 0
       ? [...imgs.map((m) => ({ type: "image", source: { type: "base64", media_type: m.mime, data: m.base64 } })), { type: "text", text: prompt }]

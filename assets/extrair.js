@@ -251,18 +251,24 @@
         const vals = [];
         for (const c of (r[1] || "").matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
           if (++celulas > LIM.celulas) break;
+          // a posição da célula (r="C5") vale: célula vazia no meio vira um TAB a mais (horário com horas vagas, grade de provas)
+          const col = colunaXlsx(atributo(c[1], "r"));
           const tp = atributo(c[1], "t"), corpo = c[2] || ""; let v = "";
           if (tp === "inlineStr") { for (const m of corpo.matchAll(/<t(?:\s[^>]*)?>([^<]*)<\/t>/g)) v += desfazEntidades(m[1]); }
           else { const m = corpo.match(/<v>([^<]*)<\/v>/); v = m ? desfazEntidades(m[1]) : ""; if (tp === "s") v = sst[+v] ?? ""; else if (tp === "b") v = v === "1" ? "VERDADEIRO" : "FALSO"; else if (tp === "e") v = ""; }
-          if (v.trim()) vals.push(v.replace(/[\t\r\n]+/g, " ").trim());
+          if (!v.trim()) continue;
+          if (col != null && col < 200) while (vals.length < col) vals.push("");
+          vals.push(v.replace(/[\t\r\n]+/g, " ").trim());
         }
-        if (vals.length) linhas.push(vals.join("\t"));
+        if (vals.some(Boolean)) linhas.push(vals.join("\t").replace(/^\t+/, (m) => m.length > 20 ? "" : m));
       }
       if (linhas.length) out.push(`Planilha: ${folhas[i].nome || i + 1}\n${linhas.join("\n")}`);
       prog((i + 1) / folhas.length, `Lendo a planilha ${i + 1} de ${folhas.length}…`);
     }
     return { texto: out.join("\n\n"), paginas: folhas.length || null };
   }
+  /** "C5" -> 2 (coluna começando em 0); sem referência -> null */
+  function colunaXlsx(ref) { const m = String(ref || "").match(/^([A-Z]{1,3})\d/i); if (!m) return null; let n = 0; for (const ch of m[1].toUpperCase()) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; }
   /** OpenDocument (.odt/.odp/.ods): content.xml, parágrafos, células e páginas (slides). */
   async function textoOdf(z, prog) {
     const man = await z.texto("META-INF/manifest.xml");
