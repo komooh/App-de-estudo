@@ -99,7 +99,7 @@
     }
     // manual da prova: os conteúdos de cada matéria que caem nesta prova (P1/P2/Final)
     const tipoProva = ["P1", "P2", "Final"].includes(res.prova) ? res.prova : null;
-    for (const c of tipoProva ? res.conteudos || [] : []) {
+    for (const c of tipoProva && op.temaDe ? res.conteudos || [] : []) { // só no painel (na configuração ainda não há temas)
       if (!c || !c.materia || !Array.isArray(c.itens)) continue;
       const d = casar(c.materia, c.disciplina_id);
       let linha = R.conteudos.find((x) => x.prova === tipoProva && (d != null ? x.disciplina_id === d : x.disciplina_id == null && norm(x.materia) === norm(c.materia)));

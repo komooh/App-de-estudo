@@ -26,6 +26,7 @@
 <script src="/assets/leitor.js"></script>
 <script src="/assets/extrair.js"></script>
 <script src="/assets/importardoc.js"></script>
+<script src="/assets/conteudos.js"></script>
 <script src="/assets/fila.js"></script>
 <script src="/assets/tarefas.js"></script>
 <script src="/assets/importar.js"></script>
@@ -48,7 +49,7 @@
   const s = await App.sessao();
   if (!s) { location.replace("/"); return; }
   App.guardarSessao(); // se o login acabar (aba parada, saída em outra aba), aparece o aviso "Sua sessão terminou"
-  // rodapé "Excluir minha conta" (logado): app.html?cfg=conta abre Configurações → Minha conta
+  // rodapé "Excluir minha conta" (logado): app.html?cfg=conta abre Meu perfil → Minha conta
   const cfgPedido = new URLSearchParams(location.search).get("cfg") || "";
   if (cfgPedido) history.replaceState(null, "", location.pathname + location.hash);
   // volta da tela do Google ("Entrar com o Google"): #drive=conectado | negado | expirou | erro
@@ -137,6 +138,7 @@
     }
     if (!P.onboarding_ok) return cfgPedido === "conta" ? perfilTela(false, true) : onboarding();
     document.getElementById("cfgBtn").hidden = false;
+    if (cfgPedido === "conta") return perfilTela(false, true); // Minha conta fica em Meu perfil (Etapa 15)
     return home(cfgPedido ? "config" : undefined, cfgPedido);
   }
 
@@ -643,7 +645,7 @@
     iniciarTarefas();
     await carregarSemestres();
     window.scrollTo(0, 0);
-    await Painel.iniciar({ V, P, SEM: () => SEM, chamar, driveTela, livrosTela, carregarPdfjs, carregarJSZip, perfilTela: () => perfilTela(), recarregarSemestres, tab, cfg });
+    await Painel.iniciar({ V, P, SEM: () => SEM, chamar, driveTela, livrosTela, carregarPdfjs, carregarJSZip, perfilTela: (conta) => perfilTela(false, !!conta), recarregarSemestres, tab, cfg });
   }
   async function recarregarSemestres() { await carregarSemestres(); Object.assign(P, await App.meuPerfil()); pintarEu(); }
   // Tarefas (IA no servidor) e a fila do navegador (arquivos e livros): começam uma vez, depois do login

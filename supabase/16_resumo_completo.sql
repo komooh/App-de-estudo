@@ -12,6 +12,11 @@ alter table public.materiais add constraint materiais_tipo_check check (tipo in 
 alter table public.resumos drop constraint if exists resumos_modo_check;
 alter table public.resumos add constraint resumos_modo_check check (modo is null or modo in ('professor', 'livros', 'completo'));
 
+-- 3) Documentos lidos: o manual da prova (Enviar calendários e manuais) também fica registrado com o tipo dele.
+alter table public.documentos drop constraint if exists documentos_tipo_check;
+alter table public.documentos add constraint documentos_tipo_check check (tipo in
+  ('calendario_geral', 'cronograma_provas', 'horario_aulas', 'manual_prova', 'programa_materia', 'regulamento', 'aviso', 'outro'));
+
 -- O aluno muda o tipo de um arquivo dele (só o tipo: o resto do arquivo continua protegido).
 create or replace function public.mudar_tipo_material(p_id bigint, p_tipo text)
 returns text

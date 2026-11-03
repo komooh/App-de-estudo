@@ -585,3 +585,27 @@ table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-to
 .escolha select{width:100%}
 .drv-mat{max-width:190px;min-width:0;font-size:13px;padding:4px 8px;border-radius:8px}
 @media (max-width:560px){.drv-lista li{flex-wrap:wrap}.drv-lista li>.row{flex-wrap:wrap!important}.drv-mat{max-width:100%;flex:1 1 160px}}
+/* Etapa 15: envio universal, "Cai na" de cada tema, filtro P1/P2/Final, conteúdos do manual, tipo do material */
+.uni-lista li{flex-wrap:wrap}
+.uni-lista .drv-nome{flex:1 1 200px}
+.uni-acoes{flex-wrap:wrap;justify-content:flex-end;min-width:0;max-width:100%}
+.uni-acoes select,.mat-tipo,.cai-na select,.man-itens select,.man-cab select{background:var(--card2);border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:13px;max-width:100%;min-width:0}
+.uni-pergunta{display:flex;flex-direction:column;gap:6px;border:1px dashed var(--warn);border-radius:8px;padding:8px 10px;min-width:0;max-width:100%}
+.uni-ops{display:flex;flex-wrap:wrap;gap:6px}
+.uni-ops .btn{padding:4px 9px;font-size:12.5px}
+.cai-na{display:inline-flex;align-items:center;gap:6px;min-width:0}
+.mat-acoes{flex-wrap:wrap;justify-content:flex-end;min-width:0}
+.disc-filtro{flex-wrap:wrap;margin-top:10px}
+.disc-agora{font-size:11px;font-weight:700;color:var(--terra);text-transform:uppercase;letter-spacing:.04em}
+.seg button[aria-pressed="true"] .disc-agora{color:var(--paper)}
+.seg button[aria-pressed="true"] .muted{color:inherit;opacity:.75}
+.man-mat{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-top:8px;min-width:0}
+.man-cab{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.man-cab .rev-doc{margin:0;flex:1 1 180px}
+.man-itens{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column;gap:6px}
+.man-itens li{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;justify-content:space-between;border-top:1px solid var(--line);padding-top:6px}
+.man-txt{flex:1 1 180px;min-width:0;overflow-wrap:anywhere;font-size:14px}
+.man-itens select{flex:0 1 240px}
+.man-itens select.man-ok{border-color:var(--ok)}
+.man-itens select.man-novo{border-color:var(--warn)}
+.opcao-rec{border-color:var(--ok)}
