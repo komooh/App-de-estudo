@@ -910,7 +910,7 @@
     const cards = vis.map((it) => {
       const k = it.k, dis = sv ? " disabled" : "";
       return `<li class="lamc${it.usar ? "" : " fora"}${it.erro ? " erro" : ""}">
-        <img src="${esc(it.thumbUrl)}" alt="${esc(`${it.origem}${it.onde ? ", " + it.onde : ""}`)}" loading="lazy">
+        <img src="${esc(it.thumbUrl)}" alt="${esc(`${it.origem}${it.onde ? ", " + it.onde : ""}`)}" decoding="async">
         <div class="lamc-c">
           <div class="lamc-top"><label class="check"><input type="checkbox" id="li-u-${k}" data-li="usar" data-k="${k}"${it.usar ? " checked" : ""}${dis}><span>Usar</span></label><span class="mono lamc-de" title="${esc(it.origem)}">${it.onde ? esc(it.onde) + " · " : ""}${esc(it.origem)}</span></div>
           <label class="field"><span class="mono">Resposta (diagnóstico)</span><input id="li-r-${k}" data-li="resposta" data-k="${k}" maxlength="300" value="${esc(it.resposta)}" list="lamImpSug" autocomplete="off" placeholder="Escreva a resposta"${dis}></label>
@@ -995,7 +995,8 @@
         if (up.error) throw up.error;
         enviado = true;
         const { data, error } = await sb.from("laminas").insert({ caminho, resposta: String(it.resposta).replace(/\s+/g, " ").trim().slice(0, 300),
-          tema: String(it.tema || "").trim().slice(0, 120) || null, orgao: String(it.orgao || "").trim().slice(0, 120) || null, disciplina_id: disc }).select("*").single();
+          tema: String(it.tema || "").trim().slice(0, 120) || null, orgao: String(it.orgao || "").trim().slice(0, 120) || null,
+          vista: String(it.vista || "").trim().slice(0, 120) || null, disciplina_id: disc }).select("*").single();
         if (error) throw error;
         S.laminas.push(data); LAMURL[caminho] = { url: URL.createObjectURL(it.blob), ate: Date.now() + 50 * 60 * 1000 };
         it.salvo = true; it.erro = null; ok++;
@@ -2277,6 +2278,8 @@
   window.Painel = {
     ativo,
     abrir(t) { if (ativo() && S) abrirTela(t); },
+    /** Gancho para o importador universal: abre Configurações → Laminário e começa a revisão com estes arquivos. */
+    importarLaminario(files) { if (!ativo() || !S || !files || !files.length) return false; irCfg("lam"); lamImpLer([...files]); return true; },
     fechar() { if (S) { ui.resumo = null; ui.escolha = null; } const el = document.getElementById("sheet"); if (el) { el.hidden = true; el.innerHTML = ""; } document.body.style.overflow = ""; },
     async aoMudarDrive() { if (!ativo()) return; await recarregar(); },
     abrirTarefa(t) { if (ativo() && S) return abrirTarefa(t); },

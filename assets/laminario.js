@@ -44,12 +44,14 @@
     for (let i = 0; i < 2; i++) t = t
       .replace(/^(l[aá]mina|lamina|slide|diapositiva|p[aá]gina|pag\.?|fig(?:ura)?\.?|foto|imagen|imagem|preparado|preparaci[oó]n)\s*(n[º°o]\.?\s*)?\d{0,3}\s*[:.\-–—)]\s*/i, "")
       .replace(/^(n[º°]\s*)?\d{1,3}\s*[.)\-–—:]\s+/, "").trim();
-    t = t.replace(/^[\-–—•·*:;,.]+\s*/, "").replace(/\s*[\-–—•·:;,]+$/, "").trim();
+    t = t.replace(/^[\-–—•·*:;,.]+\s*/, "").replace(/\s*[\-–—•·:;,*]+$/, "").trim();
     return t.length > 300 ? t.slice(0, 300).trim() : t;
   }
+  /** Tira o código do começo do nome ("56a45059-LAMINARIO.pdf", "3f2c…-uuid_foto.jpg") que o envio/download põe. */
+  const semPrefixo = (n) => String(n || "").replace(/^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(?=[0-9a-f]*\d)(?=[0-9a-f]*[a-f])[0-9a-f]{6,16})[-_ ]+(?=\S)/i, "");
   /** Nome do arquivo -> resposta ("01_cirrose-hepatica.jpg" -> "cirrose hepatica"); nome de câmera vira vazio. */
   function respostaDoNome(nome) {
-    let t = String(nome || "").replace(/^.*[\\/]/, "").replace(/\.[a-z0-9]{1,5}$/i, "").replace(/[_]+/g, " ").replace(/(\S)-(\S)/g, "$1 $2");
+    let t = semPrefixo(String(nome || "").replace(/^.*[\\/]/, "")).replace(/\.[a-z0-9]{1,5}$/i, "").replace(/[_]+/g, " ").replace(/(\S)-(\S)/g, "$1 $2");
     t = t.replace(/\s*\(\d+\)\s*$/, "");
     // "IMG 20231012 WA0003", "WhatsApp Image 2026-10-01 at 10.22.31", "Captura de tela 2026..." não dizem nada
     const fica = t.split(/[\s.:]+/).filter((w) => w && !/^(img|dsc\w*|dcim|pxl|wa\d*|whatsapp|image|imagem|imagen|photo|foto|screenshot|captura|screen|shot|de|da|tela|pantalla|at|as|às|\d+[a-z]?\d*)$/i.test(w));
@@ -64,33 +66,86 @@
     for (const [k, c] of cont) if (c >= Math.max(3, Math.ceil(n * 0.5))) out.add(k);
     return out;
   }
+  const BALA = /^\s*[•●▪■◦‣►▶➢✓◆]\s*/;
+  const ROTULO = /^[\s\-–—•]*(vista\s+)?(macro|micro)(scop\w*|sc[oó]pic\w*)?(\s+y\s+micro)?[\s\-–—•]*:?[\s\-–—•]*((vista\s+)?(macro|micro)\s*:?)?\s*$/i;
+  const DESCRITIVA = /vista\s+(macro|micro)\s*:|^(macro|micro)\s*:|^comentarios?\b|^(se\s+observa|se\s+aprecia|presencia\s+de|figura\s+\d)/i;
+  /** "Tumor de Wilms – vista micro" / "Adenocarcinoma (micro)" -> {t: "Tumor de Wilms", vista: "Micro"} */
+  function separarVista(t) {
+    const p = String(t || "").match(/^(?:vista\s+)?(macro|micro)(?:scop[ií]a|sc[oó]pic[oa])?\s*[-–—:]\s*(.+)$/i);
+    if (p && letras(p[2]) >= 3) return { t: p[2].trim(), vista: p[1][0].toUpperCase() + p[1].slice(1).toLowerCase() };
+    const m = String(t || "").match(/^(.*?)[\s\-–—(]+(?:vista\s+)?(macro|micro)(?:sc[oó]pic[oa])?\)?\s*:?\s*$/i);
+    if (m && letras(m[1]) >= 3) return { t: m[1].trim(), vista: m[2][0].toUpperCase() + m[2].slice(1).toLowerCase() };
+    return { t: String(t || ""), vista: "" };
+  }
   /**
-   * Escolhe a resposta entre as linhas de uma página: [{t, h (tamanho da letra), titulo?, dentro? (sobre a foto)}].
-   * Pula repetidas, números soltos e linhas sem letras; "Diagnóstico: X" ganha; depois o título; depois a maior letra
-   * (linhas com a mesma letra, até 3, entram juntas). "Órgano: X" vai para o órgão.
+   * Escolhe a resposta entre as linhas de uma página: [{t, h (tamanho da letra), y?, x?, titulo?, dentro? (sobre a foto)}].
+   * - "Diagnóstico: X" ganha; "Órgano: Y" vai para o órgão.
+   * - Linha com marcador ("• NEOPLASIAS RENALES") é a seção: vai para o conteúdo, não para a resposta.
+   * - Pula repetidas (cabeçalho), números soltos, rótulos ("MACRO:") e linhas sem letras.
+   * - Pontua o resto: tamanho da letra, mais no alto da página vale mais; texto corrido, descrição ("vista micro:"),
+   *   começo em minúscula ou com "-" valem menos. A melhor linha pode juntar a de baixo (mesmo tamanho, logo abaixo,
+   *   curtas): "ADENOMA" + "PLEOMORFO" -> "ADENOMA PLEOMORFO".
+   * op.altura: altura da página (para saber o que está no alto).
    */
-  function escolherResposta(linhas, rep) {
+  function escolherResposta(linhas, rep, op = {}) {
     rep = rep || new Set();
-    let orgao = "", diag = "";
+    let orgao = "", diag = "", secao = "";
     const boas = [];
-    for (const l of linhas || []) {
-      const t = String(l.t || "").replace(/\s+/g, " ").trim(); if (!t) continue;
+    const palavras = (t) => t.split(/\s+/).filter(Boolean).length;
+    const maiusc = (t) => { const L = t.match(/\p{L}/gu) || []; return L.length ? L.filter((c) => c === c.toUpperCase() && c !== c.toLowerCase()).length / L.length : 0; };
+    const lista = [];
+    for (const l of linhas || []) { // "Tumor de Wilms • NEOPLASIAS RENALES" na mesma linha: duas partes
+      const partes = String(l.t || "").split(/\s+(?=[•●▪■◦‣►▶➢◆]\s)/);
+      partes.forEach((t) => lista.push({ ...l, t }));
+    }
+    for (const l of lista) {
+      let t = String(l.t || "").replace(/\s+/g, " ").trim(); if (!t) continue;
       const m = t.match(/^(?:[oó]rg[aã]o|organo|órgano|organ)\s*[:\-–]\s*(.+)$/i);
       if (m) { orgao = orgao || limparResposta(m[1]).slice(0, 120); continue; }
       const d = t.match(/^(?:diagn[oó]stic[oa]|dx|resposta|respuesta|diag\.)\s*[:\-–]\s*(.+)$/i);
       if (d) { diag = diag || limparResposta(d[1]); continue; }
-      if (rep.has(normal(t)) || letras(t) < 3 || /^(https?:|www\.)/i.test(t)) continue;
-      if (/^(tinci[oó]n|colora[cç][aã]o|aumento|hematoxilina|he\b|h\s*&\s*e|\d+\s*x\b)/i.test(t) && (linhas || []).length > 1) { boas.push({ ...l, t, fraco: true }); continue; }
-      boas.push({ ...l, t });
+      if (rep.has(normal(t)) || letras(t) < 3 || /^(https?:|www\.)/i.test(t) || ROTULO.test(t)) continue;
+      if (BALA.test(t)) { // seção (só se for curta e não for rótulo como "• MICRO:")
+        const sx = t.replace(BALA, "").replace(/[\s:]+$/, "").trim();
+        if (!secao && letras(sx) >= 3 && palavras(sx) <= 8 && !ROTULO.test(sx) && (maiusc(sx) >= 0.6 || palavras(sx) <= 3) && !DESCRITIVA.test(sx)) secao = sx.slice(0, 120);
+        continue;
+      }
+      if (!secao && op.largura && op.altura && l.x != null && l.y != null && l.x > op.largura * 0.4 && l.y < op.altura * 0.15
+        && maiusc(t) >= 0.8 && palavras(t) <= 6 && lista.length > 1 && !DESCRITIVA.test(t) && !/\b(vista|macro|micro)/i.test(t)) { secao = t.replace(/[\s:]+$/, "").slice(0, 120); continue; } // "PATOLOGIAS DEL ESTÓMAGO" no canto de cima
+      let nota = +l.h || 1;
+      const fraco = /^(tinci[oó]n|colora[cç][aã]o|aumento|hematoxilina|he\b|h\s*&\s*e|\d+\s*x\b)/i.test(t) && (linhas || []).length > 1;
+      if (fraco) nota *= 0.3;
+      if (DESCRITIVA.test(t)) nota *= 0.4;
+      if (palavras(t) > 6) nota *= 0.5;
+      if (/^[\p{Ll}\-–(*]/u.test(t)) nota *= 0.5;
+      if (/:\s*$/.test(t)) nota *= 0.6;
+      if (op.altura && l.y != null && l.y < op.altura * 0.22) nota *= 1.3;
+      if (l.dentro) nota *= palavras(t) <= 2 ? 0.15 : 0.5; // rótulo curto sobre a foto (seta, letra) quase não conta
+      if (l.titulo) nota *= 10;
+      boas.push({ ...l, t, nota });
     }
-    if (diag) return { resposta: diag, orgao };
-    const fora = boas.filter((l) => !l.dentro && !l.fraco), lista = fora.length ? fora : boas.filter((l) => !l.fraco).length ? boas.filter((l) => !l.fraco) : boas;
-    if (!lista.length) return { resposta: "", orgao };
-    const tit = lista.filter((l) => l.titulo);
-    if (tit.length) return { resposta: limparResposta(tit.map((l) => l.t).join(" ")), orgao };
-    const hMax = Math.max(...lista.map((l) => +l.h || 0));
-    const top = hMax > 0 ? lista.filter((l) => (+l.h || 0) >= hMax * 0.92).slice(0, 3) : lista.slice(0, 1);
-    return { resposta: limparResposta(top.map((l) => l.t).join(" · ")), orgao };
+    const fim = (r) => { const v = separarVista(r); return { resposta: limparResposta(v.t), orgao, secao, vista: v.vista }; };
+    if (diag) return fim(diag);
+    if (!boas.length) return { resposta: "", orgao, secao, vista: "" };
+    const tit = boas.filter((l) => l.titulo);
+    if (tit.length) return fim(tit.map((l) => l.t).join(" "));
+    const best = boas.reduce((a, b) => (b.nota > a.nota * 1.05 ? b : a)); // empate: fica a de cima
+    // continua na linha de baixo? (mesma letra, logo abaixo, perto na horizontal, curtas)
+    let texto = best.t, ult = best;
+    const junta = (l, ref) => Math.abs((+l.h || 0) - (+ref.h || 0)) <= (+ref.h || 0) * 0.1 && (l.x == null || ref.x == null || Math.abs(l.x - ref.x) <= ref.h * 4)
+      && palavras(l.t) <= 6 && !DESCRITIVA.test(l.t) && !/^[\p{Ll}\-–(*]/u.test(l.t);
+    // começo na linha de cima? ("ADENOMA" em cima de "PLEOMORFO")
+    if (best.y != null && palavras(texto) <= 6) {
+      const ant = boas.filter((l) => l !== best && l.y < best.y && best.y - l.y <= best.h * 1.7 && junta(l, best)).sort((a, b) => b.y - a.y)[0];
+      if (ant) texto = ant.t + " " + texto;
+    }
+    for (let n = 0; n < 2 && best.y != null; n++) {
+      const prox = boas.filter((l) => l !== ult && l.y > ult.y && l.y - ult.y <= ult.h * 1.7 && Math.abs((+l.h || 0) - (+ult.h || 0)) <= (+ult.h || 0) * 0.1
+        && (l.x == null || ult.x == null || Math.abs(l.x - ult.x) <= ult.h * 4) && palavras(l.t) <= 6 && palavras(texto) <= 6 && !DESCRITIVA.test(l.t) && !/^[\p{Ll}\-–(*]/u.test(l.t))
+        .sort((a, b) => a.y - b.y)[0];
+      if (!prox) break; texto += " " + prox.t; ult = prox;
+    }
+    return fim(texto);
   }
 
   /* ----- PDF: onde estão as fotos na página (lista de operações do pdf.js) ----- */
@@ -124,6 +179,9 @@
     const grandes = (rets || []).map((r) => [Math.max(0, Math.min(r[0], r[2])), Math.max(0, Math.min(r[1], r[3])), Math.min(w, Math.max(r[0], r[2])), Math.min(h, Math.max(r[1], r[3]))])
       .filter((r) => r[2] > r[0] && r[3] > r[1] && (r[2] - r[0]) * (r[3] - r[1]) >= A * 0.03);
     if (!grandes.length) return null;
+    // fundo do slide (imagem da página toda) não conta quando há fotos de verdade
+    const fundo = (r) => (r[2] - r[0]) * (r[3] - r[1]) >= A * 0.85;
+    if (grandes.some((r) => !fundo(r))) for (let i = grandes.length - 1; i >= 0; i--) if (fundo(grandes[i])) grandes.splice(i, 1);
     let [x1, y1, x2, y2] = grandes[0];
     for (const r of grandes) { x1 = Math.min(x1, r[0]); y1 = Math.min(y1, r[1]); x2 = Math.max(x2, r[2]); y2 = Math.max(y2, r[3]); }
     const m = Math.max(w, h) * 0.008; x1 = Math.max(0, x1 - m); y1 = Math.max(0, y1 - m); x2 = Math.min(w, x2 + m); y2 = Math.min(h, y2 + m);
@@ -144,14 +202,27 @@
     const linhas = [];
     for (const it of its) {
       const l = linhas.find((q) => Math.abs(q.y - it.y) <= Math.max(q.h, it.h) * 0.5);
-      if (l) { l.partes.push(it); l.h = Math.max(l.h, it.h); }
-      else linhas.push({ y: it.y, h: it.h, partes: [it] });
+      const hl = letras(it.s) ? it.h : 0; // "*" ou seta grande não conta como letra grande
+      if (l) { l.partes.push(it); l.h = Math.max(l.h, hl); }
+      else linhas.push({ y: it.y, h: hl, partes: [it] });
     }
-    return linhas.map((l) => {
+    // mesma altura mas longe na horizontal (título à esquerda, seção à direita): linhas separadas
+    const sep = [];
+    for (const l of linhas) {
       l.partes.sort((a, b) => a.x - b.x);
+      let cur = { ...l, partes: [] }, fim = null;
+      for (const p of l.partes) {
+        if (fim != null && p.x - fim > Math.max(p.h, l.h || p.h) * 1.5) { sep.push(cur); cur = { ...l, partes: [] }; }
+        cur.partes.push(p); fim = p.x + p.w;
+      }
+      sep.push(cur);
+    }
+    sep.forEach((l) => { const hs = l.partes.filter((p) => letras(p.s)).map((p) => p.h); l.h = hs.length ? Math.max(...hs) : 0; });
+    sep.sort((a, b) => a.y - b.y || a.partes[0].x - b.partes[0].x);
+    return sep.map((l) => {
       let t = "", fim = null;
       for (const p of l.partes) { if (fim != null && p.x - fim > p.h * 0.15 && !/\s$/.test(t) && !/^\s/.test(p.s)) t += " "; t += p.s; fim = p.x + p.w; }
-      return { t: t.replace(/\s+/g, " ").trim(), h: l.h, y: l.y, x: l.partes[0].x, x2: fim };
+      return { t: t.replace(/\s+/g, " ").trim(), h: l.h || Math.max(...l.partes.map((p) => p.h)), y: l.y, x: l.partes[0].x, x2: fim };
     }).filter((l) => l.t);
   }
 
@@ -291,9 +362,19 @@
     const kt = Math.min(1, LIM.thumb / Math.max(w, h)); c.width = Math.max(1, Math.round(w * kt)); c.height = Math.max(1, Math.round(h * kt));
     g2.fillStyle = "#fff"; g2.fillRect(0, 0, c.width, c.height); g2.drawImage(src, 0, 0, c.width, c.height);
     const thumb = await toBlob(c, 0.72);
+    const uniforme = desvio(g2, c.width, c.height) < 4; // toda preta, toda branca ou de uma cor só
     c.width = c.height = 0;
-    return { blob, thumb };
+    return { blob, thumb, uniforme };
   }
+  /** Desvio do cinza da imagem (0 = de uma cor só). */
+  function desvio(g2, w, h) {
+    try {
+      const d = g2.getImageData(0, 0, w, h).data; let s1 = 0, s2 = 0, n = 0;
+      for (let i = 0; i < d.length; i += 16) { const v = (d[i] + d[i + 1] + d[i + 2]) / 3; s1 += v; s2 += v * v; n++; }
+      const m = s1 / n; return Math.sqrt(Math.max(0, s2 / n - m * m));
+    } catch (_) { return 99; }
+  }
+  const SEM_IMAGEM = "A imagem saiu em branco ou de uma cor só: veio desmarcada. Confira antes de usar.";
   async function deBytes(bytes, mime) {
     const bm = await createImageBitmap(new Blob([bytes], { type: mime || "" }));
     try {
@@ -326,7 +407,11 @@
     const itens = [], avisos = [], sugestoes = new Set();
     let k = 0, grupo = 0;
     const cheio = () => itens.filter((x) => !x.extra).length >= LIM.itens;
-    const novo = (f, onde, r, extra) => { const it = { k: ++k, origem: f.name, onde, blob: r.blob, thumb: r.thumb, resposta: "", orgao: "", tema: "", usar: true, motivo: "", grupo: 0, extra: !!extra, nFotos: 1, ...extra }; itens.push(it); return it; };
+    const novo = (f, onde, r, extra) => {
+      const it = { k: ++k, origem: f.name, onde, blob: r.blob, thumb: r.thumb, resposta: "", orgao: "", vista: "", tema: "", usar: true, motivo: "", grupo: 0, extra: !!extra, nFotos: 1, ...extra };
+      if (r.uniforme) { it.usar = false; it.motivo = SEM_IMAGEM; } // nunca salvar imagem preta/branca sem o aluno ver
+      itens.push(it); return it;
+    };
     const lista = [...(files || [])].slice(0, LIM.arquivos);
     if ((files || []).length > LIM.arquivos) avisos.push(`Até ${LIM.arquivos} arquivos por vez: os outros ficaram de fora (importe depois).`);
     for (let fi = 0; fi < lista.length; fi++) {
@@ -376,23 +461,45 @@
             const linhas = linhasPdf((await pg.getTextContent()).items, conv);
             const rc = recorte(rets, vp1.width, vp1.height);
             if (!rc && !linhas.length) { brancas++; continue; }
-            const area = rc && !rc.cheia ? rc : { x: 0, y: 0, w: vp1.width, h: vp1.height };
-            linhas.forEach((l) => { l.dentro = !!(rc && rc.fotos.some((r) => l.x >= r[0] - 2 && l.x <= r[2] && l.y >= r[1] && l.y <= r[3] + l.h)); });
-            const s = Math.min(4, LIM.lado / Math.max(area.w, area.h), Math.sqrt(4.2e6 / (area.w * area.h)));
-            const vp = pg.getViewport({ scale: s, offsetX: -area.x * s, offsetY: -area.y * s });
-            const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(area.w * s)); c.height = Math.max(1, Math.round(area.h * s));
-            const g2 = c.getContext("2d"); g2.fillStyle = "#fff"; g2.fillRect(0, 0, c.width, c.height);
-            await pg.render({ canvasContext: g2, viewport: vp }).promise;
-            const r = await jpeg(c, c.width, c.height); c.width = c.height = 0;
+            linhas.forEach((l) => { l.dentro = !!(rc && !rc.cheia && rc.fotos.some((r) => l.x >= r[0] - 2 && l.x <= r[2] && l.y >= r[1] && l.y <= r[3] + l.h)); });
+            const inteira = { x: 0, y: 0, w: vp1.width, h: vp1.height };
+            const desenhar = async (area) => {
+              const s = Math.min(4, LIM.lado / Math.max(area.w, area.h), Math.sqrt(4.2e6 / (area.w * area.h)));
+              const vp = pg.getViewport({ scale: s, offsetX: -area.x * s, offsetY: -area.y * s });
+              const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(area.w * s)); c.height = Math.max(1, Math.round(area.h * s));
+              const g2 = c.getContext("2d"); g2.fillStyle = "#fff"; g2.fillRect(0, 0, c.width, c.height); // fundo branco (transparente vira preto no JPEG)
+              await pg.render({ canvasContext: g2, viewport: vp, background: "#ffffff" }).promise;
+              // esconde o texto escrito por cima da área (nome da lâmina, descrição): no treino a resposta não pode aparecer.
+              // Rótulos curtos (seta, letra, "*") ficam.
+              g2.fillStyle = "#e9e6e0";
+              if (rc) for (const l of linhas) {
+                if (letras(l.t) < 4 && l.t.split(/\s+/).length < 2) continue;
+                const x1 = (l.x - area.x) * s - 2, x2 = ((l.x2 ?? l.x) - area.x) * s + 2, y1 = (l.y - l.h * 0.95 - area.y) * s - 1, y2 = (l.y + l.h * 0.3 - area.y) * s + 1;
+                if (x2 <= 0 || y2 <= 0 || x1 >= c.width || y1 >= c.height) continue;
+                g2.fillRect(x1, y1, x2 - x1, y2 - y1);
+              }
+              try { return await jpeg(c, c.width, c.height); } finally { c.width = c.height = 0; }
+            };
+            let r = await desenhar(rc && !rc.cheia ? rc : inteira);
+            if (r.uniforme && rc && !rc.cheia) r = await desenhar(inteira); // recorte vazio: usa a página inteira
             const it = novo(f, `pág. ${i}`, r); it.tema = tema;
-            if (!rc) { it.usar = false; it.motivo = "Página só com texto (sem foto): veio desmarcada."; }
-            pags.push({ it, linhas });
+            if (!rc) { it.usar = false; it.motivo = "Página de separação ou só com texto (sem foto): veio desmarcada."; }
+            else if (r.uniforme) { it.usar = false; it.motivo = SEM_IMAGEM; }
+            pags.push({ it, linhas, altura: vp1.height, largura: vp1.width, foto: !!rc });
           } finally { pg.cleanup(); }
           await pausa();
         }
         if (brancas) avisos.push(`${f.name}: ${brancas} página${brancas > 1 ? "s" : ""} em branco pulada${brancas > 1 ? "s" : ""}.`);
         const rep = repetidas(pags.map((p) => p.linhas.map((l) => l.t)));
-        for (const p of pags) { const e = escolherResposta(p.linhas, rep); p.it.resposta = e.resposta; p.it.orgao = e.orgao; p.linhas.forEach((l) => { if (!rep.has(normal(l.t)) && letras(l.t) >= 3) sugestoes.add(limparResposta(l.t)); }); }
+        // seção ("• NEOPLASIAS RENALES") vira o conteúdo e vale para as páginas seguintes, até a próxima seção
+        // ou uma página de separação (sem foto)
+        let secao = "";
+        for (const p of pags) {
+          const e = escolherResposta(p.linhas, rep, { altura: p.altura, largura: p.largura });
+          if (!p.foto) secao = ""; else if (e.secao) secao = e.secao;
+          p.it.resposta = e.resposta; p.it.orgao = e.orgao; p.it.vista = e.vista; if (p.foto && secao) p.it.tema = secao;
+          p.linhas.forEach((l) => { if (!rep.has(normal(l.t)) && letras(l.t) >= 3 && !BALA.test(l.t) && !ROTULO.test(l.t)) sugestoes.add(limparResposta(separarVista(l.t).t)); });
+        }
       } finally { try { doc.destroy(); } catch (_) { } }
     }
 
@@ -483,7 +590,7 @@
         if (!n) sem++;
         await pausa();
       }
-      for (const it of itens) if (it.linhas) { const e = escolherResposta(it.linhas, rep); it.resposta = e.resposta; it.orgao = e.orgao; it.linhas.forEach((l) => { if (!rep.has(normal(l.t)) && letras(l.t) >= 3) sugestoes.add(limparResposta(l.t)); }); delete it.linhas; }
+      for (const it of itens) if (it.linhas) { const e = escolherResposta(it.linhas, rep); it.resposta = e.resposta; it.orgao = e.orgao; it.vista = e.vista; if (e.secao) it.tema = e.secao.slice(0, 120); it.linhas.forEach((l) => { if (!rep.has(normal(l.t)) && letras(l.t) >= 3) sugestoes.add(limparResposta(l.t)); }); delete it.linhas; }
       if (sem) avisos.push(`${f.name}: ${sem} ${pal}${sem > 1 ? "s" : ""} sem foto (capa, texto) ${sem > 1 ? "ficaram" : "ficou"} de fora.`);
       if (ruins.n) avisos.push(`${f.name}: ${ruins.n} foto${ruins.n > 1 ? "s" : ""} em formato que o navegador não abre (por exemplo .emf ou .tiff). Se faltar alguma, salve como PDF e importe o PDF.`);
     }
@@ -495,7 +602,7 @@
         let r; try { r = await deBytes(await z.bytes(alvo), MIME_IMG[extDe(alvo)]); } catch (_) { ruins++; continue; }
         if (r.pequena) continue;
         const it = novo(f, `foto ${vistos.size}`, r); it.tema = tema;
-        const e = escolherResposta([{ t: lg[i].texto, h: 1 }]); it.resposta = e.resposta; it.orgao = e.orgao;
+        const e = escolherResposta([{ t: lg[i].texto, h: 1 }]); it.resposta = e.resposta; it.orgao = e.orgao; it.vista = e.vista;
         if (lg[i].texto) sugestoes.add(limparResposta(lg[i].texto));
         await pausa();
       }
@@ -537,11 +644,11 @@
   /** Nome do arquivo -> conteúdo para filtrar (até 120 letras). */
   function temaDoArquivo(nome, foto) {
     if (foto) return "";
-    const t = String(nome || "").replace(/^.*[\\/]/, "").replace(/\.[a-z0-9]{1,5}$/i, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+    const t = semPrefixo(String(nome || "").replace(/^.*[\\/]/, "")).replace(/\.[a-z0-9]{1,5}$/i, "").replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
     return t.slice(0, 120);
   }
 
-  const API = { lerArquivos, ACCEPT, LIM, limparResposta, respostaDoNome, repetidas, escolherResposta, fotosDaPagina, recorte, linhasPdf,
+  const API = { lerArquivos, ACCEPT, LIM, semPrefixo, separarVista, limparResposta, respostaDoNome, repetidas, escolherResposta, fotosDaPagina, recorte, linhasPdf,
     lerSlidePptx, slidesOdp, eventosTexto, legendas, fotosPpt, temaDoArquivo };
   g.Laminario = API;
   if (typeof module !== "undefined" && module.exports) module.exports = API;

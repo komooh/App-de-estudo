@@ -593,7 +593,7 @@ table.imp progress{display:block;width:100%;max-width:220px;height:6px;margin-to
 .lam-lote{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:12px}
 .lamgrid{list-style:none;margin:12px 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:12px}
 .lamc{border:1px solid var(--line);border-radius:12px;background:var(--card);padding:8px;display:flex;flex-direction:column;gap:8px;min-width:0}
-.lamc>img{width:100%;aspect-ratio:4/3;object-fit:contain;background:#111;border-radius:8px;display:block}
+.lamc>img{width:100%;aspect-ratio:4/3;object-fit:contain;background:var(--card2);border-radius:8px;display:block}
 .lamc.fora>img{opacity:.35}
 .lamc.erro{border-color:var(--bad)}
 .lamc-c{display:flex;flex-direction:column;gap:6px;min-width:0}
