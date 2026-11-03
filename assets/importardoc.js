@@ -14,14 +14,17 @@
 
   /* ---------- o que a IA entendeu ---------- */
   const TIPO = { calendario_geral: "Calendário acadêmico", cronograma_provas: "Cronograma de provas", horario_aulas: "Horário de aulas", programa_materia: "Programa de matéria",
-    regulamento: "Regulamento", aviso: "Aviso", material_de_estudo: "Material de estudo: não usado aqui", outro: "Documento" };
+    regulamento: "Regulamento", aviso: "Aviso", manual_prova: "Manual da prova", material_de_estudo: "Material de estudo: não usado aqui",
+    resumo_pronto: "Resumo pronto: não usado aqui", laminario: "Laminário: não usado aqui", questoes: "Questões: não usado aqui", outro: "Documento" };
+  /** Tipos que não trazem nada para o calendário (vão para outro lugar do site). */
+  const SEM_ITENS = new Set(["material_de_estudo", "resumo_pronto", "laminario", "questoes"]);
   /** Quanto o documento é "específico" para as datas das provas. */
-  const PRIO = { cronograma_provas: 3, calendario_geral: 1 };
+  const PRIO = { cronograma_provas: 3, manual_prova: 3, calendario_geral: 1 };
   const prioDe = (tipo) => PRIO[tipo] ?? 2;
   const PRIO_EXISTENTE = 2; // o que o aluno já tinha (digitado ou salvo antes)
 
   /* ---------- junção (pura, testada) ---------- */
-  function novaRevisao() { return { arquivos: [], provas: [], eventos: [], horarios: [], materias: [], notas: [], tarefas: [] }; }
+  function novaRevisao() { return { arquivos: [], provas: [], eventos: [], horarios: [], materias: [], notas: [], conteudos: [], tarefas: [] }; }
   const chaveProva = (p) => `${p.disciplina_id != null && p.disciplina_id !== "" ? "d" + p.disciplina_id : "n" + norm(p.materia)}|${p.tipo}|${p.modalidade || "teorica"}`;
   const mesmaData = (a, b) => a.data === b.data && (!a.hora || !b.hora || a.hora === b.hora);
   function resolverConflito(grupo) {
@@ -32,7 +35,9 @@
   }
   /**
    * Junta o resultado de um arquivo (resposta da ação "documento") na revisão R. Não apaga nada do que já estava.
-   * op: { casar(nome, id) -> disciplina_id|null, existente(prova) -> {data, hora, fonte, prio}|null, noCalendario(evento) -> bool, tarefa_id }
+   * op: { casar(nome, id) -> disciplina_id|null, existente(prova) -> {data, hora, fonte, prio}|null, noCalendario(evento) -> bool, tarefa_id,
+   *       semMaterias (calendários e manuais: nunca cria matéria; aula de matéria que não existe vem desmarcada),
+   *       temaDe(disciplina_id, conteudo) -> tema_id|null (manual da prova: conteúdo -> tema que já existe) }
    * Devolve quantos itens novos entraram.
    */
   function adicionar(R, res, nome, op = {}) {
@@ -41,7 +46,8 @@
     const tipo = TIPO[res.tipo] ? res.tipo : "outro";
     const arq = R.arquivos.length;
     R.arquivos.push({ nome: String(nome || res.nome || "Documento"), tipo, titulo: res.titulo || "", resumo: res.resumo || "", aviso: res.aviso || "", itens: 0 });
-    if (tipo === "material_de_estudo") return 0;
+    if (!R.conteudos) R.conteudos = [];
+    if (SEM_ITENS.has(tipo)) return 0;
     const casar = op.casar || ((n, id) => id ?? null), prio = prioDe(tipo), fonte = R.arquivos[arq].nome;
     let n = 0;
     for (const p0 of res.provas || []) {
@@ -79,10 +85,10 @@
       const k = `${d ?? norm(h.materia)}|${h.dia_semana}|${h.hora_ini}`;
       const ja = R.horarios.find((x) => `${x.disciplina_id ?? norm(x.materia)}|${x.dia_semana}|${x.hora_ini}` === k);
       if (ja) { if (!ja.fontes.includes(fonte)) ja.fontes.push(fonte); if (!ja.sala && h.sala) ja.sala = h.sala; continue; }
-      R.horarios.push({ materia: String(h.materia || ""), disciplina_id: d, dia_semana: +h.dia_semana, hora_ini: h.hora_ini, hora_fim: h.hora_fim, sala: h.sala || "", fontes: [fonte], arq, ok: true }); n++;
+      R.horarios.push({ materia: String(h.materia || ""), disciplina_id: d, dia_semana: +h.dia_semana, hora_ini: h.hora_ini, hora_fim: h.hora_fim, sala: h.sala || "", fontes: [fonte], arq, ok: !(op.semMaterias && d == null) }); n++;
     }
     R.horarios.sort((a, b) => a.dia_semana - b.dia_semana || a.hora_ini.localeCompare(b.hora_ini));
-    for (const m of res.materias || []) {
+    for (const m of op.semMaterias ? [] : res.materias || []) {
       if (!m || !m.nome || R.materias.some((x) => norm(x.nome) === norm(m.nome))) continue;
       const d = casar(m.nome, m.disciplina_id);
       R.materias.push({ nome: m.nome, professor: m.professor || "", disciplina_id: d, arq, ok: true }); if (d == null) n++;
@@ -91,11 +97,30 @@
       if (!x || !x.titulo || !x.texto || R.notas.some((y) => norm(y.titulo) === norm(x.titulo) && norm(y.texto).slice(0, 80) === norm(x.texto).slice(0, 80))) continue;
       R.notas.push({ titulo: x.titulo, texto: x.texto, arq, ok: true }); n++;
     }
+    // manual da prova: os conteúdos de cada matéria que caem nesta prova (P1/P2/Final)
+    const tipoProva = ["P1", "P2", "Final"].includes(res.prova) ? res.prova : null;
+    for (const c of tipoProva ? res.conteudos || [] : []) {
+      if (!c || !c.materia || !Array.isArray(c.itens)) continue;
+      const d = casar(c.materia, c.disciplina_id);
+      let linha = R.conteudos.find((x) => x.prova === tipoProva && (d != null ? x.disciplina_id === d : x.disciplina_id == null && norm(x.materia) === norm(c.materia)));
+      if (!linha) { linha = { materia: String(c.materia), disciplina_id: d, prova: tipoProva, itens: [], fontes: [fonte], arq }; R.conteudos.push(linha); }
+      else if (!linha.fontes.includes(fonte)) linha.fontes.push(fonte);
+      for (const it of c.itens) {
+        const texto = String(it || "").replace(/\s+/g, " ").trim().slice(0, 120);
+        if (!texto || linha.itens.some((x) => norm(x.texto) === norm(texto))) continue;
+        linha.itens.push({ texto, alvo: alvoPadrao(op, d, texto) }); n++;
+      }
+    }
     R.arquivos[arq].itens = n;
     return n;
   }
+  /** Para onde vai um conteúdo do manual: o id do tema que já existe (texto), "novo" (tema novo) ou "" (não usar). */
+  function alvoPadrao(op, d, texto) { if (d == null) return "novo"; const t = op.temaDe ? op.temaDe(d, texto) : null; return t != null ? String(t) : "novo"; }
+  /** A matéria de uma linha de conteúdos mudou na revisão: casa de novo cada conteúdo com os temas da matéria nova. */
+  function recasarConteudos(linha, op) { for (const it of linha.itens) it.alvo = alvoPadrao(op, linha.disciplina_id, it.texto); }
   /** Quantos itens a revisão tem para o painel (matérias que já existem não contam). */
-  const totalItens = (R) => R ? R.provas.length + R.eventos.length + R.horarios.length + R.materias.filter((m) => m.disciplina_id == null).length + R.notas.length : 0;
+  const totalItens = (R) => R ? R.provas.length + R.eventos.length + R.horarios.length + R.materias.filter((m) => m.disciplina_id == null).length + R.notas.length
+    + (R.conteudos || []).reduce((s, c) => s + c.itens.length, 0) : 0;
 
   /* ---------- telas (pedaços de HTML; os nomes são sempre escapados) ---------- */
   const ST = { fila: ["", "na fila"], preparando: ["s-warn", "abrindo"], enviando: ["s-warn", "enviando"], lendo: ["s-warn", "lendo com IA"], pronto: ["s-ok", "lido"], erro: ["s-bad", "erro"] };
@@ -108,13 +133,13 @@
   /** Lista dos arquivos que estão sendo lidos, com o estado de cada um. */
   function progressoHTML(itens) {
     if (!itens || !itens.length) return "";
-    return `<p class="imp-prog-tit" aria-live="polite"><b>${esc(progressoTexto(itens))}</b></p><ul class="up-lista imp-lista">${itens.map((x) => { const [cls, txt] = x.st === "pronto" && x.tipo ? [x.tipo === "material_de_estudo" ? "" : "s-ok", TIPO[x.tipo]] : ST[x.st] || ["", x.st];
+    return `<p class="imp-prog-tit" aria-live="polite"><b>${esc(progressoTexto(itens))}</b></p><ul class="up-lista imp-lista">${itens.map((x) => { const [cls, txt] = x.st === "pronto" && x.tipo ? [SEM_ITENS.has(x.tipo) ? "" : "s-ok", TIPO[x.tipo]] : ST[x.st] || ["", x.st];
       return `<li><span class="drv-nome"><span>${esc(x.nome)}</span>${x.msg ? `<span class="tref imp-msg ${x.st === "erro" ? "bad" : ""}" style="display:block">${esc(x.msg)}</span>` : ""}</span><span class="chip ${cls}">${esc(txt)}</span></li>`; }).join("")}</ul>`;
   }
   /** Chips do que a IA entendeu de cada arquivo da revisão, com o aviso. */
   function arquivosHTML(R) {
     if (!R || !R.arquivos.length) return "";
-    return `<ul class="imp-arqs">${R.arquivos.map((a) => `<li><span class="chip ${a.tipo === "material_de_estudo" ? "" : "s-ok"}">${esc(TIPO[a.tipo] || "Documento")}</span> <span class="imp-arq-nome">${esc(a.nome)}</span>${a.titulo && a.titulo !== a.nome ? ` <span class="muted">· ${esc(a.titulo)}</span>` : ""}${a.tipo !== "material_de_estudo" ? ` <span class="muted">· ${a.itens} ${a.itens === 1 ? "item" : "itens"}</span>` : ""}${a.aviso ? `<span class="imp-aviso">${esc(a.aviso)}</span>` : ""}</li>`).join("")}</ul>`;
+    return `<ul class="imp-arqs">${R.arquivos.map((a) => `<li><span class="chip ${SEM_ITENS.has(a.tipo) ? "" : "s-ok"}">${esc(TIPO[a.tipo] || "Documento")}</span> <span class="imp-arq-nome">${esc(a.nome)}</span>${a.titulo && a.titulo !== a.nome ? ` <span class="muted">· ${esc(a.titulo)}</span>` : ""}${!SEM_ITENS.has(a.tipo) ? ` <span class="muted">· ${a.itens} ${a.itens === 1 ? "item" : "itens"}</span>` : ""}${a.aviso ? `<span class="imp-aviso">${esc(a.aviso)}</span>` : ""}</li>`).join("")}</ul>`;
   }
   const CATEG = [["feriado", "Feriado"], ["prova", "Provas"], ["matricula", "Matrícula"], ["aula", "Aulas"], ["recesso", "Recesso"], ["prazo", "Prazo"], ["outro", "Outro"]];
   const DIAS = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
@@ -127,16 +152,39 @@
       <td>${inp("eventos", i, "data_ini", e.data_ini, 'type="date" aria-label="Início"')}</td><td>${inp("eventos", i, "data_fim", e.data_fim, 'type="date" aria-label="Fim"')}</td>
       <td><select data-sec="eventos" data-i="${i}" data-k="categoria" aria-label="Tipo">${CATEG.map(([k, l]) => `<option value="${k}" ${e.categoria === k ? "selected" : ""}>${l}</option>`).join("")}</select></td></tr>`).join("")}</tbody></table></div>`;
   }
-  /** disc: [{id, nome}] (no painel, os ids do banco; na configuração, a posição na lista) */
-  function horariosHTML(lista, disc) {
+  /** disc: [{id, nome}] (no painel, os ids do banco; na configuração, a posição na lista).
+   *  semNova: calendários e manuais (a aula de matéria que não existe não vira aula solta: "Não importar") */
+  function horariosHTML(lista, disc, semNova) {
     return `<div class="tablewrap rev-wrap"><table class="rev"><thead><tr><th>Usar</th><th>Matéria</th><th>Dia</th><th>Início</th><th>Fim</th><th>Sala</th></tr></thead><tbody>${lista.map((h, i) => `<tr><td>${chk("horarios", i, h.ok, h.materia)}</td>
-      <td><span class="rev-doc">${esc(h.materia)}</span><select data-sec="horarios" data-i="${i}" data-k="disciplina_id" aria-label="Matéria de ${esc(h.materia)}"><option value="">Outra (o nome do documento)</option>${(disc || []).map((x) => `<option value="${esc(x.id)}" ${h.disciplina_id != null && String(x.id) === String(h.disciplina_id) ? "selected" : ""}>${esc(x.nome)}</option>`).join("")}</select>${fontes(h)}</td>
+      <td><span class="rev-doc">${esc(h.materia)}</span><select data-sec="horarios" data-i="${i}" data-k="disciplina_id" aria-label="Matéria de ${esc(h.materia)}"><option value="">${semNova ? "Não importar" : "Outra (o nome do documento)"}</option>${(disc || []).map((x) => `<option value="${esc(x.id)}" ${h.disciplina_id != null && String(x.id) === String(h.disciplina_id) ? "selected" : ""}>${esc(x.nome)}</option>`).join("")}</select>${fontes(h)}</td>
       <td><select data-sec="horarios" data-i="${i}" data-k="dia_semana" aria-label="Dia">${DIAS.map((n, j) => `<option value="${j + 1}" ${+h.dia_semana === j + 1 ? "selected" : ""}>${n}</option>`).join("")}</select></td>
       <td>${inp("horarios", i, "hora_ini", h.hora_ini, 'type="time" aria-label="Início"')}</td><td>${inp("horarios", i, "hora_fim", h.hora_fim, 'type="time" aria-label="Fim"')}</td><td>${inp("horarios", i, "sala", h.sala, 'maxlength="60" aria-label="Sala"')}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+  /**
+   * Conteúdos do manual da prova, por matéria: a matéria do painel (ou "Não importar") e, para cada conteúdo,
+   * o tema que já existe, "Criar tema novo" ou "Não usar". disc: [{id, nome}]; temasDe(id) -> [{id, nome, prova}]
+   */
+  function conteudosHTML(lista, disc, temasDe) {
+    return lista.map((c, i) => {
+      const ts = c.disciplina_id != null ? temasDe(c.disciplina_id) || [] : [];
+      return `<div class="man-mat"><div class="man-cab"><span class="rev-doc">${esc(c.materia)} <span class="chip pv-te">${esc(c.prova)}</span></span>
+        <select data-sec="conteudos" data-i="${i}" data-k="disciplina_id" aria-label="Matéria do painel para ${esc(c.materia)}"><option value="">Não importar (a matéria não está no painel)</option>${(disc || []).map((x) => `<option value="${esc(x.id)}" ${c.disciplina_id != null && String(x.id) === String(c.disciplina_id) ? "selected" : ""}>${esc(x.nome)}</option>`).join("")}</select>${fontes(c)}</div>
+        ${c.disciplina_id == null ? `<p class="muted" style="margin:4px 0 0;font-size:13px">${c.itens.length} ${c.itens.length === 1 ? "conteúdo" : "conteúdos"}. Escolha a matéria para usar.</p>` : `<ul class="man-itens">${c.itens.map((it, j) => {
+          const t = ts.find((x) => String(x.id) === it.alvo);
+          return `<li><span class="man-txt">${esc(it.texto)}</span><select data-sec="conteudos" data-i="${i}" data-j="${j}" data-k="alvo" aria-label="Tema para ${esc(it.texto)}" class="${t ? "man-ok" : it.alvo === "novo" ? "man-novo" : ""}">
+            <option value="novo" ${it.alvo === "novo" ? "selected" : ""}>Criar tema novo</option><option value="" ${it.alvo === "" ? "selected" : ""}>Não usar</option>
+            ${ts.length ? `<optgroup label="Temas que já existem">${ts.map((x) => `<option value="${esc(x.id)}" ${String(x.id) === it.alvo ? "selected" : ""}>${esc(x.nome)}</option>`).join("")}</optgroup>` : ""}</select></li>`; }).join("")}</ul>`}</div>`;
+    }).join("");
   }
   /** Guarda na revisão o que o aluno mudou num campo (data-sec/data-i/data-k). Devolve true se era da revisão. */
   function guardarCampo(R, el) {
     if (!R || !el || !el.dataset || !el.dataset.sec) return false;
+    if (el.dataset.sec === "conteudos") {
+      const c = (R.conteudos || [])[+el.dataset.i]; if (!c) return false;
+      if (el.dataset.j != null) { const it = c.itens[+el.dataset.j]; if (it) it.alvo = el.value; }
+      else if (el.dataset.k === "disciplina_id") c.disciplina_id = el.value === "" ? null : +el.value;
+      return true;
+    }
     const it = (R[el.dataset.sec] || [])[+el.dataset.i]; if (!it) return false;
     const k = el.dataset.k;
     it[k] = el.type === "checkbox" ? el.checked : k === "disciplina_id" ? (el.value === "" ? null : +el.value) : k === "dia_semana" ? +el.value : el.value;
@@ -303,7 +351,7 @@
     return { itens, fim };
   }
 
-  const API = { TIPO, PRIO, prioDe, PRIO_EXISTENTE, novaRevisao, adicionar, chaveProva, totalItens, progressoTexto, progressoHTML, arquivosHTML, eventosHTML, horariosHTML,
+  const API = { TIPO, SEM_ITENS, conteudosHTML, recasarConteudos, PRIO, prioDe, PRIO_EXISTENTE, novaRevisao, adicionar, chaveProva, totalItens, progressoTexto, progressoHTML, arquivosHTML, eventosHTML, horariosHTML,
     guardarCampo, lerArquivos, limparImagensVelhas, recusa, aceitar, FORMATOS, ehImagem, LIMITE_PASTA, PRAZO_MS, _IMG: IMG };
   g.ImportarDoc = API;
   if (typeof module !== "undefined" && module.exports) module.exports = API;

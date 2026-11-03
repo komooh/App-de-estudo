@@ -190,8 +190,10 @@
 
   // nomes das matérias: "Anatomía Patológica II" casa com "ANATOMIA PATOLOGICA"
   const ROMANOS = { i: "1", ii: "2", iii: "3", iv: "4", v: "5", vi: "6" };
-  const palavrasMat = (s) => semAcento(s).replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).map((w) => ROMANOS[w] || w)
-    .filter((w) => !["de", "da", "do", "la", "el", "en", "e", "y"].includes(w));
+  // português e espanhol: "Gestão em Saúde" = "Gestión en Salud" (igual à função ia)
+  const PT_ES = { saude: "salud" };
+  const palavrasMat = (s) => semAcento(s).replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).map((w) => ROMANOS[w] || PT_ES[w] || w.replace(/ao$/, "ion"))
+    .filter((w) => !["de", "da", "do", "la", "el", "en", "em", "e", "y"].includes(w));
   /** Índice da matéria do aluno que corresponde ao nome do documento (ou -1). */
   function casarMateria(nome, materias) {
     const A = palavrasMat(nome).filter((w) => !/^\d+$/.test(w)); if (!A.length) return -1;

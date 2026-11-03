@@ -515,8 +515,10 @@ export function HM(s: unknown): string | null {
   return `${String(h).padStart(2, "0")}:${m[2] || "00"}`;
 }
 const ROMANOS: Record<string, string> = { i: "1", ii: "2", iii: "3", iv: "4", v: "5", vi: "6" };
-const palavrasMat = (s: string) => semAcento(s).replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).map((w) => ROMANOS[w] || w)
-  .filter((w) => !["de", "da", "do", "la", "el", "en", "e", "y"].includes(w));
+// português e espanhol: "Gestão em Saúde" = "Gestión en Salud" (igual ao site, assets/leitor.js)
+const PT_ES: Record<string, string> = { saude: "salud" };
+const palavrasMat = (s: string) => semAcento(s).replace(/[^a-z0-9 ]+/g, " ").split(/\s+/).filter(Boolean).map((w) => ROMANOS[w] || PT_ES[w] || w.replace(/ao$/, "ion"))
+  .filter((w) => !["de", "da", "do", "la", "el", "en", "em", "e", "y"].includes(w));
 /** Índice da matéria do aluno com o nome do documento (ou -1). Igual ao do site (assets/leitor.js). */
 export function casarMateria(nome: string, materias: string[]): number {
   const A = palavrasMat(nome).filter((w) => !/^\d+$/.test(w)); if (!A.length) return -1;
@@ -582,9 +584,11 @@ export function avisoSemLinha(semestre: number | null, turma: string | null): st
 }
 
 // ======================= importar documento (calendário geral, grade de provas, horário, avisos...) =======================
-export const TIPOS_DOC = ["calendario_geral", "cronograma_provas", "horario_aulas", "programa_materia", "regulamento", "aviso", "material_de_estudo", "outro"] as const;
-export const NOMES_TIPO_DOC: Record<string, string> = { calendario_geral: "Calendário acadêmico", cronograma_provas: "Cronograma de provas", horario_aulas: "Horário de aulas",
-  programa_materia: "Programa de matéria", regulamento: "Regulamento", aviso: "Aviso", material_de_estudo: "Material de estudo", outro: "Documento" };
+export const TIPOS_DOC = ["calendario_geral", "cronograma_provas", "horario_aulas", "manual_prova", "programa_materia", "regulamento", "aviso", "material_de_estudo", "resumo_pronto", "laminario", "questoes", "outro"] as const;
+export const NOMES_TIPO_DOC: Record<string, string> = { calendario_geral: "Calendário acadêmico", cronograma_provas: "Cronograma de provas", horario_aulas: "Horário de aulas", manual_prova: "Manual da prova",
+  programa_materia: "Programa de matéria", regulamento: "Regulamento", aviso: "Aviso", material_de_estudo: "Material de estudo", resumo_pronto: "Resumo pronto", laminario: "Laminário", questoes: "Questões", outro: "Documento" };
+/** Tipos que não trazem nada para o calendário: o site manda para outro lugar (material, laminário, questões). */
+export const SEM_ITENS_DOC = new Set(["material_de_estudo", "resumo_pronto", "laminario", "questoes"]);
 const CATEGORIAS = ["feriado", "prova", "matricula", "aula", "recesso", "prazo", "outro"];
 export const LIMITE_DOCUMENTO = 120_000;     // letras do texto (até 3 partes de 40 mil)
 export const PARTE_DOCUMENTO = 40_000;
@@ -616,8 +620,12 @@ O arquivo pode ter vindo de qualquer formato: PDF, foto, Word (tabelas viram lin
 - "horario_aulas": horário SEMANAL de aulas (dias da semana nas colunas ou nas linhas, faixas de hora como "07:00 - 07:45", e em cada célula a matéria, às vezes com sala e professor). Não tem datas do ano, só dias da semana.
 - "programa_materia": programa/plano de uma matéria (conteúdo, bibliografia, avaliação).
 - "regulamento": regras, normas, resoluções, instruções.
+- "manual_prova": manual de UMA prova (ex.: "MANUAL PARCIAL 2"): datas e horas das provas de cada matéria, os conteúdos que caem de cada matéria ("CONTEÚDOS E ORIENTAÇÕES") e recomendações (vestimenta, materiais, gabarito).
 - "aviso": comunicado, edital, informativo.
-- "material_de_estudo": slides, aula, apostila, livro, resumo de conteúdo médico. Nesse caso NÃO extraia nada: devolva as listas vazias.
+- "material_de_estudo": slides, aula, apostila, livro, conteúdo médico do professor. Nesse caso NÃO extraia nada: devolva as listas vazias.
+- "resumo_pronto": resumo de conteúdo médico comprado ou de apoio (de cursinho/editora, texto denso, sem cara de slide do professor). NÃO extraia nada.
+- "laminario": fotos/atlas de lâminas de histologia ou patologia com legenda. NÃO extraia nada.
+- "questoes": lista de questões, exercícios, simulado ou prova antiga. NÃO extraia nada.
 - "outro".
 2) EXTRAIA tudo que servir ao aluno:
 - "eventos": datas do calendário (feriados, matrícula, início/fim de aulas, recesso, semanas de provas parciais e finais, prazos, atividades). Um calendário GERAL vale para todos: importe TODAS as datas dele como eventos, sem procurar turma. Período de vários dias: data_ini e data_fim.
@@ -625,16 +633,18 @@ O arquivo pode ter vindo de qualquer formato: PDF, foto, Word (tabelas viram lin
 - Hora da prova: procure na célula, na coluna, no título ou numa observação ("Horario: 07:00 hs", "turno mañana 07:30", "a las 13:00"). Se a hora valer para todas as provas do documento (ou do turno do aluno), escreva-a em "hora_provas" (HH:MM); se cada prova tiver a sua, escreva em cada "hora". Se o documento não disser a hora, null. Nunca invente.
 - "horarios": aulas semanais. Para cada célula com matéria: dia_semana (1=segunda/lunes ... 6=sábado), hora_ini e hora_fim HH:MM 24 h (da faixa de hora da linha ou coluna), materia e sala/aula se houver. Se o documento tiver uma grade para cada semestre/turma, use SÓ a do aluno. Ignore intervalos ("RECREO", "INTERVALO", "ALMUERZO") e células vazias. Pode devolver cada hora-aula separada (o site junta as seguidas).
 - "materias": matérias citadas com professor (se houver), só quando o documento lista as matérias do aluno.
-- "notas": regras, instruções, critérios de avaliação, prazos e avisos que valem guardar como texto (título curto + texto em tópicos, em português do Brasil, até 600 letras cada).
+- "notas": regras, instruções, critérios de avaliação, prazos e avisos que valem guardar como texto (título curto + texto em tópicos, em português do Brasil, até 600 letras cada). Num manual de prova: recomendações, vestimenta, materiais e gabarito.
+- "prova" (manual de prova): qual prova o manual é: "P1", "P2" ou "Final" ("PARCIAL 1"/"PRIMERA PARCIAL" = P1; "PARCIAL 2" = P2). Cada prova da lista "provas" usa esse tipo.
+- "conteudos" (manual de prova): para cada matéria, os conteúdos que caem nessa prova, um por item, como estão no documento ("Unidade 4", "Aula 5", "Enfermedades do esôfago"); sem marcadores. Só o que o documento listar; não invente.
 Regras:
 - Datas AAAA-MM-DD. Descubra o ano pelo próprio documento (ano do calendário, período "2026 - Segunda convocatoria", datas próximas); se não houver ano, use o da próxima ocorrência a partir de hoje. Não invente datas.
 - "PRIMERA/1ª PARCIAL" = "P1"; "SEGUNDA/2ª PARCIAL" = "P2"; "FINAL"/"EXAMEN FINAL"/"EXTRAORDINARIO" = "Final". Modalidade "pratica" se disser PRÁCTICA, senão "teorica".
-- Matéria da prova/horário: se corresponder a uma destas do aluno, use EXATAMENTE o nome da lista; senão, o nome como está no documento.
+- Matéria da prova/horário/conteúdos: se corresponder a uma destas do aluno, use EXATAMENTE o nome da lista; senão, o nome como está no documento.
 Matérias do aluno:
 ${c.materias.length ? c.materias.map((m, i) => `${i + 1}. ${m}`).join("\n") : "(nenhuma cadastrada)"}
 - "titulo": nome curto do documento; "resumo": até 3 frases em português do Brasil dizendo o que é e o que tem.
 Responda SOMENTE com JSON:
-{"tipo":"...","titulo":"...","resumo":"...","hora_provas":"HH:MM ou null","provas":[{"materia":"...","tipo":"P1|P2|Final","modalidade":"teorica|pratica","data":"AAAA-MM-DD","hora":"HH:MM ou null"}],"eventos":[{"titulo":"...","data_ini":"AAAA-MM-DD","data_fim":"AAAA-MM-DD ou null","categoria":"${CATEGORIAS.join("|")}","descricao":"..."}],"horarios":[{"materia":"...","dia_semana":1,"hora_ini":"HH:MM","hora_fim":"HH:MM","sala":null}],"materias":[{"nome":"...","professor":null}],"notas":[{"titulo":"...","texto":"..."}],"aviso":""}
+{"tipo":"...","titulo":"...","resumo":"...","prova":"P1|P2|Final ou null","hora_provas":"HH:MM ou null","provas":[{"materia":"...","tipo":"P1|P2|Final","modalidade":"teorica|pratica","data":"AAAA-MM-DD","hora":"HH:MM ou null"}],"eventos":[{"titulo":"...","data_ini":"AAAA-MM-DD","data_fim":"AAAA-MM-DD ou null","categoria":"${CATEGORIAS.join("|")}","descricao":"..."}],"horarios":[{"materia":"...","dia_semana":1,"hora_ini":"HH:MM","hora_fim":"HH:MM","sala":null}],"materias":[{"nome":"...","professor":null}],"notas":[{"titulo":"...","texto":"..."}],"conteudos":[{"materia":"...","itens":["..."]}],"aviso":""}
 
 ${AVISO_FONTES} ${oQueVai}`;
 }
@@ -659,7 +669,20 @@ export type DocLido = {
   horarios: { materia: string; disciplina_id: number | null; dia_semana: number; hora_ini: string; hora_fim: string; sala: string | null }[];
   materias: { nome: string; professor: string | null; disciplina_id: number | null }[];
   notas: { titulo: string; texto: string }[]; aviso: string;
+  prova?: "P1" | "P2" | "Final" | null; conteudos?: { materia: string; disciplina_id: number | null; itens: string[] }[];
 };
+/** Qual prova um manual é, pelo título ou pelo começo do texto ("MANUAL PARCIAL 2" = P2). */
+export function provaDoTexto(s: unknown): "P1" | "P2" | "Final" | null {
+  const t = semAcento(String(s ?? "").slice(0, 4000));
+  if (/\b(parcial|prueba|prova|avaliacao|evaluacion)\s*(n[o°º.]*\s*)?(2|ii)\b|\b(segunda|2a|2da|2ª)\s+(parcial|prueba|prova|avaliacao)|\bp\s?2\b/.test(t)) return "P2";
+  if (/\b(parcial|prueba|prova|avaliacao|evaluacion)\s*(n[o°º.]*\s*)?(1|i)\b|\b(primeira|primera|1a|1ra|1ª)\s+(parcial|prueba|prova|avaliacao)|\bp\s?1\b/.test(t)) return "P1";
+  if (/\b(exame|examen|prova|prueba)s?\s+finais?\b|\bfinal(es)?\b/.test(t)) return "Final";
+  return null;
+}
+/** Um conteúdo do manual: sem marcador ("•", "-", "1."), sem ponto final, até 120 letras. */
+export function limparItemConteudo(x: unknown): string {
+  return String(x ?? "").replace(/\s+/g, " ").replace(/^\s*([•·▪◦●○■□➢►\-*–—]|\d{1,2}[.)])\s*/, "").replace(/[.;,\s]+$/, "").trim().slice(0, 120);
+}
 /** Confere a resposta da IA: só itens completos e válidos, sem repetidos, com limites de quantidade. */
 export function limparDocumento(out: Record<string, unknown> | null, materias: { id: number; nome: string }[], hoje: string): DocLido {
   const o = out || {};
@@ -668,8 +691,23 @@ export function limparDocumento(out: Record<string, unknown> | null, materias: {
   const nomes = materias.map((m) => m.nome);
   const idMateria = (nome: string) => { const ex = nomes.findIndex((n) => semAcento(n).trim() === semAcento(nome)); const i = ex >= 0 ? ex : casarMateria(nome, nomes); return i >= 0 ? materias[i].id : null; };
   const vazio: DocLido = { tipo, titulo: txt(o.titulo, 160), resumo: txt(o.resumo, 600), provas: [], eventos: [], horarios: [], materias: [], notas: [], aviso: txt(o.aviso, 300) };
-  if (tipo === "material_de_estudo") return vazio;
-  vazio.provas = limparCalendario({ provas: lista("provas") }, materias, hoje);
+  if (SEM_ITENS_DOC.has(tipo)) return vazio;
+  // manual de prova: a prova (P1/P2/Final) vale para as provas sem tipo e para os conteúdos
+  const prova = (["P1", "P2", "Final"].includes(String(o.prova)) ? String(o.prova) : provaDoTexto(o.prova) ?? (tipo === "manual_prova" ? provaDoTexto(o.titulo) : null)) as DocLido["prova"];
+  vazio.provas = limparCalendario({ provas: lista("provas").map((p) => p.tipo || !prova ? p : { ...p, tipo: prova }) }, materias, hoje);
+  if (prova) {
+    vazio.prova = prova; vazio.conteudos = [];
+    const vistas = new Set<string>();
+    for (const c of lista("conteudos")) {
+      const materia = txt(c.materia, 120); if (!materia) continue;
+      const k = semAcento(materia); if (vistas.has(k)) continue;
+      const itens: string[] = [], vi = new Set<string>();
+      for (const it of Array.isArray(c.itens) ? c.itens : []) { const x = limparItemConteudo(it); const kx = qNorm(x); if (x.length < 2 || vi.has(kx)) continue; vi.add(kx); itens.push(x); if (itens.length >= 40) break; }
+      if (!itens.length) continue; vistas.add(k);
+      vazio.conteudos.push({ materia, disciplina_id: idMateria(materia), itens });
+      if (vazio.conteudos.length >= 20) break;
+    }
+  }
   // "todas as provas às 07:00": a hora geral do documento vale para as provas sem hora própria
   const horaGeral = HM(o.hora_provas);
   if (horaGeral) vazio.provas = vazio.provas.map((p) => p.hora ? p : { ...p, hora: horaGeral });
@@ -726,20 +764,21 @@ export function juntarAulas<T extends { materia: string; disciplina_id: number |
 }
 /** Junta as respostas dos pedaços de um documento grande. */
 export function juntarDocumentos(lidos: Record<string, unknown>[]): Record<string, unknown> {
-  const base: Record<string, unknown> = { tipo: "outro", titulo: "", resumo: "", provas: [], eventos: [], horarios: [], materias: [], notas: [], aviso: "" };
+  const base: Record<string, unknown> = { tipo: "outro", titulo: "", resumo: "", provas: [], eventos: [], horarios: [], materias: [], notas: [], conteudos: [], aviso: "" };
   const avisos: string[] = [];
   for (const o of lidos) {
     if (base.tipo === "outro" && o.tipo) base.tipo = o.tipo;
     if (!base.titulo && o.titulo) base.titulo = o.titulo;
     if (!base.resumo && o.resumo) base.resumo = o.resumo;
-    for (const k of ["provas", "eventos", "horarios", "materias", "notas"]) if (Array.isArray(o[k])) (base[k] as unknown[]).push(...(o[k] as unknown[]));
+    if (!base.prova && o.prova) base.prova = o.prova;
+    for (const k of ["provas", "eventos", "horarios", "materias", "notas", "conteudos"]) if (Array.isArray(o[k])) (base[k] as unknown[]).push(...(o[k] as unknown[]));
     if (o.aviso && !avisos.includes(String(o.aviso))) avisos.push(String(o.aviso));
     if (!base.hora_provas && o.hora_provas) base.hora_provas = o.hora_provas;
   }
   base.aviso = avisos.join(" ");
   return base;
 }
-const temItens = (d: DocLido) => d.provas.length + d.eventos.length + d.horarios.length + d.materias.length + d.notas.length > 0;
+const temItens = (d: DocLido) => d.provas.length + d.eventos.length + d.horarios.length + d.materias.length + d.notas.length + (d.conteudos?.length || 0) > 0;
 
 // ======================= chamada ao Claude =======================
 export type Conteudo = string | Record<string, unknown>[];
@@ -871,6 +910,15 @@ async function materialDoTema(admin: SupabaseClient, uid: string, temaId: number
   if (error) { console.error("materiais:", error.message); return { texto: "", usados: 0, cortado: false }; }
   return juntarMaterial((data || []) as Material[], limite);
 }
+/** Arquivos do tema separados: material do professor (aula) e resumos prontos (16_resumo_completo.sql). Sem a coluna, tudo é aula. */
+export async function materiaisPorTipo(admin: SupabaseClient, uid: string, temaId: number): Promise<{ professor: Material[]; prontos: Material[] }> {
+  let r: { data: unknown; error: { message: string } | null } = await admin.from("materiais").select("nome,texto,tipo").eq("aluno_id", uid).eq("tema_id", temaId).eq("status", "ok").order("nome");
+  const semTipo = !!(r.error && /tipo/.test(r.error.message || ""));
+  if (semTipo) r = await admin.from("materiais").select("nome,texto").eq("aluno_id", uid).eq("tema_id", temaId).eq("status", "ok").order("nome");
+  if (r.error) { console.error("materiais:", r.error.message); return { professor: [], prontos: [] }; }
+  const L = ((r.data || []) as (Material & { tipo?: string })[]).map((m) => ({ nome: m.nome, texto: m.texto, tipo: semTipo ? "aula" : m.tipo }));
+  return { professor: L.filter((m) => m.tipo !== "resumo_pronto"), prontos: L.filter((m) => m.tipo === "resumo_pronto") };
+}
 /** Busca o tema nos livros do aluno COM O LOGIN DELE (as regras do banco valem). */
 export async function trechosDosLivros(usuario: SupabaseClient, tema: string, limite = 6): Promise<Trecho[]> {
   for (const consulta of consultasLivro(tema)) {
@@ -898,7 +946,28 @@ function paraBase64(bytes: Uint8Array): string {
 // deno-lint-ignore no-explicit-any
 type Perfil = Record<string, any>;
 export type Ctx = { admin: SupabaseClient; usuario: SupabaseClient | null; uid: string; P: Perfil; hoje: string; fim: number };
-export type TipoTarefa = "resumo" | "mapa" | "questoes" | "documento" | "flashcards" | "painel";
+export type TipoTarefa = "resumo" | "mapa" | "questoes" | "documento" | "flashcards" | "painel" | "classificar";
+export const LIMITE_CLASSIFICAR = 8000;
+/** Pedido curto: só o tipo do arquivo. */
+export function promptClassificar(nome: string, formato: string, texto: string): string {
+  return `Classifique um arquivo que um aluno de medicina (faculdade no Paraguai; espanhol ou português) mandou para o painel de estudo. Use o CONTEÚDO; o nome só ajuda.
+Tipos:
+- "material_de_estudo": slides, aula, apostila ou texto do professor sobre conteúdo médico.
+- "resumo_pronto": resumo de conteúdo médico comprado ou de apoio (cursinho, editora, colega): texto denso e organizado, sem cara de slide do professor, às vezes com marca d'água.
+- "manual_prova": manual de uma prova (datas das provas de cada matéria e os conteúdos que caem).
+- "cronograma_provas": datas das provas. "calendario_geral": calendário acadêmico do ano. "horario_aulas": horário semanal das aulas.
+- "regulamento", "aviso", "programa_materia".
+- "laminario": lâminas de histologia/patologia (fotos com legenda).
+- "questoes": questões, exercícios, simulado ou prova antiga.
+- "outro".
+Responda SOMENTE com JSON: {"tipo":"...","titulo":"nome curto do arquivo"}
+
+${AVISO_FONTES}
+Arquivo: ${JSON.stringify(nome || "sem nome")}${formato ? ` (${FORMATOS_DOC[formato] || formato})` : ""}. Começo do texto:
+<documento>
+${texto}
+</documento>`;
+}
 export type Plano = { tipo: TipoTarefa; titulo: string; entrada: Record<string, unknown>; reserva: { tipo: TipoUso; n: number } };
 export type Feito = { resposta: Record<string, unknown>; resultado: Record<string, unknown>; usadas: number };
 export const TIPOS_QUESTAO_ORDEM = ["mc", "vf", "rel", "dis"] as const;
@@ -911,7 +980,7 @@ export async function validar(ctx: Ctx, b: Record<string, unknown>, fundo: boole
   const { admin, uid } = ctx;
   if (b.acao === "resumo") {
     const t = await carregarTema(admin, uid, b.tema_id);
-    const entrada: Record<string, unknown> = { tema_id: t.id, modo: b.modo === "livros" ? "livros" : "professor" };
+    const entrada: Record<string, unknown> = { tema_id: t.id, modo: b.modo === "livros" || b.modo === "completo" ? b.modo : "professor" };
     if (b.instrucao_extra != null && b.instrucao_extra !== "") {
       if (typeof b.instrucao_extra !== "string") throw new ErroIA("Pedido para o resumo inválido.", 400);
       if (b.instrucao_extra.length > LIMITE_EXTRA) throw new ErroIA(`O pedido só para este resumo pode ter até ${LIMITE_EXTRA} letras.`, 400);
@@ -960,6 +1029,15 @@ export async function validar(ctx: Ctx, b: Record<string, unknown>, fundo: boole
     if (b.tema_id != null && b.tema_id !== "") { const t = await carregarTema(admin, uid, b.tema_id); if (t.disciplina_id !== disc.id) throw new ErroIA("Tema de outra matéria.", 400); temaId = t.id; }
     return { tipo: "questoes", titulo: `${total} ${total === 1 ? "questão" : "questões"}: ${tema}`, entrada: { disciplina_id: disc.id, tema, tema_id: temaId, mix }, reserva: { tipo: "questoes", n: total } };
   }
+  // "classificar": o que é este arquivo (o site só pergunta quando o nome e o texto não dizem). Na hora, só texto, não conta no limite.
+  if (b.acao === "classificar") {
+    if (fundo) throw new ErroIA("Pedido inválido.", 400);
+    const texto = typeof b.texto === "string" ? b.texto.replace(/\u0000/g, " ").trim().slice(0, LIMITE_CLASSIFICAR) : "";
+    if (texto.replace(/\s+/g, "").length < 20) throw new ErroIA("Não achei texto nesse arquivo.", 400);
+    const nome = typeof b.nome === "string" ? b.nome.replace(/[\u0000-\u001f]/g, " ").trim().slice(0, 150) : "";
+    const formato = typeof b.formato === "string" && FORMATOS_DOC[b.formato.toLowerCase()] ? b.formato.toLowerCase() : "";
+    return { tipo: "classificar", titulo: "O que é este arquivo", entrada: { texto, nome, formato }, reserva: { tipo: "calendarios", n: 1 } };
+  }
   // "documento" (calendário geral, grade de provas, horário, avisos...) e "calendario" (o nome antigo: igual)
   if (b.acao === "documento" || b.acao === "calendario") {
     const texto = typeof b.texto === "string" ? b.texto.replace(/\u0000/g, " ").trim().slice(0, LIMITE_DOCUMENTO + 20_000) : "";
@@ -993,6 +1071,64 @@ export async function validar(ctx: Ctx, b: Record<string, unknown>, fundo: boole
 }
 
 /** O tema precisa ter material lido ou resumo (flash cards e painel não usam conhecimento de fora). */
+// ======================= resumo "Tudo junto" (professor + resumos prontos + livros) =======================
+export const LIMITE_COMPLETO = 76_000;      // letras somando as três fontes
+/** Quanto cada fonte pode ocupar: professor primeiro, depois o resumo pronto, depois os livros.
+ *  Cada uma tem a sua cota (50%, 30%, 20%); o que uma não usa vai para as outras, na mesma ordem. */
+export function orcamentoCompleto(precisa: [number, number, number], total = LIMITE_COMPLETO): [number, number, number] {
+  const cota = [0.5, 0.3, 0.2].map((x) => Math.floor(x * total));
+  const out = precisa.map((n, i) => Math.max(0, Math.min(n, cota[i]))) as [number, number, number];
+  let sobra = total - out[0] - out[1] - out[2];
+  for (let i = 0; i < 3 && sobra > 0; i++) { const mais = Math.min(sobra, Math.max(0, precisa[i] - out[i])); out[i] += mais; sobra -= mais; }
+  return out;
+}
+export type PartesCompleto = { professor: Material[]; prontos: Material[]; livros: Trecho[] };
+/** Junta as três fontes dentro do orçamento. Devolve os textos e o que foi usado. */
+export function juntarCompleto(p: PartesCompleto, total = LIMITE_COMPLETO) {
+  const cheio = (ms: Material[]) => juntarMaterial(ms, 10_000_000).texto.length;
+  const [lp, lr, ll] = orcamentoCompleto([cheio(p.professor), cheio(p.prontos), juntarLivros(p.livros, 10_000_000).texto.length], total);
+  // o que cabe inteiro vai inteiro (sem a margem que o juntarMaterial pede para cortar)
+  const precisa = [cheio(p.professor), cheio(p.prontos), juntarLivros(p.livros, 10_000_000).texto.length];
+  const lim = (i: number, l: number) => l >= precisa[i] ? 10_000_000 : l;
+  const prof = juntarMaterial(p.professor, lim(0, lp)), prontos = juntarMaterial(p.prontos, lim(1, lr)), livros = juntarLivros(p.livros, lim(2, ll));
+  return { prof, prontos, livros, limites: [lp, lr, ll] as [number, number, number] };
+}
+export function promptResumoCompleto(c: Contexto, modeloAluno: string | null, p: PartesCompleto, estilo: { memoria?: string | null; extra?: string | null } = {}, total = LIMITE_COMPLETO): string {
+  const j = juntarCompleto(p, total);
+  const temProf = !!j.prof.texto.trim(), temRes = !!j.prontos.texto.trim(), temLiv = j.livros.usados.length > 0;
+  const faltam = [!temProf ? "material do professor" : "", !temRes ? "resumo pronto" : "", !temLiv ? "trechos de livro" : ""].filter(Boolean);
+  return `${cabecalho(c, "Você é preceptor de medicina e escreve resumos de estudo")}
+Foco desta matéria: ${c.foco?.trim() || focoPadrao(c.materia)}
+
+Formato obrigatório: RESUMO ATIVO.
+- Só tópicos diretos e curtos (listas), nunca parágrafos de texto corrido.
+- Sem introdução, sem contexto histórico, sem seção "para decorar", sem conclusão.
+- Para cada item do tema (fármaco, classe, estrutura, agente, doença, achado): o que é, a função de cada um e o que couber (indicações, contraindicações, efeitos adversos, achados, conduta).
+- Use tabelas comparativas quando ajudarem.
+- Português do Brasil. Quando o nome usado na prova estiver em espanhol, coloque-o entre parênteses.
+- Não invente dados, doses, páginas nem citações.
+- Responda só com o resumo, em Markdown, começando pelo título do tema (# ${c.tema}).
+
+Estrutura do resumo (modelo do aluno; adapte as seções ao tema):
+"""
+${(modeloAluno || "").trim() || MODELO_RESUMO_PADRAO}
+"""${blocoEstilo(estilo.memoria, estilo.extra)}
+
+Regras das fontes:
+Modo escolhido pelo aluno: TUDO JUNTO.
+- Escreva UM resumo só, juntando o material do professor, os resumos prontos do aluno e os trechos dos livros abaixo, com TODA a informação útil para a prova que estiver neles.
+- O material do professor é a base: siga o que ele cobra, com os mesmos termos. Os resumos prontos e os livros completam e explicam.
+- Sem repetir: quando duas fontes dizem a mesma coisa, escreva uma vez só e marque as duas juntas (ex.: [Prof][Resumo]).
+- Marque de onde vem cada tópico, no fim dele, de forma curta: [Prof] = material do professor; [Resumo] = resumo pronto; [Livro: Título p. X] = trecho de livro (use o título e a página do cabeçalho do trecho; nunca invente página). O que vier só do conhecimento médico consolidado (Robbins, Harrison, Goodman & Gilman, Guyton), para ligar as ideias, fica sem marca e não pode contradizer as fontes.
+- Quando as fontes discordarem, escreva no próprio tópico: "**Atenção:** [Prof] diz X; [Livro: Título p. X] diz Y." (ou [Resumo]). Se o material do professor tiver um erro claro, avise do mesmo jeito.
+- No fim, a seção "## Fontes": o material do professor, os resumos prontos e cada livro com as páginas usadas.${faltam.length ? `\n- Não há ${faltam.join(" nem ")} para este tema: use as fontes que existem.` : ""}
+
+${AVISO_FONTES}
+${temProf ? `<material_do_professor>\n${j.prof.texto}\n</material_do_professor>` : "<material_do_professor>(nenhum)</material_do_professor>"}
+${temRes ? `<resumos_prontos_do_aluno>\n${j.prontos.texto}\n</resumos_prontos_do_aluno>` : ""}
+${temLiv ? `<trechos_dos_livros_do_aluno>\n${j.livros.texto}\n</trechos_dos_livros_do_aluno>` : ""}`.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export async function temBase(admin: SupabaseClient, uid: string, temaId: number) {
   const [{ count: nMat }, { count: nRes }] = await Promise.all([
     admin.from("materiais").select("id", { count: "exact", head: true }).eq("aluno_id", uid).eq("tema_id", temaId).eq("status", "ok"),
@@ -1041,15 +1177,19 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
 
   if (plano.tipo === "resumo") {
     const t = await carregarTema(admin, uid, e.tema_id);
-    const modo = e.modo === "livros" ? "livros" : "professor";
-    const [mat, pref, livros] = await Promise.all([
-      materialDoTema(admin, uid, t.id, LIMITE_MATERIAL.resumo),
+    const modo = e.modo === "livros" || e.modo === "completo" ? e.modo : "professor";
+    const [fontes, pref, livros] = await Promise.all([
+      materiaisPorTipo(admin, uid, t.id),
       prefResumo(admin, uid),
       usuario ? trechosDosLivros(usuario, t.nome) : Promise.resolve([] as Trecho[]),
     ]);
     const c: Contexto = { ...ctxBase, materia: t.disciplinas.nome, professor: t.disciplinas.professor, tema: t.nome, prova: t.prova, itens: itensDe(t.itens), foco: t.disciplinas.foco_resumo };
-    const prompt = promptResumo(c, pref?.modelo_resumo ?? null, mat.texto, livros, modo,
-      { memoria: pref?.memoria_resumo ?? null, extra: typeof e.instrucao_extra === "string" ? e.instrucao_extra : null });
+    const estilo = { memoria: pref?.memoria_resumo ?? null, extra: typeof e.instrucao_extra === "string" ? e.instrucao_extra : null };
+    // "Só o professor" e "Livros" usam só o material do professor (sem ele, o resumo pronto entra no lugar)
+    const doProf = fontes.professor.length ? fontes.professor : fontes.prontos;
+    const mat = modo === "completo" ? juntarCompleto({ ...fontes, livros }).prof : juntarMaterial(doProf, LIMITE_MATERIAL.resumo);
+    const prompt = modo === "completo" ? promptResumoCompleto(c, pref?.modelo_resumo ?? null, { ...fontes, livros }, estilo)
+      : promptResumo(c, pref?.modelo_resumo ?? null, mat.texto, livros, modo, estilo);
     let r = await chamarClaude(prompt, MAX_TOKENS.resumo, resta()); somar(gasto, r);
     if (r.parou === "max_tokens" && resta() > 40_000) { // cortado: uma vez com mais espaço
       console.error("resumo: cortado; tentando de novo com", TETO_TOKENS);
@@ -1058,12 +1198,13 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
     }
     const texto = r.texto.trim();
     if (texto.length < 15) throw new ErroIA("A IA devolveu um resumo vazio. Tente de novo.", 502);
-    const usadosLivros = juntarLivros(livros, LIMITE_LIVROS).usados;
+    const usadosLivros = modo === "completo" ? juntarCompleto({ ...fontes, livros }).livros.usados : juntarLivros(livros, LIMITE_LIVROS).usados;
     const linha = {
-      tema_id: t.id, aluno_id: uid, texto, modelo: modelo(), modo: usadosLivros.length ? modo : null,
-      com_fonte: mat.usados > 0, livros: livrosCitados(usadosLivros), truncado: r.parou === "max_tokens", criado_em: new Date().toISOString(),
+      tema_id: t.id, aluno_id: uid, texto, modelo: modelo(), modo: modo === "completo" ? "completo" : usadosLivros.length ? modo : null,
+      com_fonte: mat.usados > 0 || (modo === "completo" && fontes.prontos.length > 0), livros: livrosCitados(usadosLivros), truncado: r.parou === "max_tokens", criado_em: new Date().toISOString(),
     };
-    const { error } = await admin.from("resumos").upsert(linha, { onConflict: "tema_id" });
+    let { error } = await admin.from("resumos").upsert(linha, { onConflict: "tema_id" });
+    if (error && /resumos_modo_check/.test(error.message || "")) ({ error } = await admin.from("resumos").upsert({ ...linha, modo: null }, { onConflict: "tema_id" })); // sem o 16_resumo_completo.sql
     if (error) { console.error("salvar resumo:", error.message); throw new ErroIA("O resumo ficou pronto, mas não consegui salvar. Tente de novo.", 500); }
     return { resposta: { resumo: linha }, resultado: { tema_id: t.id, disciplina_id: t.disciplina_id, tema: t.nome, truncado: linha.truncado }, usadas: 1 };
   }
@@ -1172,6 +1313,13 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
     };
   }
 
+  if (plano.tipo === "classificar") {
+    const r = await pedirJSON(promptClassificar(String(e.nome || ""), String(e.formato || ""), String(e.texto || "")), 300, "classificar", gasto, ctx.fim);
+    const tipo = (TIPOS_DOC as readonly string[]).includes(String(r.out?.tipo)) ? String(r.out!.tipo) : "outro";
+    const res = { tipo, titulo: txt(r.out?.titulo, 160) };
+    return { resposta: res, resultado: res, usadas: 0 };
+  }
+
   // ---------------- DOCUMENTO (só lê; quem salva é o site depois da revisão do aluno) ----------------
   const { data: sem } = await admin.from("semestres").select("id,numero,turma").eq("aluno_id", uid).eq("atual", true).maybeSingle();
   let qd = admin.from("disciplinas").select("id,nome").eq("aluno_id", uid).order("ordem").order("id");
@@ -1210,11 +1358,14 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
   const outs = (await Promise.all(pedidos)).filter(Boolean) as Record<string, unknown>[];
   if (!outs.length) console.error("documento: nenhuma parte veio em JSON");
   const junto = juntarDocumentos(outs);
+  if (junto.tipo === "manual_prova" && !junto.prova) junto.prova = provaDoTexto(junto.titulo) ?? provaDoTexto(e.texto) ?? provaDoTexto(e.nome);
   // com a lista da configuração, as matérias ainda não têm id: o site casa pelo nome
   const d = limparDocumento(junto, listaSite ? listaSite.map((nome, i) => ({ id: i + 1, nome })) : materias, hoje);
-  if (listaSite) { d.provas = d.provas.map((p) => ({ ...p, disciplina_id: null })); d.horarios = d.horarios.map((h) => ({ ...h, disciplina_id: null })); d.materias = d.materias.map((m) => ({ ...m, disciplina_id: null })); }
+  if (listaSite) { d.provas = d.provas.map((p) => ({ ...p, disciplina_id: null })); d.horarios = d.horarios.map((h) => ({ ...h, disciplina_id: null })); d.materias = d.materias.map((m) => ({ ...m, disciplina_id: null })); if (d.conteudos) d.conteudos = d.conteudos.map((c) => ({ ...c, disciplina_id: null })); }
   const avisos: string[] = [];
-  if (d.tipo === "material_de_estudo") avisos.push("Isso parece material de estudo (slides, aula, apostila). Para usar nos resumos e questões, mande em Enviar arquivos.");
+  if (d.tipo === "material_de_estudo" || d.tipo === "resumo_pronto") avisos.push("Isso parece material de estudo (slides, aula, apostila ou resumo). Para usar nos resumos e questões, mande em Materiais e conteúdos da faculdade.");
+  else if (d.tipo === "laminario") avisos.push("Isso parece um laminário (fotos de lâminas): não tem datas para o calendário.");
+  else if (d.tipo === "questoes") avisos.push("Isso parece uma lista de questões: não tem datas para o calendário.");
   else {
     if (!d.provas.length && (d.tipo === "cronograma_provas" || naoAchouLinha(d.aviso) || /linha|turma|fila/i.test(d.aviso))) avisos.push(avisoSemLinha(cc.semestre, cc.turma));
     else if (d.aviso) avisos.push(d.aviso);
@@ -1224,7 +1375,7 @@ export async function executar(ctx: Ctx, plano: Plano, gasto: Gasto, sinal: () =
   }
   const res = { ...d, aviso: avisos.join(" ").slice(0, 600), semestre: cc.semestre, turma: cc.turma, nome: e.nome || null };
   // material de estudo ou nada encontrado: não conta no limite do mês
-  return { resposta: res, resultado: res, usadas: d.tipo !== "material_de_estudo" && temItens(d) ? 1 : 0 };
+  return { resposta: res, resultado: res, usadas: !SEM_ITENS_DOC.has(d.tipo) && temItens(d) ? 1 : 0 };
 }
 
 // ======================= tarefas em segundo plano =======================
