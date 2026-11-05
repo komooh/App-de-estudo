@@ -419,7 +419,7 @@
       if (texto.replace(/\s+/g, "").length < 20) throw new Error("Não achei fala neste arquivo.");
       const base = it.nome.replace(/\.[a-z0-9]{1,5}$/i, "");
       const arq = new File([texto], `${base} (transcrição).txt`, { type: "text/plain" });
-      await Fila.adicionar("upload", `Enviar ${base} (transcrição)`, { disc: d.id, discNome: d.nome, tema: temaFixo || Leitor.nomeDoTema(it.nome), nome: arq.name, tipo: "aula" }, arq);
+      await Fila.adicionar("upload", `Enviar ${base} (transcrição)`, { disc: d.id, discNome: d.nome, tema: temaFixo || Leitor.nomeDoTema(base), nome: arq.name, tipo: "aula" }, arq);
       tirarUni([it.id]); toast(`Transcrição de ${base} na fila`);
     } catch (e) { it.st = "ok"; it.msg = e.message || "Não consegui transcrever este arquivo."; }
     render();
