@@ -22,6 +22,7 @@
     if (t.tipo === "questoes") return `Suas questões de ${nomeDe(t)} ficaram prontas`;
     if (t.tipo === "flashcards") return `Seus flash cards de ${nomeDe(t)} ficaram prontos`;
     if (t.tipo === "painel") return `Seu painel de ${nomeDe(t)} ficou pronto`;
+    if (t.tipo === "questoes_importar") return `As questões de ${String(t.titulo || "").replace(/^Questões do professor:\s*/, "") || "o arquivo"} foram lidas: confira em Questões`;
     const doc = String(t.titulo || "").replace(/^Documento:\s*/, "");
     return `A leitura de ${doc || "documento"} ficou pronta: confira em Configurações`;
   }
@@ -94,10 +95,11 @@
   function itemServidor(t) {
     const [cls, txt] = ST[t.status] || ["", t.status];
     const acoes = t.status === "erro" ? `<button class="btn" data-tf="repetir" data-id="${t.id}">Tentar de novo</button><button class="btn ghost" data-tf="dispensar" data-id="${t.id}">Dispensar</button>`
-      : t.status === "pronta" || t.status === "vista" ? `<button class="btn ${t.status === "pronta" ? "solid" : ""}" data-tf="abrir" data-id="${t.id}">${t.tipo === "calendario" ? "Conferir" : "Abrir"}</button>` : "";
+      : t.status === "pronta" || t.status === "vista" ? `<button class="btn ${t.status === "pronta" ? "solid" : ""}" data-tf="abrir" data-id="${t.id}">${t.tipo === "calendario" || t.tipo === "questoes_importar" ? "Conferir" : "Abrir"}</button>` : "";
     const sub = RODANDO(t.status) ? "A IA está trabalhando no servidor. Pode sair do site: continua sozinho."
       : t.status === "erro" ? (t.erro || "Não deu certo.")
       : t.tipo === "flashcards" && t.resultado ? `${t.resultado.salvos} flash cards novos`
+      : t.tipo === "questoes_importar" && t.resultado ? `${(t.resultado.questoes || []).length} questões lidas. Nada é salvo antes de você conferir.`
       : t.tipo === "questoes" && t.resultado ? `${t.resultado.salvas} de ${t.resultado.pedidas} questões${t.resultado.aviso ? ` (${t.resultado.aviso})` : ""}`
       : t.tipo === "calendario" && t.resultado ? ((t.resultado.provas || []).length ? `${t.resultado.provas.length} prova(s) para conferir. Nada é salvo antes de você confirmar.` : (t.resultado.aviso || "Nenhuma prova encontrada."))
       : t.resultado?.truncado ? "Ficou incompleto por limite de tamanho." : "";

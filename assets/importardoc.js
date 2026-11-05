@@ -251,7 +251,8 @@
       try {
         it.st = "preparando"; prog("Abrindo…");
         // imagens por arquivo: o que cabe na pasta dividido entre os que vão ao mesmo tempo
-        const fotos = itens.filter((x) => (ehImagem(x.f) || ehPdf(x.f)) && x.st !== "pronto" && x.st !== "erro").length || 1;
+        // x.f vira null quando o arquivo termina (com 4 ou mais arquivos, o 4º quebrava aqui)
+        const fotos = itens.filter((x) => x.f && (ehImagem(x.f) || ehPdf(x.f)) && x.st !== "pronto" && x.st !== "erro").length || 1;
         const porArquivo = Math.max(1, Math.min(MAX_IMG_ARQ, Math.floor(Math.max(1, IMG.cap) / Math.min(paralelo, fotos))));
         const prep = await preparar(it.f, d, prog, porArquivo);
         if (prep.imagens.length) {

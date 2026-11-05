@@ -626,8 +626,7 @@
   }
 
   /* ================= QUESTÕES ================= */
-  const QTIPOS = { mc: "Marcar X", vf: "Verdadeiro ou falso", rel: "Relacionar", dis: "Dissertativa" };
-  const MAX_LOTE = { mc: 8, vf: 6, rel: 6, dis: 5 };
+  const QTIPOS = { mc: "Marcar X", vf: "Verdadeiro ou falso", rel: "Relacionar", dis: "Aberta", caso: "Caso clínico" };
   const qTipo = (q) => QTIPOS[q.tipo] ? q.tipo : "mc";
   /* ----- escolher os temas (Praticar, Revisar erros e Flash cards): cada tema com caixinha, lembrado por matéria nesta aba ----- */
   // Grupo = o nome do tema (o do cadastro, se a questão/card estiver ligada a um tema; senão o texto do tema). Vazio = "Sem tema".
@@ -657,7 +656,8 @@
   }
   /** Os grupos que aparecem agora na lista de temas (para "Nenhuma"). */
   function gruposAtuais(ns) { return ns === "f" ? gruposDe(cardsDisc(ui.fcDisc), fcChave, (c) => grupoNome(c.tema_id, ""), ui.fcDisc) : gruposDe(qBase(), qChave, (q) => grupoNome(q.tema_id, q.tema), ui.qDisc); }
-  function qBase() { let q = S.questoes || []; if (ui.qDisc) q = q.filter((x) => x.disciplina_id == ui.qDisc); if (ui.qMode === "rev") q = q.filter((x) => x.ultima === false || x.id === ui._keep); return q; }
+  const qOrigem = (x) => x.origem === "professor" ? "prof" : "ia"; // antigas (sem a coluna origem) contam como da IA
+  function qBase() { let q = S.questoes || []; if (ui.qDisc) q = q.filter((x) => x.disciplina_id == ui.qDisc); if (ui.qOrig) q = q.filter((x) => qOrigem(x) === ui.qOrig || x.id === ui._keep); if (ui.qMode === "rev") q = q.filter((x) => x.ultima === false || x.id === ui._keep); return q; }
   function qPool() {
     const q = qBase(); if (!ui.qDisc) return q;
     const off = temasOff("q", ui.qDisc); return off.size ? q.filter((x) => !off.has(qChave(x)) || x.id === ui._keep) : q;
@@ -666,7 +666,6 @@
     const m = {}; (S.questoes || []).forEach((q) => { if (!q.acertos && !q.erros) return; const k = q.tema; m[k] = m[k] || { tema: k, disc: dname(q.disciplina_id), a: 0, e: 0 }; m[k].a += q.acertos; m[k].e += q.erros; });
     return Object.values(m).map((x) => ({ ...x, pct: Math.round(x.a / (x.a + x.e) * 100) })).sort((a, b) => b.pct - a.pct);
   }
-  function qSt(q) { if (!ui.qst || ui.qst.id !== q.id) ui.qst = { id: q.id, vf: {}, rel: {}, txt: "", done: false }; return ui.qst; }
   async function qRecord(q, ok) {
     if (ok) { q.acertos++; q.ultima = true; } else { q.erros++; q.ultima = false; }
     if (ui.qMode === "rev" && ok) ui._keep = q.id;
@@ -674,53 +673,40 @@
     const { error } = await sb.from("questoes").update({ acertos: q.acertos, erros: q.erros, ultima: q.ultima, respondida_em: new Date().toISOString() }).eq("id", q.id);
     if (error) toast("Não consegui salvar a resposta: " + error.message);
   }
-  const LET = "abcdefghij";
-  function qBody(q) {
-    const tp = qTipo(q), st = qSt(q);
-    if (tp === "mc") {
-      const ans = ui.qAnsId === q.id ? ui.qAns : null;
-      const opts = (q.opcoes || []).map((o, i) => { let c = ""; if (ans != null) { if (i === q.correta) c = "right"; else if (i === ans) c = "wrong"; }
-        return `<button class="opt ${c}" data-a="answer" data-i="${i}" ${ans != null ? "disabled" : ""}><span class="l">${"ABCDE"[i]}</span><span>${esc(o)}</span></button>`; }).join("");
-      return opts + (ans == null ? "" : `<div class="fb ${ans === q.correta ? "" : "bad"}"><b>${ans === q.correta ? "Correto!" : "Não foi dessa vez."}</b> ${esc(q.explicacao)}</div>`);
-    }
-    if (tp === "vf") {
-      const af = q.afirmativas || []; const all = af.every((_, i) => st.vf[i] != null);
-      const rows = af.map((a, i) => { const pick = st.vf[i]; const cls = st.done ? (pick === !!a.v ? "right" : "wrong") : "";
-        return `<div class="vfrow ${cls}"><span class="l mono" style="flex:none;padding-top:2px">${i + 1}</span><span class="txt">${esc(a.texto)}${st.done ? `<span class="why"><b>${a.v ? "Verdadeira" : "Falsa"}.</b> ${esc(a.porque || "")}</span>` : ""}</span>
-        <span class="vfb"><button data-a="vfPick" data-i="${i}" data-v="1" aria-pressed="${pick === true}" ${st.done ? "disabled" : ""} aria-label="Verdadeiro">V</button><button data-a="vfPick" data-i="${i}" data-v="0" aria-pressed="${pick === false}" ${st.done ? "disabled" : ""} aria-label="Falso">F</button></span></div>`; }).join("");
-      const nOk = af.filter((a, i) => st.vf[i] === !!a.v).length;
-      return rows + (st.done ? `<div class="fb ${nOk === af.length ? "" : "bad"}"><b>${nOk} de ${af.length} certas.</b> ${esc(q.explicacao || "")}</div>` : `<div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn solid" data-a="vfCheck" ${all ? "" : "disabled"}>Corrigir</button></div>`);
-    }
-    if (tp === "rel") {
-      const A = q.colA || [], B = q.colB || []; const all = A.every((_, i) => st.rel[i] != null && st.rel[i] !== "");
-      const left = A.map((a, i) => { const pick = st.rel[i]; const ok = st.done && +pick === q.pares[i];
-        return `<div class="relitem ${st.done ? (ok ? "right" : "wrong") : ""}"><select data-a="relPick" data-i="${i}" aria-label="Par de ${esc(a)}" ${st.done ? "disabled" : ""}><option value="">—</option>${B.map((_, j) => `<option value="${j}" ${pick !== undefined && pick !== "" && +pick === j ? "selected" : ""}>${LET[j]}</option>`).join("")}</select><span style="flex:1;min-width:0">${esc(a)}${st.done && !ok ? `<span class="why" style="display:block;font-size:12.5px;color:var(--muted)">Certo: ${LET[q.pares[i]]}</span>` : ""}</span></div>`; }).join("");
-      const right = B.map((b, j) => `<div class="relitem"><span class="lt">${LET[j]}</span><span style="flex:1;min-width:0">${esc(b)}</span></div>`).join("");
-      const nOk = A.filter((_, i) => +st.rel[i] === q.pares[i]).length;
-      return `<div class="relgrid"><div class="relcol"><span class="mono">Coluna 1 · escolha a letra</span>${left}</div><div class="relcol"><span class="mono">Coluna 2</span>${right}</div></div>`
-        + (st.done ? `<div class="fb ${nOk === A.length ? "" : "bad"}"><b>${nOk} de ${A.length} pares certos.</b> ${esc(q.explicacao || "")}</div>` : `<div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn solid" data-a="relCheck" ${all ? "" : "disabled"}>Corrigir</button></div>`);
-    }
-    return `<textarea class="distxt" id="disTxt" data-qid="${q.id}" placeholder="Escreva sua resposta como na prova…" ${st.done ? "readonly" : ""}>${esc(st.txt)}</textarea>`
-      + (st.done ? `<div class="fb"><b>Resposta esperada:</b><div class="resumo" style="font-size:14px">${md(q.resposta || "")}</div>${q.explicacao ? `<p style="margin:6px 0 0">${esc(q.explicacao)}</p>` : ""}</div>
-        ${st.marked ? "" : `<div class="row" style="margin-top:10px;justify-content:flex-end"><span class="muted" style="font-size:13.5px">Compare com a sua resposta:</span><button class="btn" data-a="disMark" data-v="0" style="color:var(--bad);border-color:var(--bad)">Errei</button><button class="btn solid" data-a="disMark" data-v="1">Acertei</button></div>`}`
-        : `<div class="row" style="margin-top:10px;justify-content:flex-end"><button class="btn solid" data-a="disShow">Ver gabarito</button></div>`);
+  // ===== etapa 16: o corpo de cada tipo (e a importação do professor) fica em assets/questoes_import.js =====
+  /** Questão respondida sem gabarito (do professor): só marca a data, sem acerto nem erro. */
+  async function qRespondida(q) {
+    q.respondida_em = new Date().toISOString(); render();
+    const { error } = await sb.from("questoes").update({ respondida_em: q.respondida_em }).eq("id", q.id);
+    if (error) toast("Não consegui salvar a resposta: " + error.message);
   }
+  function qApi() {
+    return { get S() { return S; }, get P() { return H.P; }, ui, md, sb, toast, render, renderSe: () => { if (ui.tab === "quest") render(); }, chamar: H.chamar,
+      carregarPdfjs: H.carregarPdfjs, carregarJSZip: H.carregarJSZip, discById, temasDe, temaById, carregarQuestoes, atualizarUso: () => atualizarUso().then(() => { if (ui.tab === "quest") render(); }).catch(() => { }),
+      registrar: qRecord, respondida: qRespondida, atual: () => qPool()[ui.qIdx],
+      praticar: (disc) => { ui.qMode = "prat"; ui.qDisc = disc ? String(disc) : ""; ui.qOrig = "prof"; ui.qIdx = 0; ui.qst = null; ui._keep = null; render(); window.scrollTo(0, 0); } };
+  }
+  const qBody = (q) => Questoes.corpo(qApi(), q);
+  // ===== fim etapa 16 =====
   function vQuest() {
     if (!S.questoes) { carregarQuestoes().then(() => { if (ui.tab === "quest") render(); }).catch((e) => toast("Não consegui carregar as questões: " + e.message)); return hero("Banco de", "questões", "var(--green)") + `<div class="empty">Carregando…</div>`; }
-    const sel = `<select class="inp" data-a="qDisc" style="max-width:260px" aria-label="Filtrar disciplina"><option value="">Todas as disciplinas</option>${S.disc.map((d) => `<option value="${d.id}" ${ui.qDisc == d.id ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select>`;
+    const selDisc = `<select class="inp" data-a="qDisc" style="max-width:260px" aria-label="Filtrar disciplina"><option value="">Todas as disciplinas</option>${S.disc.map((d) => `<option value="${d.id}" ${ui.qDisc == d.id ? "selected" : ""}>${esc(d.nome)}</option>`).join("")}</select>`;
+    const sel = `<span class="qfiltros">${selDisc}<select class="inp" data-a="qOrig" style="max-width:200px" aria-label="Filtrar origem"><option value="">Todas as questões</option><option value="ia" ${ui.qOrig === "ia" ? "selected" : ""}>Geradas pela IA</option><option value="prof" ${ui.qOrig === "prof" ? "selected" : ""}>Do professor</option></select></span>`;
     let main = "";
     if (ui.qMode === "prat" || ui.qMode === "rev") {
       const base = qBase(), pool = qPool();
       const temas = vTemasSel("q", ui.qDisc, ui.qDisc ? gruposDe(base, qChave, (q) => grupoNome(q.tema_id, q.tema), ui.qDisc) : [], ["questão selecionada", "questões selecionadas"]);
-      if (!pool.length) main = `${sel}${temas}<div class="empty" style="margin-top:14px">${base.length ? "Nenhum tema marcado. Marque pelo menos um tema acima." : ui.qMode === "rev" ? "Nenhum erro para revisar aqui. Bom sinal." : "Sem questões para esta disciplina. Gere algumas na aba “Gerar com IA”."}</div>`;
+      if (!pool.length) main = `${sel}${temas}<div class="empty" style="margin-top:14px">${base.length ? "Nenhum tema marcado. Marque pelo menos um tema acima." : ui.qMode === "rev" ? "Nenhum erro para revisar aqui. Bom sinal." : ui.qOrig === "prof" ? "Nenhuma questão do professor aqui. Mande as dele em “Importar do professor”." : "Sem questões para esta disciplina. Gere algumas na aba “Gerar com IA”."}</div>`;
       else {
         if (ui.qIdx >= pool.length || ui.qIdx < 0) ui.qIdx = 0;
         const q = pool[ui.qIdx];
         main = `<div class="row" style="justify-content:space-between;align-items:center">${sel}<span class="mono tnum">Questão ${ui.qIdx + 1} de ${pool.length}</span></div>${temas}
-          <p class="mono" style="margin:16px 0 4px">${esc(dname(q.disciplina_id))} · ${esc(grupoNome(q.tema_id, q.tema) || "Sem tema")}<span class="qtipo">${QTIPOS[qTipo(q)]}</span></p>
-          <h3 style="font-size:17px;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere">${esc(q.enunciado)}</h3>${qBody(q)}
+          <p class="mono" style="margin:16px 0 4px">${esc(dname(q.disciplina_id))} · ${esc(grupoNome(q.tema_id, q.tema) || "Sem tema")}<span class="qtipo">${QTIPOS[qTipo(q)]}</span>${q.origem === "professor" ? `<span class="qtipo qprof">do professor</span>` : ""}${q.sem_gabarito ? `<span class="qtipo qsem">sem gabarito</span>` : ""}</p>
+          ${q.tipo === "caso" ? `<div class="qcaso-txt">${esc(q.enunciado)}</div>` : `<h3 style="font-size:17px;line-height:1.4;white-space:pre-line;overflow-wrap:anywhere">${esc(q.enunciado)}</h3>`}${qBody(q)}
           <div class="row" style="margin-top:14px;justify-content:space-between"><button class="btn ghost" data-a="delQ" data-id="${q.id}">Excluir questão</button><button class="btn solid" data-a="nextQ">Próxima</button></div>`;
       }
+    } else if (ui.qMode === "imp") {
+      main = Questoes.vImportar(qApi());
     } else if (ui.qMode === "flash") {
       main = vQuestFlash();
     } else if (ui.qMode === "perf") {
@@ -731,16 +717,16 @@
         ${worst && worst.e ? `<div class="stat" style="background:var(--terra-s);border-color:transparent"><span class="mono">Revisar hoje</span><div style="font-weight:700;margin-top:6px">${esc(worst.tema)} · ${worst.e} erro${worst.e > 1 ? "s" : ""}</div></div>` : ""}</div></div>`;
     } else {
       const d = ui.genDisc && discById(ui.genDisc) ? ui.genDisc : S.disc[0]?.id;
-      main = `<h2 style="font-size:19px">Gerar questões com IA</h2><p class="muted" style="margin:6px 0 14px">Escolha a disciplina, o conteúdo e quantas questões de cada tipo (até 20 de cada, 40 no total). São no estilo de prova de medicina, a maioria com caso clínico, e nunca repetem as que você já recebeu.</p>
+      main = `<h2 style="font-size:19px">Gerar questões com IA</h2><p class="muted" style="margin:6px 0 14px">Escolha a disciplina, o conteúdo e quantas questões de cada tipo (até 20 de cada, 40 no total). São no estilo de prova de medicina, a maioria com caso clínico, e nunca repetem as que você já recebeu. “Caso clínico” é um caso longo com 3 ou 4 perguntas de tipos diferentes. Tem questões do professor? Use <button class="lnk" data-a="qMode" data-m="imp">Importar do professor</button>.</p>
         ${S.disc.length ? `<form data-form="gen" class="row">
           <label class="field" style="flex:1 1 200px"><span class="mono">Disciplina</span><select name="disc" data-a="genDisc">${S.disc.map((x) => `<option value="${x.id}" ${x.id == d ? "selected" : ""}>${esc(x.nome)}</option>`).join("")}</select></label>
           ${campoConteudo({ name: "tema", id: "genTemaTxt", temas: temasDe(d).map((t) => t.nome), valor: ui.genTema, outro: ui.genOutro, max: 200, ph: "Ex.: Anticoagulantes", obrigatorio: true, vazio: "Escolha o conteúdo", flex: "1 1 200px" })}
-          <div class="qmix">${[["nmc", "Marcar X", 4], ["nvf", "Verdadeiro ou falso", 3], ["nrel", "Relacionar", 2], ["ndis", "Dissertativa", 1]].map(([k, l, dv]) => `<label class="field"><span class="mono">${l}</span><input name="${k}" type="number" min="0" max="20" step="1" inputmode="numeric" value="${(ui.genMix && ui.genMix[k]) ?? dv}"></label>`).join("")}</div>
+          <div class="qmix">${[["nmc", "Marcar X", 4], ["nvf", "V ou F", 3], ["nrel", "Relacionar", 2], ["ndis", "Aberta", 1], ["ncaso", "Caso clínico", 0]].map(([k, l, dv]) => `<label class="field"><span class="mono">${l}</span><input name="${k}" type="number" min="0" max="20" step="1" inputmode="numeric" value="${(ui.genMix && ui.genMix[k]) ?? dv}"></label>`).join("")}</div>
           <button class="btn solid" ${ui.genBusy ? "disabled" : ""}>${ui.genBusy ? "Gerando…" : "Gerar questões"}</button></form>` : `<div class="empty">Adicione uma matéria primeiro. ${SEM_MATERIA}</div>`}
         <p class="muted" style="font-size:13px;margin-top:8px">As questões são feitas pelo Claude a partir do material do professor do tema (quando houver). ${esc(usoTxt("questoes", "limite_questoes_mes", "questões"))}. ${S.pref.memoria_questoes ? "Usando sua memória das questões" : "Formato padrão"} (<button class="lnk" data-a="editMemoria" data-k="questoes">editar</button>).</p>
         ${ui.genMsg ? `<p style="margin-top:12px" aria-live="polite">${esc(ui.genMsg)}</p>` : ""}`;
     }
-    const nav = [["prat", "Praticar questões"], ["flash", "Flash cards"], ["perf", "Desempenho"], ["rev", "Revisar erros"], ["gen", "Gerar com IA"]].map(([k, l]) => `<button data-a="qMode" data-m="${k}" aria-current="${ui.qMode === k}">${l}</button>`).join("");
+    const nav = [["prat", "Praticar questões"], ["flash", "Flash cards"], ["perf", "Desempenho"], ["rev", "Revisar erros"], ["gen", "Gerar com IA"], ["imp", "Importar do professor"]].map(([k, l]) => `<button data-a="qMode" data-m="${k}" aria-current="${ui.qMode === k}">${l}</button>`).join("");
     return hero("Banco de", "questões", "var(--green)") + `<section class="win"><div class="qwin"><aside class="qside"><b>Questões</b>${nav}</aside><div class="qmain">${main}</div></div></section>`;
   }
   function msgQuestoes(r) {
@@ -753,9 +739,10 @@
     const disc = discById(fd.disc); if (!disc) return;
     const tema = String(fd.tema || "").trim(); if (!tema) return;
     const cl = (v) => Math.max(0, Math.min(20, parseInt(v, 10) || 0));
-    const mix = { mc: cl(fd.nmc), vf: cl(fd.nvf), rel: cl(fd.nrel), dis: cl(fd.ndis) };
-    ui.genMix = { nmc: mix.mc, nvf: mix.vf, nrel: mix.rel, ndis: mix.dis }; ui.genTema = tema; ui.genDisc = disc.id; ui.genOutro = false;
-    const total = mix.mc + mix.vf + mix.rel + mix.dis;
+    const mix = { mc: cl(fd.nmc), vf: cl(fd.nvf), rel: cl(fd.nrel), dis: cl(fd.ndis), caso: cl(fd.ncaso) };
+    ui.genMix = { nmc: mix.mc, nvf: mix.vf, nrel: mix.rel, ndis: mix.dis, ncaso: mix.caso }; ui.genTema = tema; ui.genDisc = disc.id; ui.genOutro = false;
+    if (!mix.caso) delete mix.caso; // sem caso clínico, o pedido é igual ao de antes (funciona mesmo sem o 15_questoes_professor.sql)
+    const total = mix.mc + mix.vf + mix.rel + mix.dis + (mix.caso || 0);
     if (!total) { ui.genMsg = "Escolha pelo menos uma questão em algum dos tipos."; return render(); }
     if (total > 40) { ui.genMsg = "O máximo é 40 questões por vez. Diminua alguma quantidade."; return render(); }
     ui.genBusy = true; ui.genMsg = "Mandando para a IA…"; render();
@@ -1365,6 +1352,7 @@
     else if (t.tipo === "flashcards" && r.tema_id) { delete FC[r.tema_id]; openFlash(r.tema_id); }
     else if (t.tipo === "painel" && r.tema_id) { delete PAINEL[r.tema_id]; openPainel(r.tema_id); }
     else if (t.tipo === "questoes") { fecharSheet(); if (S.questoes) await carregarQuestoes().catch(() => { }); ui.tab = "quest"; ui.qMode = "prat"; ui.qDisc = r.disciplina_id || ""; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); window.scrollTo(0, 0); }
+    else if (t.tipo === "questoes_importar") { fecharSheet(); ui.tab = "quest"; ui.qMode = "imp"; Questoes.deTarefa(qApi(), t); render(); window.scrollTo(0, 0); }
     else if (t.tipo === "documento" || t.tipo === "calendario") { fecharSheet(); aplicarCalendario(t); irCfg("enviar"); document.getElementById("docRev")?.scrollIntoView({ block: "start" }); }
   }
   let sheetRAF = 0;
@@ -1837,6 +1825,8 @@
     const b = e.target.closest("[data-a]"); if (!b || !noPainel(b) || b.tagName === "SELECT" || (b.tagName === "INPUT" && b.type !== "checkbox")) return;
     const a = b.dataset.a, id = b.dataset.id;
     if (a.startsWith("imp") && b.closest("#impBox")) { if (verAntigo()) await Importar.clique(a, ctxImp()); return; }
+    if (a.startsWith("qx")) { await Questoes.clique(a, b, qApi()); return; }     // etapa 16: responder
+    if (a.startsWith("qi")) { await Questoes.cliqueImp(a, b, qApi()); return; }  // etapa 16: importar do professor
     switch (a) {
       case "goCfg": { const k = b.dataset.s; if (b.dataset.d && discById(b.dataset.d)) ui.cfgDisc = +b.dataset.d; if (b.dataset.m) ui.cvMode = b.dataset.m; irCfg(k); break; }
       case "goPerfil": H.perfilTela(); break;
@@ -1918,12 +1908,6 @@
         salvarOff(ns, disc, off);
         if (ns === "q") { ui.qIdx = 0; ui.qAns = null; ui.qst = null; ui._keep = null; } else fcReiniciar();
         render(); document.querySelector(a === "temaSel" ? `[data-a=temaSel][data-ns="${ns}"][data-k="${CSS.escape(b.dataset.k)}"]` : `[data-a=temasTodos][data-ns="${ns}"]:not([disabled])`)?.focus(); break; }
-      case "answer": { const q = qPool()[ui.qIdx]; if (!q) break; const i = +b.dataset.i; ui.qAns = i; ui.qAnsId = q.id; qRecord(q, i === q.correta); break; }
-      case "vfPick": { const q = qPool()[ui.qIdx]; if (!q) break; const st = qSt(q); if (st.done) break; st.vf[+b.dataset.i] = b.dataset.v === "1"; render(); break; }
-      case "vfCheck": { const q = qPool()[ui.qIdx]; if (!q) break; const st = qSt(q); st.done = true; qRecord(q, (q.afirmativas || []).every((x, i) => st.vf[i] === !!x.v)); break; }
-      case "relCheck": { const q = qPool()[ui.qIdx]; if (!q) break; const st = qSt(q); st.done = true; qRecord(q, (q.colA || []).every((_, i) => +st.rel[i] === q.pares[i])); break; }
-      case "disShow": { const q = qPool()[ui.qIdx]; if (!q) break; const st = qSt(q); st.txt = document.getElementById("disTxt")?.value || st.txt; st.done = true; render(); break; }
-      case "disMark": { const q = qPool()[ui.qIdx]; if (!q) break; const st = qSt(q); st.marked = true; qRecord(q, b.dataset.v === "1"); break; }
       case "nextQ": { const n = qPool().length; if (ui.qMode === "rev" && ui._keep) { ui._keep = null; } else ui.qIdx = n ? (ui.qIdx + 1) % n : 0; ui.qAns = null; ui.qst = null; render(); break; }
       case "delQ": { if (await del("questoes", id)) { S.questoes = S.questoes.filter((q) => q.id != id); ui.qAns = null; ui.qst = null; render(); toast("Questão excluída"); } break; }
       case "lamReveal": ui.lamShow = true; render(); break;
@@ -1990,16 +1974,17 @@
     }
     if (a === "upDisc") { ui.up.disc = +b.value; ui.up.modo = "arquivo"; ui.up.temaId = null; render(); return; }
     if (a === "upTema") { if (b.value === "arquivo" || b.value === "novo") { ui.up.modo = b.value; ui.up.temaId = null; } else { ui.up.modo = "existente"; ui.up.temaId = +b.value; } render(); if (ui.up.modo === "novo") document.getElementById("upTemaNome")?.focus(); return; }
-    if (a === "relPick") { const q = qPool()[ui.qIdx]; if (q) { qSt(q).rel[+b.dataset.i] = b.value; render(); } return; }
+    if (Questoes.mudou(b, qApi()) || Questoes.campoImp(b, qApi(), "change")) return; // etapa 16
     if (a === "lamTema") { ui.lamTema = b.value; ui.lamCur = null; render(); return; }
     if (a === "lamWrong") { ui.lamOnlyWrong = b.checked; ui.lamCur = null; render(); return; }
     if (a === "fcDisc") { ui.fcDisc = +b.value; fcReiniciar(); render(); return; }
     if (a === "qDisc") { ui.qDisc = b.value; ui.qIdx = 0; ui.qAns = null; ui.qst = null; render(); }
+    else if (a === "qOrig") { ui.qOrig = b.value; ui.qIdx = 0; ui.qst = null; ui._keep = null; render(); }
     else if (a === "calcDisc") { ui.calcDisc = +b.value; render(); }
     else if (a === "cfgDisc") { ui.cfgDisc = +b.value; ui.confDel = null; ui.confMat = null; render(); }
     else if (a === "genDisc") {
       // outra disciplina: a lista de conteúdos muda (o que foi escrito em "Outro conteúdo" continua); as quantidades ficam
-      const f = b.form; if (f) { const n = (k) => f.elements[k]?.value; ui.genMix = { nmc: n("nmc"), nvf: n("nvf"), nrel: n("nrel"), ndis: n("ndis") }; }
+      const f = b.form; if (f) { const n = (k) => f.elements[k]?.value; ui.genMix = { nmc: n("nmc"), nvf: n("nvf"), nrel: n("nrel"), ndis: n("ndis"), ncaso: n("ncaso") }; }
       ui.genDisc = +b.value; if (!ui.genOutro) ui.genTema = ""; render();
     }
     else if (a === "grade") { const v = num(b.value); if (b.value.trim() && v == null) { toast("Use só números (ex.: 15,5)."); return; } salvarNota(+b.dataset.id, b.dataset.k, v); }
@@ -2011,7 +1996,7 @@
   }
   function onInput(e) {
     if (guardarDoc(e.target)) return;
-    if (e.target && e.target.id === "disTxt" && ui.qst && ui.qst.id == e.target.dataset.qid) ui.qst.txt = e.target.value;
+    if (e.target && e.target.dataset && (Questoes.digitou(e.target, qApi()) || Questoes.campoImp(e.target, qApi(), "input"))) return; // etapa 16
     if (e.target && e.target.id === "upTemaNome") ui.up.temaNome = e.target.value;
     if (e.target && e.target.id === "genTemaTxt") ui.genTema = e.target.value;
     if (e.target && e.target.id === "lamTemaTxt") ui.lamForm = { ...(ui.lamForm || {}), tema: e.target.value };
@@ -2117,6 +2102,15 @@
     fechar() { if (S) { ui.resumo = null; ui.escolha = null; } const el = document.getElementById("sheet"); if (el) { el.hidden = true; el.innerHTML = ""; } document.body.style.overflow = ""; },
     async aoMudarDrive() { if (!ativo()) return; await recarregar(); },
     abrirTarefa(t) { if (ativo() && S) return abrirTarefa(t); },
+    /**
+     * Abre Questões → Importar do professor já com estes arquivos (File[]). opts: {disciplina_id, tema_id, tema, texto, ler}.
+     * Com ler:true, a leitura começa na hora. Devolve false se o painel não está aberto.
+     */
+    importarQuestoes(files, opts = {}) {
+      if (!ativo() || !S) return false;
+      fecharSheet(); ui.tab = "quest"; ui.qMode = "imp"; ss.set("painel:tab", "quest"); try { history.replaceState(null, "", "#quest"); } catch (_) { }
+      Questoes.preparar(qApi(), [...(files || [])], opts || {}); render(); window.scrollTo(0, 0); return true;
+    },
     async iniciar(ganchos) {
       H = ganchos; V = ganchos.V; ouvir();
       if (!Painel._fila) { // uma vez: trabalhos da fila do navegador e avisos das tarefas
