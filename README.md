@@ -38,6 +38,8 @@ Site de estudos por assinatura para alunos de medicina. Cada aluno tem o própri
 | `assets/extrair.js` | Leitura do texto de todos os formatos no navegador: PDF, PowerPoint (.ppt e .pptx), Word (.doc e .docx), Excel, OpenDocument (.odp, .odt, .ods), .rtf, .csv, .html, .txt e .md |
 | `assets/conta.js` | Configurações → Minha conta (e Meu perfil → Minha conta): apagar os dados e começar do zero, ou excluir a conta |
 | `supabase/13_minha_conta.sql` | Funções que apagam os dados do aluno logado (e a conta, se ele pedir) |
+| `assets/questoes_import.js` | Questões: responder cada tipo (marcar X com uma ou mais corretas, V ou F, relacionar, aberta, caso clínico) e Importar do professor |
+| `supabase/15_questoes_professor.sql` | Questões do professor (coluna `origem`), tipo caso clínico e a tarefa de importar questões |
 | `termos.html`, `privacidade.html` | Termos de uso e política de privacidade (modelo; revisar com advogado) |
 
 ## Como colocar no ar (uma vez)
@@ -297,3 +299,20 @@ O que fazer (uma vez):
 1. **Função `ia`:** Edge Functions → **ia** → **Code** → apague tudo, cole o novo `supabase/functions/ia/index.ts` → **Deploy**. Confira que **"Verify JWT" continua DESLIGADO**.
 2. **Banco:** nada novo nesta etapa (usa as tabelas e a pasta `tarefas` do `08_tarefas.sql`).
 3. Mais nada: o site atualiza sozinho quando a etapa for para a `etapa-2`. Antes do passo 1, a importação funciona, só sem as melhorias do pedido à IA (hora geral das provas, junção das aulas).
+
+## Etapa 16: caso clínico, questão aberta corrigida pela IA e questões do professor
+
+O que mudou em **Questões**:
+- **Gerar com IA** tem 5 quantidades: Marcar X, V ou F, Relacionar, Aberta e **Caso clínico** (um caso longo com 3 ou 4 perguntas de tipos diferentes, mostrado como um bloco só). Mesmo limite de antes: até 20 de cada, 40 no total; nunca repete; usa a memória das questões.
+- **Aberta:** o aluno escreve, clica em **Ver resposta** (aparecem a resposta esperada e os pontos-chave) e marca **Acertei / Acertei em parte / Errei** ("em parte" vai para Revisar erros). **Corrigir com IA** manda a resposta e o gabarito para a IA e mostra a nota e o que faltou (gasta 1 do limite de questões).
+- **Marcar X com mais de uma correta** e **V ou F com uma afirmativa só** (vindas do professor) funcionam.
+- **Importar do professor** (novo item no menu de Questões): escolhe a matéria (e, se quiser, o conteúdo), manda até 10 arquivos de qualquer formato (PDF, também escaneado, Word, PowerPoint, foto, texto) ou cola o texto. O navegador tira o texto; páginas escaneadas e fotos vão como imagem (pasta `tarefas`). A IA (ação `questoes_importar`, em segundo plano, documentos longos em vários pedaços) **só copia** as questões, com o texto original, o tipo, as alternativas e o gabarito **se ele estiver no documento** (lista no fim, "Respuesta:", alternativa marcada). Sem gabarito, a questão fica **"sem gabarito"**: nada é inventado. Antes de salvar aparece a revisão: caixinha em cada questão, tipo, enunciado, alternativas e resposta editáveis. Só depois de **Salvar** elas entram, com `origem = 'professor'`.
+- No **Praticar** aparece o selo **do professor** e o filtro **Todas / Geradas pela IA / Do professor**. Questão sem gabarito: o aluno responde e ela fica só "respondida" (sem acerto nem erro), ou ele clica em **Sugerir resposta com IA** (marcado como "sugestão da IA", nunca como gabarito do professor; gasta 1).
+- **Custo:** cada arquivo lido gasta **1 do limite de questões a cada 10 questões encontradas** (arquivo sem questões não gasta). Corrigir e sugerir: 1 cada. Salvar não gasta.
+- Para outras partes do site: `window.Painel.importarQuestoes(files, {disciplina_id, tema_id, tema, texto, ler})` abre a importação já com os arquivos (com `ler: true` a leitura começa na hora).
+- As questões antigas continuam iguais (as que não têm `origem` contam como "Geradas pela IA").
+
+O que fazer (uma vez):
+1. **Banco:** SQL Editor → cole todo o `supabase/15_questoes_professor.sql` → **Run** (depois do 14). Pode rodar de novo. Sem ele, gerar marcar X/V ou F/relacionar/aberta funciona como antes; caso clínico e salvar as do professor avisam "Falta rodar o 15_questoes_professor.sql".
+2. **Função `ia`:** Edge Functions → **ia** → **Code** → cole o novo `supabase/functions/ia/index.ts` → **Deploy**. Confira que **"Verify JWT" continua DESLIGADO**.
+
